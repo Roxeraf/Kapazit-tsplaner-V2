@@ -66,7 +66,7 @@ class ProjectDetail(ProjectSummary):
     jira_project_key: str | None  # gesetzt, wenn aus dem Jira-Projekt-Katalog automatisch angelegt
     phasen: dict[str, list[str]]  # monat -> Phasencodes (Grundplanung direkt am Projekt)
     fte: dict[str, float]  # monat -> Soll-FTE (Summe aus Teilprojekten, falls vorhanden)
-    fte_aus_teilprojekten: bool  # true = fte ist eine Summe (read-only), false = manuell editierbar
+    aus_teilprojekten: bool  # true = phasen/fte sind aus Teilprojekten zusammengefasst (read-only)
     ist: dict[str, float]  # monat -> Ist-FTE aus Jira-Worklogs (siehe CONCEPT.md Abschnitt 4)
     subprojects: list[SubprojectDetail]
 

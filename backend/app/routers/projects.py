@@ -26,6 +26,23 @@ def _subproject_detail(sp: models.Subproject) -> schemas.SubprojectDetail:
     )
 
 
+def _project_phasen(p: models.Project) -> dict[str, list[str]]:
+    """Gantt-Phasen auf Projekt-Ebene.
+
+    Hat das Projekt Teilprojekte, ist die Projekt-Zeile die Zusammenfassung daraus (ein Monat
+    zeigt Phase X, wenn mindestens ein Teilprojekt sie hat) statt einer eigenen, unabhängigen
+    Eintragung — konsistent zur FTE-Summe in _project_fte(). Ohne Teilprojekte bleibt die direkt
+    am Projekt gepflegte Phasenliste (project_gantt_phases) maßgeblich.
+    """
+    if p.subprojects:
+        union: dict[str, set[str]] = {}
+        for sp in p.subprojects:
+            for gp in sp.gantt_phases:
+                union.setdefault(gp.monat, set()).add(gp.phase_code)
+        return {monat: sorted(codes) for monat, codes in union.items()}
+    return _phasen_dict(p.gantt_phases)
+
+
 def _project_fte(p: models.Project) -> dict[str, float]:
     """FTE-Soll auf Projekt-Ebene.
 
@@ -53,9 +70,9 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
         jira_component=p.jira_component,
         jira_project_key=p.jira_project_key,
-        phasen=_phasen_dict(p.gantt_phases),
+        phasen=_project_phasen(p),
         fte=_project_fte(p),
-        fte_aus_teilprojekten=bool(p.subprojects),
+        aus_teilprojekten=bool(p.subprojects),
         ist=jira_sync.berechne_ist_fte(db, p),
         subprojects=[_subproject_detail(sp) for sp in p.subprojects],
     )

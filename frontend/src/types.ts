@@ -47,7 +47,7 @@ export interface ProjectDetail extends ProjectSummary {
   jira_project_key: string | null;
   phasen: Record<string, PhaseCode[]>;
   fte: Record<string, number>;
-  fte_aus_teilprojekten: boolean;
+  aus_teilprojekten: boolean;
   ist: Record<string, number>;
   subprojects: SubprojectDetail[];
 }

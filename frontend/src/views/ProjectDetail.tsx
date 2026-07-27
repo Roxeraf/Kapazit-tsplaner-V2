@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client";
+import ConfirmDialog from "../components/ConfirmDialog";
 import {
   PHASE_COLORS,
   PHASE_LABELS,
@@ -25,6 +26,7 @@ export default function ProjectDetail() {
   const [pickerJiraProjectKey, setPickerJiraProjectKey] = useState("");
   const [pickerComponents, setPickerComponents] = useState<JiraComponent[]>([]);
   const [pickerLabels, setPickerLabels] = useState<string[]>([]);
+  const [subprojectToDelete, setSubprojectToDelete] = useState<{ id: number; name: string } | null>(null);
 
   const load = () => {
     api
@@ -150,11 +152,10 @@ export default function ProjectDetail() {
     load();
   };
 
-  const handleDeleteSubproject = async (subprojectId: number, name: string) => {
-    if (!window.confirm(`Teilprojekt "${name}" wirklich löschen? Gantt-Phasen und FTE-Werte gehen dabei verloren.`)) {
-      return;
-    }
-    await api.deleteSubproject(subprojectId);
+  const handleDeleteSubproject = async () => {
+    if (!subprojectToDelete) return;
+    await api.deleteSubproject(subprojectToDelete.id);
+    setSubprojectToDelete(null);
     load();
   };
 
@@ -304,9 +305,10 @@ export default function ProjectDetail() {
         <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
           <h3 style={{ color: "var(--navy)", margin: 0 }}>Projekt gesamt</h3>
         </div>
-        {project.fte_aus_teilprojekten && (
+        {project.aus_teilprojekten && (
           <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
-            FTE (Soll) ist hier die Summe aus den Teilprojekten unten — dort eintragen, nicht hier.
+            Phasen und FTE (Soll) sind hier die Zusammenfassung aus den Teilprojekten unten —
+            dort eintragen, nicht hier.
           </p>
         )}
         <table className="planner">
@@ -319,11 +321,16 @@ export default function ProjectDetail() {
             </tr>
           </thead>
           <tbody>
-            <PhaseRows phasen={project.phasen} monate={monate} onCommit={commitProjectPhaseDrag} />
+            <PhaseRows
+              phasen={project.phasen}
+              monate={monate}
+              onCommit={commitProjectPhaseDrag}
+              readOnly={project.aus_teilprojekten}
+            />
             <tr>
-              <td className="label">FTE (Soll){project.fte_aus_teilprojekten && " (Σ Teilprojekte)"}</td>
+              <td className="label">FTE (Soll){project.aus_teilprojekten && " (Σ Teilprojekte)"}</td>
               {monate.map((m) =>
-                project.fte_aus_teilprojekten ? (
+                project.aus_teilprojekten ? (
                   <td key={m} style={{ color: "var(--text-muted)" }}>
                     {project.fte[m] !== undefined ? project.fte[m].toFixed(2) : "–"}
                   </td>
@@ -368,7 +375,7 @@ export default function ProjectDetail() {
               type="button"
               className="btn secondary"
               style={{ color: "var(--rot)", borderColor: "var(--rot)" }}
-              onClick={() => handleDeleteSubproject(sp.id, sp.name)}
+              onClick={() => setSubprojectToDelete({ id: sp.id, name: sp.name })}
             >
               Teilprojekt löschen
             </button>
@@ -423,6 +430,14 @@ export default function ProjectDetail() {
           Teilprojekt hinzufügen
         </button>
       </form>
+
+      <ConfirmDialog
+        open={subprojectToDelete !== null}
+        title="Teilprojekt löschen"
+        message={`Teilprojekt "${subprojectToDelete?.name}" wirklich löschen? Gantt-Phasen und FTE-Werte gehen dabei verloren.`}
+        onConfirm={handleDeleteSubproject}
+        onCancel={() => setSubprojectToDelete(null)}
+      />
     </div>
   );
 }
@@ -437,10 +452,12 @@ function PhaseRows({
   phasen,
   monate,
   onCommit,
+  readOnly = false,
 }: {
   phasen: Record<string, PhaseCode[]>;
   monate: string[];
   onCommit: (code: PhaseCode, changes: Record<string, boolean>) => void;
+  readOnly?: boolean;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
 
@@ -462,6 +479,7 @@ function PhaseRows({
   };
 
   const startDrag = (code: PhaseCode, monat: string) => {
+    if (readOnly) return;
     const makeActive = !(phasen[monat] ?? []).includes(code);
     setDrag({ code, makeActive, changes: { [monat]: makeActive } });
   };
@@ -502,7 +520,7 @@ function PhaseRows({
                     border: "none",
                     background: "transparent",
                     padding: 0,
-                    cursor: "pointer",
+                    cursor: readOnly ? "default" : "pointer",
                     userSelect: "none",
                   }}
                 >

@@ -150,6 +150,14 @@ export default function ProjectDetail() {
     load();
   };
 
+  const handleDeleteSubproject = async (subprojectId: number, name: string) => {
+    if (!window.confirm(`Teilprojekt "${name}" wirklich löschen? Gantt-Phasen und FTE-Werte gehen dabei verloren.`)) {
+      return;
+    }
+    await api.deleteSubproject(subprojectId);
+    load();
+  };
+
   if (error) return <p style={{ color: "var(--rot)" }}>{error}</p>;
   if (!project) return <p>Lade Projekt …</p>;
 
@@ -356,6 +364,14 @@ export default function ProjectDetail() {
         <div key={sp.id} className="card" style={{ marginBottom: "1.25rem", overflowX: "auto" }}>
           <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
             <h3 style={{ color: "var(--navy)", margin: 0 }}>{sp.name}</h3>
+            <button
+              type="button"
+              className="btn secondary"
+              style={{ color: "var(--rot)", borderColor: "var(--rot)" }}
+              onClick={() => handleDeleteSubproject(sp.id, sp.name)}
+            >
+              Teilprojekt löschen
+            </button>
           </div>
           <table className="planner">
             <thead>

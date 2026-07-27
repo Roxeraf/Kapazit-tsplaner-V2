@@ -55,6 +55,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name, reihenfolge }),
     }),
+  deleteSubproject: (subprojectId: number) =>
+    request<void>(`/projects/subprojects/${subprojectId}`, { method: "DELETE" }),
   setProjectPhasen: (projectId: number, monat: string, codes: string[]) =>
     request<ProjectDetail>(`/projects/${projectId}/phasen`, {
       method: "PUT",

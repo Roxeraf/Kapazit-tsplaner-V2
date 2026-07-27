@@ -54,6 +54,19 @@ export default function ProjectDetail() {
     }
   };
 
+  // Wenn das Projekt schon aus einem aktivierten Jira-Projekt entstanden ist (siehe
+  // "Jira-Projekte"-Seite), ist die Zuordnung bereits klar — nicht nochmal danach fragen,
+  // direkt die Components davon laden.
+  useEffect(() => {
+    if (project?.jira_project_key && jiraConfigured && pickerJiraProjectKey !== project.jira_project_key) {
+      handlePickerJiraProjectChange(project.jira_project_key);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.jira_project_key, jiraConfigured]);
+
+  const linkedJiraProjectName =
+    relevantJiraProjects.find((p) => p.key === project?.jira_project_key)?.name ?? project?.jira_project_key;
+
   const handlePhaseChange = async (subprojectId: number, monat: string, raw: string) => {
     const codes = raw
       .split(",")
@@ -131,24 +144,30 @@ export default function ProjectDetail() {
         </label>
         {jiraConfigured && (
           <div className="field-row" style={{ marginTop: "0.5rem" }}>
-            <label>
-              Oder aus Jira-Projekt wählen
-              <select
-                value={pickerJiraProjectKey}
-                onChange={(e) => handlePickerJiraProjectChange(e.target.value)}
-              >
-                <option value="">
-                  {relevantJiraProjects.length === 0
-                    ? "— keine Jira-Projekte als 'wird geplant' markiert —"
-                    : "— Jira-Projekt wählen —"}
-                </option>
-                {relevantJiraProjects.map((p) => (
-                  <option key={p.key} value={p.key}>
-                    {p.name} ({p.key})
+            {project.jira_project_key ? (
+              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", alignSelf: "flex-end" }}>
+                Verknüpft mit Jira-Projekt: {linkedJiraProjectName} ({project.jira_project_key})
+              </span>
+            ) : (
+              <label>
+                Oder aus Jira-Projekt wählen
+                <select
+                  value={pickerJiraProjectKey}
+                  onChange={(e) => handlePickerJiraProjectChange(e.target.value)}
+                >
+                  <option value="">
+                    {relevantJiraProjects.length === 0
+                      ? "— keine Jira-Projekte als 'wird geplant' markiert —"
+                      : "— Jira-Projekt wählen —"}
                   </option>
-                ))}
-              </select>
-            </label>
+                  {relevantJiraProjects.map((p) => (
+                    <option key={p.key} value={p.key}>
+                      {p.name} ({p.key})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {pickerJiraProjectKey && (
               <label>
                 Komponente

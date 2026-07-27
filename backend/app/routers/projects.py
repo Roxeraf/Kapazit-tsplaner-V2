@@ -35,6 +35,7 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         anzahl_monate=p.anzahl_monate,
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
         jira_component=p.jira_component,
+        jira_project_key=p.jira_project_key,
         phasen=_phasen_dict(p.gantt_phases),
         fte={f.monat: f.wert_soll for f in p.fte_plan},
         ist=jira_sync.berechne_ist_fte(db, p),

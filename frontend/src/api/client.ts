@@ -37,6 +37,16 @@ export const api = {
     start_monat: string;
     anzahl_monate: number;
   }) => request<ProjectDetail>("/projects", { method: "POST", body: JSON.stringify(payload) }),
+  updateProject: (
+    projectId: number,
+    payload: Partial<{
+      name: string;
+      kunde: string | null;
+      start_monat: string;
+      anzahl_monate: number;
+      jira_component: string | null;
+    }>,
+  ) => request<ProjectDetail>(`/projects/${projectId}`, { method: "PUT", body: JSON.stringify(payload) }),
   createSubproject: (projectId: number, name: string, reihenfolge: number) =>
     request(`/projects/${projectId}/subprojects`, {
       method: "POST",
@@ -52,7 +62,7 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ monat, wert_soll }),
     }),
-  updateSubproject: (subprojectId: number, payload: { jira_component?: string | null }) =>
+  updateSubproject: (subprojectId: number, payload: { name?: string; reihenfolge?: number }) =>
     request<SubprojectDetail>(`/projects/subprojects/${subprojectId}`, {
       method: "PUT",
       body: JSON.stringify(payload),

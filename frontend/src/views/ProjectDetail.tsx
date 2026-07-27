@@ -36,8 +36,9 @@ export default function ProjectDetail() {
     load();
   };
 
-  const handleJiraComponentChange = async (subprojectId: number, raw: string) => {
-    await api.updateSubproject(subprojectId, { jira_component: raw.trim() || null });
+  const handleJiraComponentChange = async (raw: string) => {
+    if (!project) return;
+    await api.updateProject(project.id, { jira_component: raw.trim() || null });
     load();
   };
 
@@ -68,6 +69,40 @@ export default function ProjectDetail() {
         </a>
       </div>
 
+      <div className="card" style={{ marginBottom: "1.25rem" }}>
+        <label style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          Jira-Komponente/Label (für Ist-FTE des gesamten Projekts)
+          <input
+            style={{ padding: "0.3rem 0.5rem", border: "1px solid var(--border)", borderRadius: "4px" }}
+            defaultValue={project.jira_component ?? ""}
+            placeholder="z. B. ETE"
+            onBlur={(e) => handleJiraComponentChange(e.target.value)}
+          />
+        </label>
+        {Object.keys(project.ist).length > 0 && (
+          <table className="planner" style={{ marginTop: "0.75rem" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>FTE (Ist, Jira)</th>
+                {monate.map((m) => (
+                  <th key={m}>{m}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="label">Projekt gesamt</td>
+                {monate.map((m) => (
+                  <td key={m} style={{ color: "var(--text-muted)" }}>
+                    {project.ist[m] !== undefined ? project.ist[m].toFixed(2) : "–"}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </div>
+
       <div className="legend-row">
         {PHASE_CODES.map((code) => (
           <span key={code} className="legend-chip">
@@ -82,15 +117,6 @@ export default function ProjectDetail() {
         <div key={sp.id} className="card" style={{ marginBottom: "1.25rem", overflowX: "auto" }}>
           <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
             <h3 style={{ color: "var(--navy)", margin: 0 }}>{sp.name}</h3>
-            <label style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", gap: "0.4rem", alignItems: "center" }}>
-              Jira-Komponente/Label
-              <input
-                style={{ padding: "0.3rem 0.5rem", border: "1px solid var(--border)", borderRadius: "4px" }}
-                defaultValue={sp.jira_component ?? ""}
-                placeholder="z. B. ETE"
-                onBlur={(e) => handleJiraComponentChange(sp.id, e.target.value)}
-              />
-            </label>
           </div>
           <table className="planner">
             <thead>
@@ -125,14 +151,6 @@ export default function ProjectDetail() {
                       defaultValue={sp.fte[m] ?? ""}
                       onBlur={(e) => handleFteChange(sp.id, m, e.target.value)}
                     />
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className="label">FTE (Ist, Jira)</td>
-                {monate.map((m) => (
-                  <td key={m} style={{ color: "var(--text-muted)" }}>
-                    {sp.ist[m] !== undefined ? sp.ist[m].toFixed(2) : "–"}
                   </td>
                 ))}
               </tr>

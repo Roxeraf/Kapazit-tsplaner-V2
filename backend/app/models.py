@@ -19,6 +19,10 @@ class Project(Base):
     kunde: Mapped[str | None] = mapped_column(String(200), nullable=True)
     start_monat: Mapped[str] = mapped_column(String(7))  # "MM.YYYY"
     anzahl_monate: Mapped[int] = mapped_column(default=14)
+    # Mapping zu Jira (Component oder Label des Jira-Projekts), siehe CONCEPT.md Abschnitt 4.
+    # Auf Projekt- statt Teilprojekt-Ebene, da Teilprojekte nur die Feinplanung innerhalb
+    # eines Projekts sind und kein eigenes Jira-Gegenstück haben.
+    jira_component: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     subprojects: Mapped[list["Subproject"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Subproject.reihenfolge"
@@ -34,8 +38,6 @@ class Subproject(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     name: Mapped[str] = mapped_column(String(200))
     reihenfolge: Mapped[int] = mapped_column(default=0)
-    # Mapping zu Jira (Component oder Label des Jira-Projekts), siehe CONCEPT.md Abschnitt 4.
-    jira_component: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="subprojects")
     gantt_phases: Mapped[list["GanttPhase"]] = relationship(
@@ -133,7 +135,7 @@ class JiraWorklogCache(Base):
     jira_issue_key: Mapped[str] = mapped_column(String(50))
     datum: Mapped[str] = mapped_column(String(10))  # ISO "YYYY-MM-DD"
     stunden: Mapped[float] = mapped_column(Float)
-    # subprojects.id als String — welchem Teilprojekt der Worklog zugeordnet wurde.
+    # projects.id als String — welchem Projekt der Worklog zugeordnet wurde.
     projekt_mapping: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 

@@ -6,6 +6,7 @@ class ProjectCreate(BaseModel):
     kunde: str | None = None
     start_monat: str  # "MM.YYYY"
     anzahl_monate: int = 14
+    jira_component: str | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -13,6 +14,7 @@ class ProjectUpdate(BaseModel):
     kunde: str | None = None
     start_monat: str | None = None
     anzahl_monate: int | None = None
+    jira_component: str | None = None
 
 
 class ProjectSummary(BaseModel):
@@ -29,13 +31,11 @@ class ProjectSummary(BaseModel):
 class SubprojectCreate(BaseModel):
     name: str
     reihenfolge: int = 0
-    jira_component: str | None = None
 
 
 class SubprojectUpdate(BaseModel):
     name: str | None = None
     reihenfolge: int | None = None
-    jira_component: str | None = None
 
 
 class SubprojectDetail(BaseModel):
@@ -44,10 +44,8 @@ class SubprojectDetail(BaseModel):
     id: int
     name: str
     reihenfolge: int
-    jira_component: str | None
     phasen: dict[str, list[str]]  # monat -> Phasencodes
     fte: dict[str, float]  # monat -> Soll-FTE
-    ist: dict[str, float]  # monat -> Ist-FTE aus Jira-Worklogs (siehe CONCEPT.md Abschnitt 4)
 
 
 class SubprojectListItem(BaseModel):
@@ -60,6 +58,8 @@ class SubprojectListItem(BaseModel):
 
 
 class ProjectDetail(ProjectSummary):
+    jira_component: str | None
+    ist: dict[str, float]  # monat -> Ist-FTE aus Jira-Worklogs (siehe CONCEPT.md Abschnitt 4)
     subprojects: list[SubprojectDetail]
 
 
@@ -152,8 +152,8 @@ class JiraAccountMatch(BaseModel):
 
 
 class JiraSyncResultItem(BaseModel):
-    subproject_id: int
-    subproject_name: str
+    project_id: int
+    project_name: str
     jira_component: str
     worklogs_synced: int
     unzugeordnete_buchungen: int

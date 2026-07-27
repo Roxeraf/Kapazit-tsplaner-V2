@@ -6,7 +6,7 @@ BUILD-Bereich des plx.crew Portals. Konzept und Architektur: [`CONCEPT.md`](CONC
 
 Dieses Repo enthält Projekt-/FTE-Planung als Web-Formular (inkl. Schulungsphase),
 PPTX-Export über das bestehende Node-Skript, die Jira-Ist-Integration
-(Worklog-Sync + Ist-FTE je Teilprojekt) und die Team-Kapazität (MA-/Team-Stammdaten,
+(Worklog-Sync + Ist-FTE je Projekt) und die Team-Kapazität (MA-/Team-Stammdaten,
 Zuordnung MA ↔ Teilprojekt). Nur die Gap-Analyse/Hochrechnung ist noch nicht
 umgesetzt — siehe `CONCEPT.md` Abschnitt 11.
 
@@ -72,9 +72,9 @@ npm run dev
 | Endpunkt | Beschreibung |
 |---|---|
 | `GET/POST /projects` | Projekte auflisten/anlegen |
-| `GET/PUT/DELETE /projects/{id}` | Projekt lesen/ändern/löschen |
+| `GET/PUT/DELETE /projects/{id}` | Projekt lesen (inkl. `jira_component`, `ist`)/ändern/löschen |
 | `POST /projects/{id}/subprojects` | Teilprojekt anlegen |
-| `GET/PUT/DELETE /projects/subprojects/{id}` | Teilprojekt lesen (inkl. `jira_component`, `ist`)/ändern/löschen |
+| `GET/PUT/DELETE /projects/subprojects/{id}` | Teilprojekt lesen/ändern/löschen |
 | `GET /projects/subprojects/all` | Alle Teilprojekte flach (für die Zuordnung MA ↔ Teilprojekt) |
 | `PUT /projects/subprojects/{id}/phasen` | Gantt-Phasencodes für einen Monat setzen (`p/k/t/s/g/?`) |
 | `PUT /projects/subprojects/{id}/fte` | FTE-Soll-Wert für einen Monat setzen |
@@ -86,7 +86,7 @@ npm run dev
 | `POST /team/members/{id}/assignments`, `DELETE /team/assignments/{id}` | MA ↔ Teilprojekt zuordnen/entfernen |
 | `GET /jira/status` | Prüft, ob `JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` gesetzt sind |
 | `GET /jira/lookup-account?query=` | Jira-Nutzersuche (für `team_members.jira_account_id`) |
-| `POST /jira/sync` | Worklog-Sync für alle (oder ein) Teilprojekt(e) mit gesetzter `jira_component` |
+| `POST /jira/sync` | Worklog-Sync für alle (oder ein) Projekt(e) mit gesetzter `jira_component` |
 | `GET /gap`, `/forecast` | Platzhalter für Gap-Analyse/Hochrechnung (siehe CONCEPT.md) |
 
 ## Migration bestehender Excel-Daten

@@ -31,10 +31,8 @@ export interface SubprojectDetail {
   id: number;
   name: string;
   reihenfolge: number;
-  jira_component: string | null;
   phasen: Record<string, PhaseCode[]>;
   fte: Record<string, number>;
-  ist: Record<string, number>;
 }
 
 export interface SubprojectListItem {
@@ -45,6 +43,8 @@ export interface SubprojectListItem {
 }
 
 export interface ProjectDetail extends ProjectSummary {
+  jira_component: string | null;
+  ist: Record<string, number>;
   subprojects: SubprojectDetail[];
 }
 
@@ -82,8 +82,8 @@ export interface JiraStatus {
 }
 
 export interface JiraSyncResultItem {
-  subproject_id: number;
-  subproject_name: string;
+  project_id: number;
+  project_name: string;
   jira_component: string;
   worklogs_synced: number;
   unzugeordnete_buchungen: number;

@@ -69,6 +69,7 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         start_monat=p.start_monat,
         anzahl_monate=p.anzahl_monate,
         reihenfolge=p.reihenfolge,
+        status=p.status,
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
         jira_component=p.jira_component,
         jira_project_key=p.jira_project_key,
@@ -111,6 +112,7 @@ def list_projects(db: Session = Depends(get_db)):
             start_monat=p.start_monat,
             anzahl_monate=p.anzahl_monate,
             reihenfolge=p.reihenfolge,
+            status=p.status,
             monate=berechne_monate(p.start_monat, p.anzahl_monate),
         )
         for p in projects
@@ -158,6 +160,18 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, db: Session 
 @router.delete("/{project_id}", status_code=204)
 def delete_project(project_id: int, db: Session = Depends(get_db)):
     project = _get_project_or_404(db, project_id)
+
+    # Beim Löschen den Jira-Katalog-Eintrag zurücksetzen, sonst zeigt die Jira-Projektliste das
+    # Projekt fälschlich weiter als "wird geplant"/aktiv an, obwohl das Kapa-Projekt weg ist.
+    if project.jira_project_key:
+        catalog_entry = db.get(models.JiraProjectCatalog, project.jira_project_key)
+        if catalog_entry is not None:
+            catalog_entry.relevant = False
+
+    # GapSnapshot hat eine FK auf project_id, aber keine Cascade-Relationship am Project-Modell
+    # (siehe models.py) - sonst blieben Waisen-Zeilen in der DB zurück.
+    db.query(models.GapSnapshot).filter(models.GapSnapshot.project_id == project_id).delete()
+
     db.delete(project)
     db.commit()
 

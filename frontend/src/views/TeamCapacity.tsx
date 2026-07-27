@@ -552,11 +552,13 @@ function MemberRow({
           Projekt zuordnen
           <select value={newProjectId} onChange={(e) => setNewProjectId(e.target.value)}>
             <option value="">— wählen —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
+            {projects
+              .filter((p) => p.status === "aktiv")
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
           </select>
         </label>
         <label>

@@ -21,6 +21,8 @@ class Project(Base):
     anzahl_monate: Mapped[int] = mapped_column(default=14)
     # Sortierposition der Kachel auf dem Portfolio-Dashboard (frei per Drag & Drop änderbar).
     reihenfolge: Mapped[int] = mapped_column(default=0)
+    # Lifecycle-Status: aktiv/on_hold/abgeschlossen/archiviert (siehe schemas.ProjectStatus).
+    status: Mapped[str] = mapped_column(String(20), default="aktiv")
     # Mapping zu Jira (Component oder Label des Jira-Projekts), siehe CONCEPT.md Abschnitt 4.
     # Auf Projekt- statt Teilprojekt-Ebene, da Teilprojekte nur die Feinplanung innerhalb
     # eines Projekts sind und kein eigenes Jira-Gegenstück haben.

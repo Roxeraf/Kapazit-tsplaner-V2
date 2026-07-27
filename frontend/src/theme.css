@@ -106,6 +106,10 @@ a {
   cursor: grabbing;
 }
 
+.project-card-wrapper--muted .project-card {
+  opacity: 0.6;
+}
+
 .project-card {
   display: flex;
   flex-direction: column;
@@ -148,6 +152,51 @@ a {
 .project-card-delete:hover {
   background: var(--rot);
   color: white;
+}
+
+.project-status-select {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  max-width: 45%;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.project-card-wrapper:hover .project-status-select {
+  opacity: 1;
+}
+
+.project-status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.project-status-badge--on_hold {
+  color: var(--grau);
+  background: #eef1f4;
+}
+
+.project-status-badge--abgeschlossen {
+  color: var(--gruen);
+  background: #e5f4ec;
+}
+
+.project-status-badge--archiviert {
+  color: var(--grau);
+  background: #eef1f4;
 }
 
 .project-card h3 {

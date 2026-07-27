@@ -18,6 +18,15 @@ export const PHASE_COLORS: Record<PhaseCode, string> = {
   "?": "#002F5E",
 };
 
+export type ProjectStatus = "aktiv" | "on_hold" | "abgeschlossen" | "archiviert";
+
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  aktiv: "Aktiv",
+  on_hold: "On Hold",
+  abgeschlossen: "Abgeschlossen",
+  archiviert: "Archiviert",
+};
+
 export interface ProjectSummary {
   id: number;
   name: string;
@@ -25,6 +34,7 @@ export interface ProjectSummary {
   start_monat: string;
   anzahl_monate: number;
   reihenfolge: number;
+  status: ProjectStatus;
   monate: string[];
 }
 

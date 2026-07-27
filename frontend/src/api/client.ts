@@ -8,6 +8,7 @@ import type {
   JiraStatus,
   JiraSyncResult,
   ProjectDetail,
+  ProjectStatus,
   ProjectSummary,
   SubprojectDetail,
   SubprojectListItem,
@@ -51,6 +52,7 @@ export const api = {
       start_monat: string;
       anzahl_monate: number;
       jira_component: string | null;
+      status: ProjectStatus;
     }>,
   ) => request<ProjectDetail>(`/projects/${projectId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteProject: (projectId: number) => request<void>(`/projects/${projectId}`, { method: "DELETE" }),

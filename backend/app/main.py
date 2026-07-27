@@ -21,6 +21,9 @@ if "projects" in _inspector.get_table_names():
                     "(SELECT COUNT(*) FROM projects p2 WHERE p2.id <= projects.id) - 1"
                 )
             )
+    if "status" not in _columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN status VARCHAR(20) DEFAULT 'aktiv'"))
 
 app = FastAPI(
     title="Kapazitätsplaner API",

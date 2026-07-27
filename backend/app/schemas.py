@@ -4,6 +4,10 @@ from pydantic import BaseModel, ConfigDict
 
 JiraProjectStatus = Literal["aktiv", "on_hold", "beendet"]
 
+# Lifecycle-Status eines Kapa-Projekts (unabhängig von JiraProjectStatus, das nur den
+# Jira-Katalog-Eintrag betrifft, siehe models.JiraProjectCatalog).
+ProjectStatus = Literal["aktiv", "on_hold", "abgeschlossen", "archiviert"]
+
 
 class ProjectCreate(BaseModel):
     name: str
@@ -19,6 +23,7 @@ class ProjectUpdate(BaseModel):
     start_monat: str | None = None
     anzahl_monate: int | None = None
     jira_component: str | None = None
+    status: ProjectStatus | None = None
 
 
 class ProjectSummary(BaseModel):
@@ -30,6 +35,7 @@ class ProjectSummary(BaseModel):
     start_monat: str
     anzahl_monate: int
     reihenfolge: int
+    status: ProjectStatus
     monate: list[str]
 
 

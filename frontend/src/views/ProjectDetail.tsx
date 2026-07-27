@@ -461,10 +461,12 @@ function PhaseRows({
             <span className="legend-swatch" style={{ background: PHASE_COLORS[code], marginRight: "0.4rem" }} />
             {PHASE_LABELS[code]}
           </td>
-          {monate.map((m) => {
+          {monate.map((m, i) => {
             const active = isActive(code, m);
+            const prevActive = i > 0 && isActive(code, monate[i - 1]);
+            const nextActive = i < monate.length - 1 && isActive(code, monate[i + 1]);
             return (
-              <td key={m} style={{ padding: "3px" }}>
+              <td key={m} style={{ padding: 0 }}>
                 <button
                   type="button"
                   onMouseDown={(e) => {
@@ -474,16 +476,30 @@ function PhaseRows({
                   onMouseEnter={() => enterDrag(code, m)}
                   aria-label={`${PHASE_LABELS[code]} ${m} ${active ? "entfernen" : "setzen"}`}
                   style={{
-                    display: "block",
+                    display: "flex",
+                    alignItems: "center",
                     width: "100%",
-                    height: "1.5rem",
-                    border: `1px solid ${active ? PHASE_COLORS[code] : "var(--border)"}`,
-                    background: active ? PHASE_COLORS[code] : "transparent",
-                    borderRadius: "3px",
+                    height: "1.6rem",
+                    border: "none",
+                    background: "transparent",
+                    padding: 0,
                     cursor: "pointer",
                     userSelect: "none",
                   }}
-                />
+                >
+                  <span
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      height: active ? "1.1rem" : "2px",
+                      background: active ? PHASE_COLORS[code] : "var(--border)",
+                      borderTopLeftRadius: active && !prevActive ? "5px" : 0,
+                      borderBottomLeftRadius: active && !prevActive ? "5px" : 0,
+                      borderTopRightRadius: active && !nextActive ? "5px" : 0,
+                      borderBottomRightRadius: active && !nextActive ? "5px" : 0,
+                    }}
+                  />
+                </button>
               </td>
             );
           })}

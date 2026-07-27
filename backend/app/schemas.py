@@ -158,12 +158,20 @@ class JiraAccountMatch(BaseModel):
     email: str | None = None
 
 
+class JiraUnknownAuthor(BaseModel):
+    account_id: str
+    display_name: str
+
+
 class JiraSyncResultItem(BaseModel):
     project_id: int
     project_name: str
     jira_component: str
     worklogs_synced: int
     unzugeordnete_buchungen: int
+    # Beispiele (max. jira_sync.MAX_UNBEKANNTE_BEISPIELE) unbekannter Autoren, zum Abgleich mit
+    # den in den Team-Stammdaten hinterlegten Jira-Account-IDs.
+    unbekannte_beispiele: list[JiraUnknownAuthor] = []
     error: str | None = None
 
 

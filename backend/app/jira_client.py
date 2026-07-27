@@ -139,6 +139,7 @@ def fetch_worklogs_for_component(component: str, since: str) -> list[dict]:
                         {
                             "issue_key": issue_key,
                             "author_account_id": wl["author"]["accountId"],
+                            "author_display_name": wl["author"].get("displayName", wl["author"]["accountId"]),
                             "started": started,
                             "stunden": wl["timeSpentSeconds"] / 3600,
                         }

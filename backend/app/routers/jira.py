@@ -144,7 +144,7 @@ def sync(project_id: int | None = None, db: Session = Depends(get_db)):
     ergebnisse = []
     for p in projects:
         try:
-            gespeichert, unzugeordnet = jira_sync.sync_project(db, p)
+            gespeichert, unzugeordnet, unbekannte = jira_sync.sync_project(db, p)
             ergebnisse.append(
                 schemas.JiraSyncResultItem(
                     project_id=p.id,
@@ -152,6 +152,7 @@ def sync(project_id: int | None = None, db: Session = Depends(get_db)):
                     jira_component=p.jira_component,
                     worklogs_synced=gespeichert,
                     unzugeordnete_buchungen=unzugeordnet,
+                    unbekannte_beispiele=[schemas.JiraUnknownAuthor(**u) for u in unbekannte],
                 )
             )
         except Exception as exc:  # noqa: BLE001 – ein fehlgeschlagenes Projekt darf den Sync nicht abbrechen

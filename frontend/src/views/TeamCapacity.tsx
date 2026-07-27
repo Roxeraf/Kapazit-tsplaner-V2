@@ -158,6 +158,19 @@ export default function TeamCapacity() {
                         — keine gebuchten Zeiten zu dieser Component/diesem Label in Jira gefunden
                       </span>
                     )}
+                    {r.unbekannte_beispiele.length > 0 && (
+                      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
+                        Beispiele nicht zugeordneter Autoren (Account-ID mit der Teammitglieder-Liste
+                        vergleichen):
+                        <ul style={{ margin: "0.15rem 0 0", paddingLeft: "1.2rem" }}>
+                          {r.unbekannte_beispiele.map((u) => (
+                            <li key={u.account_id}>
+                              {u.display_name} — <code>{u.account_id}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </>
                 )}
               </li>

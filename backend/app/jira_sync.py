@@ -17,13 +17,18 @@ def _monat_label(iso_datum: str) -> str:
     return f"{MONAT_NAMEN[int(monat) - 1]} {int(jahr) % 100:02d}"
 
 
-def sync_project(db: Session, project: models.Project) -> tuple[int, int]:
+MAX_UNBEKANNTE_BEISPIELE = 5
+
+
+def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[dict]]:
     """Holt Worklogs aus Jira für die Component/Label des Projekts und cached sie.
 
     Nur Buchungen von MA mit bekanntem `jira_account_id` (siehe team_members) werden
     übernommen, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
 
-    Rückgabe: (Anzahl gecachter Worklogs, Anzahl unzugeordneter Buchungen).
+    Rückgabe: (Anzahl gecachter Worklogs, Anzahl unzugeordneter Buchungen, Beispiele
+    unbekannter Autoren als {"account_id", "display_name"} — zum Abgleich mit den in den
+    Team-Stammdaten hinterlegten Jira-Account-IDs, falls eine Zuordnung fehlschlägt).
     """
     since = (date.today() - timedelta(days=SYNC_LOOKBACK_DAYS)).isoformat()
     raw_worklogs = jira_client.fetch_worklogs_for_component(project.jira_component, since)
@@ -35,9 +40,12 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int]:
 
     gespeichert = 0
     unzugeordnet = 0
+    unbekannte_beispiele: dict[str, str] = {}
     for wl in raw_worklogs:
         if wl["author_account_id"] not in known_account_ids:
             unzugeordnet += 1
+            if len(unbekannte_beispiele) < MAX_UNBEKANNTE_BEISPIELE:
+                unbekannte_beispiele.setdefault(wl["author_account_id"], wl["author_display_name"])
             continue
 
         entry = (
@@ -61,7 +69,11 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int]:
         gespeichert += 1
 
     db.commit()
-    return gespeichert, unzugeordnet
+    return (
+        gespeichert,
+        unzugeordnet,
+        [{"account_id": aid, "display_name": name} for aid, name in unbekannte_beispiele.items()],
+    )
 
 
 def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:

@@ -84,12 +84,18 @@ export interface JiraStatus {
   hinweis: string;
 }
 
+export interface JiraUnknownAuthor {
+  account_id: string;
+  display_name: string;
+}
+
 export interface JiraSyncResultItem {
   project_id: number;
   project_name: string;
   jira_component: string;
   worklogs_synced: number;
   unzugeordnete_buchungen: number;
+  unbekannte_beispiele: JiraUnknownAuthor[];
   error: string | null;
 }
 

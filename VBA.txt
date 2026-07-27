@@ -1,0 +1,1185 @@
+' =========================================================================
+' PURELOX KAPAZITAETSPLANER v4.2 (Dynamische Projektanzahl > 12)
+' BOOST - Customer Solutions Team
+'
+' WORKFLOW:
+'   1. Makro "Erstelle_Komplettes_Planungs_Tool" ausfuehren (NUR EINMAL ZUM START!)
+'   2. Blatt "Konfiguration" ausfuellen (Titelseite, Zeitraum, Pfade, Anzahl Projekte)
+'   3. Projektblaetter umbenennen (optional) und mit Gantt-Kuerzeln + FTE befuellen
+'   4. Bei Bedarf weitere Projekte per Makro "Neues_Projekt_Hinzufuegen" ergaenzen
+'      (beliebig oft, auch weit ueber 12 Projekte hinaus)
+'   5. Button "PowerPoint exportieren" klicken
+'   WICHTIG: Wenn sich Startmonat / Anzahl aendert, NUR "Aktualisiere_Monatszeile" ausfuehren!
+'
+' GANTT-KUERZEL (Kuerzel in die jeweilige Phasen-Zeile eintragen):
+'   Pflichtenheft-Zeile: p    Konfiguration-Zeile: k
+'   Test-Zeile:          t    GoLive-Zeile:         g    Meilenstein-Zeile: ?
+'
+' NEU IN v4.2:
+'   - Konfigurationsblatt: Feld "Anzahl Projekte bei Ersteinrichtung" (Row 19),
+'     steuert wie viele Projektblaetter "Erstelle_Komplettes_Planungs_Tool" anlegt
+'   - Neues Makro "Neues_Projekt_Hinzufuegen": dupliziert die Vorlage eines
+'     bestehenden Projektblatts (Struktur/Formatierung bleibt erhalten) und
+'     erweitert die Gesamtuebersicht automatisch - beliebig oft aufrufbar
+'   - Neues Makro "Aktualisiere_Gesamtuebersicht": baut die Gesamtuebersicht
+'     komplett neu aus allen vorhandenen Projektblaettern auf (self-healing
+'     nach manuellem Kopieren/Loeschen/Umbenennen von Blaettern)
+'   - "Exportiere_Als_JSON_Und_PPTX" und "Aktualisiere_Monatszeile" rufen die
+'     Gesamtuebersicht-Aktualisierung automatisch mit auf
+'   - PLX_generate_pptx.js: Die Gesamtuebersicht-Folie skaliert Zeilenhoehe UND
+'     Schriftgroesse dynamisch und teilt sich bei vielen Projekten automatisch
+'     auf mehrere Folien auf (Pagination), damit die FTE-Zusammenfassung auch
+'     bei > 12 Projekten sauber lesbar bleibt
+'
+' BUGFIXES v4.1:
+'   - Umbenannte Projektblaetter werden erkannt (kein Hardcode "Projekt XX" mehr)
+'   - Gantt-Export: jede Phasenzeile wird nur auf ihr eigenes Kuerzel geprueft,
+'     spaetere Zeilen ueberschreiben fruehere (kein vorzeitiger Exit)
+'   - Aktualisiere_Monatszeile: formatiert Spalten vollstaendig neu
+'   - JSON enthaelt "monate"-Array; PLX_generate_pptx.js liest ihn dynamisch
+' =========================================================================
+
+Option Explicit
+
+' =========================================================================
+' 1. HAUPT-EINSTIEGSPUNKT
+' =========================================================================
+Sub Erstelle_Komplettes_Planungs_Tool()
+    Dim wb As Workbook
+    Set wb = ActiveWorkbook
+
+    Call Erstelle_Konfigurationsblatt(wb)
+    Call Erstelle_Planungsblaetter(wb)
+
+    wb.Worksheets("Konfiguration").Activate
+    MsgBox "Planungs-Tool erstellt!" & vbNewLine & vbNewLine & _
+           "Naechste Schritte:" & vbNewLine & _
+           "1. Blatt 'Konfiguration' ausfuellen" & vbNewLine & _
+           "2. Projektblaetter umbenennen (optional) und befuellen" & vbNewLine & _
+           "3. Bei Bedarf weitere Projekte per Makro 'Neues_Projekt_Hinzufuegen' ergaenzen" & vbNewLine & _
+           "4. 'PowerPoint exportieren' klicken", _
+           vbInformation, "PureLoX Kapazitaetsplaner"
+End Sub
+
+' =========================================================================
+' 2. DYNAMISCHE MONATS-LOGIK
+' =========================================================================
+Private Function Berechne_Monate(startMonat As String, anzahl As Integer) As Variant
+    Dim result() As String
+    Dim monatNamen As Variant
+    Dim m As Integer
+    Dim y As Integer
+    Dim i As Integer
+
+    monatNamen = Array("Jan", "Feb", "Mrz", "Apr", "Mai", "Jun", _
+                       "Jul", "Aug", "Sep", "Okt", "Nov", "Dez")
+
+    m = CInt(Left(startMonat, 2))
+    y = CInt(Right(startMonat, 4))
+
+    ReDim result(0 To anzahl - 1)
+    For i = 0 To anzahl - 1
+        result(i) = monatNamen((m - 1) Mod 12) & " " & Right(CStr(y), 2)
+        m = m + 1
+        If m > 12 Then
+            m = 1
+            y = y + 1
+        End If
+    Next i
+
+    Berechne_Monate = result
+End Function
+
+' Liest Startmonat (Row 17) und Anzahl (Row 18) aus Konfiguration, Spalte C
+Private Function Lese_Monate(wb As Workbook) As Variant
+    Dim wsK As Worksheet
+    Dim startStr As String
+    Dim anzahl As Integer
+
+    Set wsK = wb.Worksheets("Konfiguration")
+    startStr = Trim(CStr(wsK.Cells(17, 3).Value))
+
+    On Error Resume Next
+    anzahl = CInt(wsK.Cells(18, 3).Value)
+    On Error GoTo 0
+
+    If Len(startStr) < 7 Then startStr = "04.2026"
+    If anzahl < 1 Or anzahl > 24 Then anzahl = 14
+
+    Lese_Monate = Berechne_Monate(startStr, anzahl)
+End Function
+
+' Liest Anzahl Startprojekte (Row 19, Spalte C) aus Konfiguration.
+' Steuert nur, wie viele Projektblaetter "Erstelle_Komplettes_Planungs_Tool"
+' beim Ersteinrichten anlegt. Weitere Projekte koennen danach jederzeit per
+' "Neues_Projekt_Hinzufuegen" ergaenzt werden - dort gibt es keine Obergrenze.
+Private Function Lese_AnzahlProjekte(wb As Workbook) As Long
+    Dim wsK As Worksheet
+    Dim anzahl As Long
+
+    Set wsK = wb.Worksheets("Konfiguration")
+    anzahl = 12
+    On Error Resume Next
+    anzahl = CLng(wsK.Cells(19, 3).Value)
+    On Error GoTo 0
+
+    If anzahl < 1 Then anzahl = 12
+    If anzahl > 60 Then anzahl = 60
+
+    Lese_AnzahlProjekte = anzahl
+End Function
+
+' =========================================================================
+' 2b. HILFS-FUNKTION: Erkennt Projektblaetter (alle ausser Systemtabs)
+'     Systemtabs: Konfiguration, Legende, Gesamtuebersicht
+' =========================================================================
+Private Function IstProjektBlatt(ws As Worksheet) As Boolean
+    Select Case ws.Name
+        Case "Konfiguration", "Legende", "Gesamtuebersicht"
+            IstProjektBlatt = False
+        Case Else
+            IstProjektBlatt = True
+    End Select
+End Function
+
+' =========================================================================
+' 3. KONFIGURATIONSBLATT
+' =========================================================================
+Sub Erstelle_Konfigurationsblatt(wb As Workbook)
+    Dim ws As Worksheet
+    Dim bgCI As Long
+    Dim startRow As Long
+
+    bgCI = RGB(236, 242, 248)
+
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    wb.Worksheets("Konfiguration").Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+
+    Set ws = wb.Worksheets.Add(Before:=wb.Sheets(1))
+    ws.Name = "Konfiguration"
+    ws.Cells.Font.Name = "Calibri"
+    ws.Cells.Font.Size = 11
+    ws.Cells.Interior.Color = bgCI
+    ActiveWindow.DisplayGridlines = False
+
+    ws.Range("A1:H1").Merge
+    ws.Rows(1).RowHeight = 36
+    With ws.Range("A1")
+        .Value = "PureLoX Kapazitaetsplanung - Konfiguration & Export"
+        .Font.Size = 15
+        .Font.Bold = True
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(0, 47, 94)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+
+    ws.Rows(2).RowHeight = 8
+    startRow = 3
+
+    ' Zeilen 3-8: TITELSEITE
+    Call KonfigLabel(ws, startRow, "TITELSEITE DER PRAESENTATION")
+    startRow = startRow + 1                                                                  ' Row 4
+    Call KonfigFeld(ws, startRow, "Headline (Titel)", "Portfolio Kapazitaetsplanung")
+    startRow = startRow + 1                                                                  ' Row 5
+    Call KonfigFeld(ws, startRow, "Subheadline", "Uebersicht FTE & Projektphasen")
+    startRow = startRow + 1                                                                  ' Row 6
+    Call KonfigFeld(ws, startRow, "Praesentation fuer (Kundenname)", "")
+    startRow = startRow + 1                                                                  ' Row 7
+    Call KonfigFeld(ws, startRow, "Datum", Format(Now, "MMM YYYY"))
+    startRow = startRow + 1                                                                  ' Row 8
+    Call KonfigFeld(ws, startRow, "Ersteller / Team", "BOOST - Customer Solutions Team")
+    startRow = startRow + 2                                                                  ' Row 10
+
+    ' Zeilen 10-14: EXPORT
+    Call KonfigLabel(ws, startRow, "EXPORT-EINSTELLUNGEN")
+    startRow = startRow + 1                                                                  ' Row 11
+    Call KonfigFeld(ws, startRow, "Ausgabepfad (Ordner)", Environ("USERPROFILE") & "\Documents\")
+    startRow = startRow + 1                                                                  ' Row 12
+    Call KonfigFeld(ws, startRow, "Dateiname (ohne .pptx)", "PLX_Kapazitaetsplanung")
+    startRow = startRow + 1                                                                  ' Row 13
+    Call KonfigFeld(ws, startRow, "Node.js Pfad (meist: node)", "node")
+    startRow = startRow + 1                                                                  ' Row 14
+    Call KonfigFeld(ws, startRow, "Pfad zu PLX_generate_pptx.js", "C:\PLX_Tools\PLX_generate_pptx.js")
+    startRow = startRow + 2                                                                  ' Row 16
+
+    ' Zeilen 16-19: ZEITRAUM
+    ' WICHTIG: Lese_Monate() liest Row 17 (Startmonat) und Row 18 (Anzahl), Spalte C
+    '          Lese_AnzahlProjekte() liest Row 19, Spalte C
+    Call KonfigLabel(ws, startRow, "PLANUNGSZEITRAUM")
+    startRow = startRow + 1                                                                  ' Row 17
+    Call KonfigFeld(ws, startRow, "Startmonat (MM.YYYY)", "04.2026")
+    startRow = startRow + 1                                                                  ' Row 18
+    Call KonfigFeld(ws, startRow, "Anzahl Monate (max. 24)", "14")
+    startRow = startRow + 1                                                                  ' Row 19
+    Call KonfigFeld(ws, startRow, "Anzahl Projekte bei Ersteinrichtung (max. 60)", "12")
+    startRow = startRow + 2                                                                  ' Row 21
+
+    ' Hinweis Row 21
+    With ws.Cells(startRow, 2)
+        .Value = "Hinweis: Nach Aenderung des Zeitraums Makro 'Aktualisiere_Monatszeile' ausfuehren (erhalt Projektdaten). " & _
+                  "Weitere Projekte jederzeit per Makro 'Neues_Projekt_Hinzufuegen' ergaenzen."
+        .Font.Italic = True
+        .Font.Color = RGB(150, 30, 0)
+        .Font.Size = 10
+    End With
+    startRow = startRow + 2                                                                  ' Row 23
+
+    ' Export-Button Row 22
+    ws.Rows(startRow).RowHeight = 38
+    Dim shpBtn As Shape
+    Set shpBtn = ws.Shapes.AddShape(msoShapeRoundedRectangle, _
+        CSng(ws.Cells(startRow, 2).Left), _
+        CSng(ws.Cells(startRow, 2).Top), _
+        CSng(240), CSng(28))
+    With shpBtn
+        .Fill.ForeColor.RGB = RGB(0, 47, 94)
+        .Line.Visible = msoFalse
+        .OnAction = "Exportiere_Als_JSON_Und_PPTX"
+        With .TextFrame.Characters
+            .Text = "PowerPoint exportieren"
+            .Font.Name = "Calibri"
+            .Font.Size = 11
+            .Font.Bold = True
+            .Font.Color = RGB(255, 255, 255)
+        End With
+        .TextFrame.HorizontalAlignment = xlHAlignCenter
+        .TextFrame.VerticalAlignment = xlVAlignCenter
+    End With
+    startRow = startRow + 2
+
+    With ws.Cells(startRow, 2)
+        .Value = "Tipp: Fuelle alle Projektblaetter aus, dann 'PowerPoint exportieren' klicken."
+        .Font.Italic = True
+        .Font.Color = RGB(80, 100, 130)
+        .Font.Size = 10
+    End With
+
+    ws.Columns(1).ColumnWidth = 2
+    ws.Columns(2).ColumnWidth = 38
+    ws.Columns(3).ColumnWidth = 45
+    ws.Columns("D:H").ColumnWidth = 6
+End Sub
+
+Private Sub KonfigLabel(ws As Worksheet, r As Long, label As String)
+    ws.Rows(r).RowHeight = 26
+    With ws.Cells(r, 2)
+        .Value = label
+        .Font.Bold = True
+        .Font.Size = 10
+        .Font.Color = RGB(0, 47, 94)
+    End With
+    ws.Range(ws.Cells(r, 2), ws.Cells(r, 7)).Interior.Color = RGB(200, 215, 235)
+End Sub
+
+Private Sub KonfigFeld(ws As Worksheet, r As Long, label As String, defaultVal As String)
+    ws.Rows(r).RowHeight = 22
+    With ws.Cells(r, 2)
+        .Value = label
+        .Font.Color = RGB(40, 60, 90)
+    End With
+    With ws.Cells(r, 3)
+        .NumberFormat = "@"
+        .Value = defaultVal
+        .Interior.Color = RGB(255, 255, 255)
+        .Borders(xlEdgeBottom).LineStyle = xlContinuous
+        .Borders(xlEdgeBottom).Color = RGB(0, 124, 193)
+        .Borders(xlEdgeBottom).Weight = xlThin
+        .Font.Color = RGB(0, 47, 94)
+        .Font.Bold = True
+        .Locked = False
+    End With
+End Sub
+
+' =========================================================================
+' 4. JSON-EXPORT + PPTX-GENERIERUNG
+' =========================================================================
+Sub Exportiere_Als_JSON_Und_PPTX()
+    Dim wb As Workbook
+    Dim wsKonfig As Worksheet
+    Dim wsProj As Worksheet
+    Dim headline As String
+    Dim subheadline As String
+    Dim kundenname As String
+    Dim datum As String
+    Dim ersteller As String
+    Dim outputPfad As String
+    Dim dateiname As String
+    Dim nodePfad As String
+    Dim skriptPfad As String
+    Dim monate As Variant
+    Dim anzahlMonate As Integer
+    Dim lastCol As Integer
+    Dim projektJson As String
+    Dim projName As String
+    Dim json As String
+    Dim jsonPfad As String
+    Dim pptxAusgabe As String
+    Dim befehl As String
+    Dim logPfad As String
+    Dim ersterProjekt As Boolean
+    Dim i As Long
+    Dim col As Long
+    Dim fileNr As Integer
+    Dim exitCode As Long
+    Dim wshell As Object
+    Dim tpStartRows As Variant
+    Dim tpFteRows As Variant
+    Dim tpArrayJson As String
+    Dim tpPhasenJson As String
+    Dim tpFteJson As String
+    Dim tpName As String
+    Dim tpKuerzel As String
+    Dim tpFteVal As Double
+    Dim tpHeaderRow As Long
+    Dim tpFteRow As Long
+    Dim tp As Long
+    Dim firstTP As Boolean
+    Dim firstTpPhase As Boolean
+    Dim firstTpFte As Boolean
+    Dim fteSumJson As String
+    Dim firstFteSumme As Boolean
+    Dim fteSumVal As Double
+    Dim fteSummeZeile As Long
+    Dim monateJsonArr As String
+    Dim phIdx As Integer
+    ' FIX: phaseKuerzel ordnet jede Phasenzeile ihrem eigenen Kuerzel zu
+    Dim phaseKuerzel(0 To 4) As String
+
+    Set wb = ActiveWorkbook
+    Set wsKonfig = wb.Worksheets("Konfiguration")
+
+    ' Gesamtuebersicht vor jedem Export neu aufbauen, damit nachtraeglich
+    ' hinzugefuegte/umbenannte/geloeschte Projektblaetter immer korrekt drin stehen
+    Call Baue_Gesamtuebersicht(wb)
+
+    headline    = Trim(wsKonfig.Cells(4, 3).Value)
+    subheadline = Trim(wsKonfig.Cells(5, 3).Value)
+    kundenname  = Trim(wsKonfig.Cells(6, 3).Value)
+    datum       = Trim(wsKonfig.Cells(7, 3).Value)
+    ersteller   = Trim(wsKonfig.Cells(8, 3).Value)
+    outputPfad  = Trim(wsKonfig.Cells(11, 3).Value)
+    dateiname   = Trim(wsKonfig.Cells(12, 3).Value)
+    nodePfad    = Trim(wsKonfig.Cells(13, 3).Value)
+    skriptPfad  = Trim(wsKonfig.Cells(14, 3).Value)
+
+    If Len(headline) = 0 Then headline = "Portfolio Kapazitaetsplanung"
+    If Len(dateiname) = 0 Then dateiname = "PLX_Kapazitaetsplanung"
+    If Len(nodePfad) = 0 Then nodePfad = "node"
+    If Len(outputPfad) = 0 Then outputPfad = Environ("USERPROFILE") & "\Documents\"
+    If Right(outputPfad, 1) <> "\" Then outputPfad = outputPfad & "\"
+
+    ' --- Dynamische Monate ---
+    monate = Lese_Monate(wb)
+    anzahlMonate = UBound(monate) + 1
+    lastCol = 1 + anzahlMonate
+
+    ' Monate als JSON-Array fuer PLX_generate_pptx.js
+    monateJsonArr = "["
+    For i = 0 To anzahlMonate - 1
+        If i > 0 Then monateJsonArr = monateJsonArr & ","
+        monateJsonArr = monateJsonArr & """" & EscapeJson(CStr(monate(i))) & """"
+    Next i
+    monateJsonArr = monateJsonArr & "]"
+
+    ' Phasenzeilen-Mapping: Zeile 0 (Pflichtenheft) erwartet "p", Zeile 1 "k", usw.
+    phaseKuerzel(0) = "p"
+    phaseKuerzel(1) = "k"
+    phaseKuerzel(2) = "t"
+    phaseKuerzel(3) = "g"
+    phaseKuerzel(4) = "?"
+
+    ' Startzeilen der Teilprojekt-Phasendaten (ohne Header-Zeile)
+    tpStartRows = Array(5, 11, 17)
+    ' FTE-Zeilen der drei Teilprojekte
+    tpFteRows = Array(24, 25, 26)
+    fteSummeZeile = CLng(tpFteRows(2)) + 1    ' = 27
+
+    projektJson = "["
+    ersterProjekt = True
+
+    ' FIX: Alle Nicht-System-Blaetter iterieren statt "Projekt XX" hardcoden
+    For Each wsProj In wb.Worksheets
+        If IstProjektBlatt(wsProj) Then
+
+            projName = Trim(CStr(wsProj.Cells(1, 1).Value))
+            If Len(projName) = 0 Then projName = wsProj.Name
+
+            tpArrayJson = "["
+            firstTP = True
+
+            For tp = 0 To 2
+                tpHeaderRow = CLng(tpStartRows(tp)) - 1
+                tpName = Trim(CStr(wsProj.Cells(tpHeaderRow, 1).Value))
+                If Len(tpName) = 0 Then tpName = "Teilprojekt " & (tp + 1)
+
+                ' --- Phasen ---
+                ' Jede Phasenzeile wird nur auf ihr eigenes Kuerzel geprueft.
+                ' Wenn mehrere Phasen in derselben Monatsspalte befuellt sind,
+                ' werden alle als JSON-Array exportiert (z.B. ["p","k","t","g"]).
+                ' Bei nur einer Phase bleibt das Format rueckwaertskompatibel (String).
+                tpPhasenJson = "{"
+                firstTpPhase = True
+                Dim colPhases(4) As String
+                Dim colPhaseCount As Integer
+                Dim ai As Integer
+                Dim arrStr As String
+                For col = 2 To lastCol
+                    colPhaseCount = 0
+                    For phIdx = 0 To 4
+                        If Trim(CStr(wsProj.Cells(CLng(tpStartRows(tp)) + phIdx, col).Value)) = phaseKuerzel(phIdx) Then
+                            colPhases(colPhaseCount) = phaseKuerzel(phIdx)
+                            colPhaseCount = colPhaseCount + 1
+                        End If
+                    Next phIdx
+                    If colPhaseCount = 1 Then
+                        If Not firstTpPhase Then tpPhasenJson = tpPhasenJson & ","
+                        tpPhasenJson = tpPhasenJson & _
+                            """" & EscapeJson(CStr(monate(CLng(col - 2)))) & """:" & _
+                            """" & colPhases(0) & """"
+                        firstTpPhase = False
+                    ElseIf colPhaseCount > 1 Then
+                        If Not firstTpPhase Then tpPhasenJson = tpPhasenJson & ","
+                        arrStr = "["
+                        For ai = 0 To colPhaseCount - 1
+                            If ai > 0 Then arrStr = arrStr & ","
+                            arrStr = arrStr & """" & colPhases(ai) & """"
+                        Next ai
+                        arrStr = arrStr & "]"
+                        tpPhasenJson = tpPhasenJson & _
+                            """" & EscapeJson(CStr(monate(CLng(col - 2)))) & """:" & arrStr
+                        firstTpPhase = False
+                    End If
+                Next col
+                tpPhasenJson = tpPhasenJson & "}"
+
+                ' --- FTE ---
+                tpFteJson = "{"
+                firstTpFte = True
+                tpFteRow = CLng(tpFteRows(tp))
+                For col = 2 To lastCol
+                    tpFteVal = 0
+                    On Error Resume Next
+                    tpFteVal = CDbl(wsProj.Cells(tpFteRow, col).Value)
+                    On Error GoTo 0
+                    If tpFteVal > 0 Then
+                        If Not firstTpFte Then tpFteJson = tpFteJson & ","
+                        tpFteJson = tpFteJson & _
+                            """" & EscapeJson(CStr(monate(CLng(col - 2)))) & """:" & _
+                            Replace(CStr(tpFteVal), ",", ".")
+                        firstTpFte = False
+                    End If
+                Next col
+                tpFteJson = tpFteJson & "}"
+
+                If Not firstTP Then tpArrayJson = tpArrayJson & ","
+                tpArrayJson = tpArrayJson & _
+                    "{""name"":""" & EscapeJson(tpName) & """," & _
+                    """phasen"":" & tpPhasenJson & "," & _
+                    """fte"":" & tpFteJson & "}"
+                firstTP = False
+            Next tp
+            tpArrayJson = tpArrayJson & "]"
+
+            ' --- FTE-Summe ---
+            fteSumJson = "{"
+            firstFteSumme = True
+            For col = 2 To lastCol
+                fteSumVal = 0
+                On Error Resume Next
+                fteSumVal = CDbl(wsProj.Cells(fteSummeZeile, col).Value)
+                On Error GoTo 0
+                If fteSumVal > 0 Then
+                    If Not firstFteSumme Then fteSumJson = fteSumJson & ","
+                    fteSumJson = fteSumJson & _
+                        """" & EscapeJson(CStr(monate(CLng(col - 2)))) & """:" & _
+                        Replace(CStr(fteSumVal), ",", ".")
+                    firstFteSumme = False
+                End If
+            Next col
+            fteSumJson = fteSumJson & "}"
+
+            If Not ersterProjekt Then projektJson = projektJson & ","
+            projektJson = projektJson & _
+                "{""name"":""" & EscapeJson(projName) & """," & _
+                """teilprojekte"":" & tpArrayJson & "," & _
+                """fteSumme"":" & fteSumJson & "}"
+            ersterProjekt = False
+        End If
+    Next wsProj
+    projektJson = projektJson & "]"
+
+    ' --- JSON zusammenbauen ---
+    json = "{" & vbNewLine
+    json = json & "  ""titelseite"": {" & vbNewLine
+    json = json & "    ""headline"": """ & EscapeJson(headline) & """," & vbNewLine
+    json = json & "    ""subheadline"": """ & EscapeJson(subheadline) & """," & vbNewLine
+    json = json & "    ""praesentationFuer"": """ & EscapeJson(kundenname) & """," & vbNewLine
+    json = json & "    ""datum"": """ & EscapeJson(datum) & """," & vbNewLine
+    json = json & "    ""ersteller"": """ & EscapeJson(ersteller) & """" & vbNewLine
+    json = json & "  }," & vbNewLine
+    json = json & "  ""monate"": " & monateJsonArr & "," & vbNewLine
+    json = json & "  ""projekte"": " & projektJson & vbNewLine
+    json = json & "}"
+
+    jsonPfad = outputPfad & dateiname & "_config.json"
+    fileNr = FreeFile
+    Open jsonPfad For Output As #fileNr
+    Print #fileNr, json
+    Close #fileNr
+
+    pptxAusgabe = outputPfad & dateiname & ".pptx"
+
+    If Len(skriptPfad) > 0 And skriptPfad <> "C:\PLX_Tools\PLX_generate_pptx.js" Then
+        logPfad = outputPfad & "pptx_log.txt"
+        befehl = nodePfad & " """ & skriptPfad & """ """ & jsonPfad & """ """ & pptxAusgabe & """"
+        Set wshell = CreateObject("WScript.Shell")
+        exitCode = wshell.Run( _
+            "cmd /c " & befehl & " > """ & logPfad & """ 2>&1", _
+            0, True)
+
+        If exitCode = 0 Then
+            MsgBox "PowerPoint erfolgreich erstellt!" & vbNewLine & vbNewLine & _
+                   "Datei: " & pptxAusgabe, vbInformation, "Export erfolgreich"
+            On Error Resume Next
+            Shell "cmd /c start """" """ & pptxAusgabe & """", vbHide
+            On Error GoTo 0
+        Else
+            MsgBox "Fehler beim Export (Exit: " & exitCode & ")." & vbNewLine & _
+                   "JSON: " & jsonPfad & vbNewLine & _
+                   "Log:  " & outputPfad & "pptx_log.txt" & vbNewLine & vbNewLine & _
+                   "Pruefe Node.js Installation und Skript-Pfad.", _
+                   vbExclamation, "Export fehlgeschlagen"
+        End If
+    Else
+        MsgBox "JSON gespeichert:" & vbNewLine & vbNewLine & _
+               jsonPfad & vbNewLine & vbNewLine & _
+               "Fuehre dann manuell aus:" & vbNewLine & _
+               "  node PLX_generate_pptx.js """ & jsonPfad & """ """ & pptxAusgabe & """" & vbNewLine & vbNewLine & _
+               "Oder trage den Skript-Pfad im Konfigurationsblatt ein.", _
+               vbInformation, "JSON exportiert"
+    End If
+End Sub
+
+Private Function EscapeJson(s As String) As String
+    s = Replace(s, "\", "\\")
+    s = Replace(s, """", "\""")
+    s = Replace(s, Chr(10), "\n")
+    s = Replace(s, Chr(13), "")
+    EscapeJson = s
+End Function
+
+' =========================================================================
+' 5. PLANUNGSBLAETTER
+' =========================================================================
+Sub Erstelle_Planungsblaetter(wb As Workbook)
+    Dim wsGesamt As Worksheet
+    Dim wsProj As Worksheet
+    Dim wsLegende As Worksheet
+    Dim monate As Variant
+    Dim anzahlMonate As Integer
+    Dim lastCol As Integer
+    Dim colLetter As String
+    Dim projektNamen() As String
+    Dim anzahlProjekte As Long
+    Dim i As Long
+    Dim col As Long
+    Dim p As Long
+    Dim row As Long
+    Dim rGantt As Long
+    Dim rFTE As Long
+    Dim rngGantt As Range
+    Dim rngFTE As Range
+    Dim bgCI As Long
+    Dim r As Long
+    Dim wsToDelete As Worksheet
+    Dim namesToDelete() As String
+    Dim deleteCount As Integer
+    Dim n As Integer
+
+    bgCI = RGB(236, 242, 248)
+
+    ' --- Dynamische Monate ---
+    monate = Lese_Monate(wb)
+    anzahlMonate = UBound(monate) + 1
+    lastCol = 1 + anzahlMonate
+    colLetter = Split(Cells(1, lastCol).Address, "$")(1)
+
+    ' --- Dynamische Projektanzahl (konfigurierbar, statt fix 12) ---
+    anzahlProjekte = Lese_AnzahlProjekte(wb)
+    ReDim projektNamen(1 To anzahlProjekte)
+    For i = 1 To anzahlProjekte
+        projektNamen(i) = "Projekt " & Format(i, "00")
+    Next i
+
+    ' FIX: Alle Nicht-System-Blaetter loeschen (auch umbenannte Projektblaetter)
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    wb.Worksheets("Legende").Delete
+    wb.Worksheets("Gesamtuebersicht").Delete
+    On Error GoTo 0
+
+    deleteCount = 0
+    For Each wsToDelete In wb.Worksheets
+        If IstProjektBlatt(wsToDelete) Then
+            ReDim Preserve namesToDelete(deleteCount)
+            namesToDelete(deleteCount) = wsToDelete.Name
+            deleteCount = deleteCount + 1
+        End If
+    Next wsToDelete
+    For n = 0 To deleteCount - 1
+        On Error Resume Next
+        wb.Worksheets(namesToDelete(n)).Delete
+        On Error GoTo 0
+    Next n
+    Application.DisplayAlerts = True
+
+    ' --- LEGENDE ---
+    Set wsLegende = wb.Worksheets.Add(After:=wb.Sheets("Konfiguration"))
+    wsLegende.Name = "Legende"
+    wsLegende.Cells.Font.Name = "Calibri"
+    wsLegende.Cells.Font.Size = 11
+    wsLegende.Cells.Interior.Color = bgCI
+    ActiveWindow.DisplayGridlines = False
+
+    wsLegende.Range("A1:G1").Merge
+    wsLegende.Rows(1).RowHeight = 34
+    With wsLegende.Range("A1")
+        .Value = "PureLoX Kapazitaetsplaner - Legende"
+        .Font.Bold = True
+        .Font.Size = 14
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(0, 47, 94)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+
+    wsLegende.Cells(3, 2).Value = "GANTT: Phasenkuerzel"
+    wsLegende.Cells(3, 2).Font.Bold = True
+    wsLegende.Cells(3, 2).Font.Color = RGB(0, 47, 94)
+    wsLegende.Cells(4, 2).Value = "Kuerzel"
+    wsLegende.Cells(4, 3).Value = "Phase"
+    wsLegende.Range("B4:C4").Interior.Color = RGB(0, 47, 94)
+    wsLegende.Range("B4:C4").Font.Color = RGB(255, 255, 255)
+    wsLegende.Range("B4:C4").Font.Bold = True
+
+    wsLegende.Cells(5, 2).Value = "p":  wsLegende.Cells(5, 3).Value = "Pflichtenheft"
+    wsLegende.Cells(6, 2).Value = "k":  wsLegende.Cells(6, 3).Value = "Konfiguration"
+    wsLegende.Cells(7, 2).Value = "t":  wsLegende.Cells(7, 3).Value = "Test"
+    wsLegende.Cells(8, 2).Value = "g":  wsLegende.Cells(8, 3).Value = "GoLive"
+    wsLegende.Cells(9, 2).Value = "?":  wsLegende.Cells(9, 3).Value = "Meilenstein"
+
+    wsLegende.Cells(5, 2).Interior.Color = RGB(10, 85, 185):  wsLegende.Cells(5, 2).Font.Color = RGB(255, 255, 255)
+    wsLegende.Cells(6, 2).Interior.Color = RGB(40, 140, 225): wsLegende.Cells(6, 2).Font.Color = RGB(255, 255, 255)
+    wsLegende.Cells(7, 2).Interior.Color = RGB(195, 85, 215): wsLegende.Cells(7, 2).Font.Color = RGB(255, 255, 255)
+    wsLegende.Cells(8, 2).Interior.Color = RGB(205, 20, 90):  wsLegende.Cells(8, 2).Font.Color = RGB(255, 255, 255)
+    wsLegende.Cells(9, 2).Interior.Color = RGB(0, 47, 94):    wsLegende.Cells(9, 2).Font.Color = RGB(255, 255, 255)
+    For r = 5 To 9
+        wsLegende.Cells(r, 2).HorizontalAlignment = xlCenter
+        wsLegende.Rows(r).RowHeight = 20
+    Next r
+
+    wsLegende.Cells(11, 2).Value = "FTE HEATMAP: Auslastung"
+    wsLegende.Cells(11, 2).Font.Bold = True
+    wsLegende.Cells(11, 2).Font.Color = RGB(0, 47, 94)
+    wsLegende.Cells(12, 2).Value = "> 2 FTE":      wsLegende.Cells(12, 2).Interior.Color = RGB(245, 200, 215): wsLegende.Cells(12, 2).Font.Color = RGB(150, 10, 60)
+    wsLegende.Cells(13, 2).Value = "1.5 - 2 FTE":  wsLegende.Cells(13, 2).Interior.Color = RGB(235, 205, 240): wsLegende.Cells(13, 2).Font.Color = RGB(120, 30, 140)
+    wsLegende.Cells(14, 2).Value = "1 - 1.5 FTE":  wsLegende.Cells(14, 2).Interior.Color = RGB(200, 225, 245): wsLegende.Cells(14, 2).Font.Color = RGB(10, 85, 185)
+    wsLegende.Cells(15, 2).Value = "0 - 1 FTE":    wsLegende.Cells(15, 2).Interior.Color = RGB(220, 245, 250): wsLegende.Cells(15, 2).Font.Color = RGB(20, 120, 160)
+    wsLegende.Cells(16, 2).Value = "0 / leer":     wsLegende.Cells(16, 2).Font.Color = RGB(180, 190, 200)
+    wsLegende.Columns(2).ColumnWidth = 20
+    wsLegende.Columns(3).ColumnWidth = 22
+
+    ' Legende: Hinweis zur Dateneingabe
+    wsLegende.Cells(18, 2).Value = "DATENEINGABE: Kuerzel in die jeweilige Phasen-Zeile eintragen!"
+    wsLegende.Cells(18, 2).Font.Bold = True
+    wsLegende.Cells(18, 2).Font.Color = RGB(150, 30, 0)
+    wsLegende.Cells(18, 2).Font.Size = 10
+    wsLegende.Cells(19, 2).Value = "Jede Phase hat ihre eigene Zeile (Pflichtenheft -> p, Konfiguration -> k, ...)."
+    wsLegende.Cells(19, 2).Font.Italic = True
+    wsLegende.Cells(19, 2).Font.Size = 10
+    wsLegende.Cells(20, 2).Value = "Pro Monatsspalte nur EINE Phase eintragen. Spaetere Phasenzeilen"
+    wsLegende.Cells(21, 2).Value = "ueberschreiben fruehre bei Konflikten (GoLive > Test > Konfiguration > Pflichtenheft)."
+    wsLegende.Cells(20, 2).Font.Size = 10
+    wsLegende.Cells(21, 2).Font.Size = 10
+
+    ' --- GESAMTUEBERSICHT ---
+    ' Nur als leeres Blatt an der richtigen Position anlegen; der komplette
+    ' Inhalt (Header, Projektzeilen, Formeln, Gesamtsumme) wird nach Anlage
+    ' aller Projektblaetter zentral von Baue_Gesamtuebersicht() aufgebaut -
+    ' derselbe Code laeuft auch bei "Neues_Projekt_Hinzufuegen" und
+    ' "Aktualisiere_Monatszeile".
+    Set wsGesamt = wb.Worksheets.Add(After:=wsLegende)
+    wsGesamt.Name = "Gesamtuebersicht"
+
+    ' --- PROJEKTBLAETTER (Anzahl aus Konfiguration, siehe Lese_AnzahlProjekte) ---
+    For i = 1 To anzahlProjekte
+        Set wsProj = wb.Worksheets.Add(After:=wb.Sheets(wb.Sheets.Count))
+        wsProj.Name = projektNamen(i)
+        wsProj.Cells.Font.Name = "Calibri"
+        wsProj.Cells.Font.Size = 11
+        wsProj.Cells.Interior.Color = bgCI
+        ActiveWindow.DisplayGridlines = False
+
+        ' Titelzeile
+        wsProj.Range("A1:" & colLetter & "1").Merge
+        With wsProj.Range("A1")
+            .Value = projektNamen(i)
+            .Font.Bold = True
+            .Font.Size = 13
+            .Font.Color = RGB(255, 255, 255)
+            .Interior.Color = RGB(0, 47, 94)
+            .HorizontalAlignment = xlLeft
+            .VerticalAlignment = xlCenter
+            .IndentLevel = 1
+        End With
+        wsProj.Rows(1).RowHeight = 30
+
+        ' Monats-Header (Zeile 2)
+        wsProj.Cells(2, 1).Value = "Teilprojekt / Phase"
+        With wsProj.Cells(2, 1)
+            .Font.Bold = True
+            .Font.Color = RGB(255, 255, 255)
+            .Interior.Color = RGB(0, 47, 94)
+        End With
+        For col = 0 To anzahlMonate - 1
+            With wsProj.Cells(2, col + 2)
+                .NumberFormat = "@"
+                .Value = monate(col)
+                .Font.Bold = True
+                .Font.Color = RGB(255, 255, 255)
+                .Interior.Color = RGB(0, 47, 94)
+                .HorizontalAlignment = xlCenter
+                .VerticalAlignment = xlCenter
+            End With
+        Next col
+        wsProj.Rows(2).RowHeight = 22
+
+        ' Zeitplan-Label (Zeile 3)
+        wsProj.Cells(3, 1).Value = "ZEITPLAN (PHASEN)"
+        wsProj.Cells(3, 1).Font.Color = RGB(120, 130, 140)
+        wsProj.Cells(3, 1).Font.Bold = True
+        wsProj.Cells(3, 1).Font.Size = 9
+        wsProj.Rows(3).RowHeight = 18
+
+        ' Gantt: 3 Teilprojekte je 6 Zeilen (Rows 4-21)
+        rGantt = 4
+        For p = 1 To 3
+            wsProj.Cells(rGantt, 1).Value = "Teilprojekt " & p
+            wsProj.Cells(rGantt, 1).Font.Bold = True
+            wsProj.Cells(rGantt, 1).Font.Color = RGB(0, 47, 94)
+            wsProj.Range(wsProj.Cells(rGantt, 1), wsProj.Cells(rGantt, lastCol)).Interior.Color = RGB(220, 228, 240)
+            wsProj.Rows(rGantt).RowHeight = 16
+            wsProj.Cells(rGantt + 1, 1).Value = "   Pflichtenheft  -> p"
+            wsProj.Cells(rGantt + 2, 1).Value = "   Konfiguration  -> k"
+            wsProj.Cells(rGantt + 3, 1).Value = "   Test           -> t"
+            wsProj.Cells(rGantt + 4, 1).Value = "   GoLive         -> g"
+            wsProj.Cells(rGantt + 5, 1).Value = "   Meilenstein    -> ?"
+            For row = rGantt + 1 To rGantt + 5
+                wsProj.Rows(row).RowHeight = 19
+            Next row
+            rGantt = rGantt + 6
+        Next p
+
+        Set rngGantt = wsProj.Range("B4:" & colLetter & "21")
+        Call Setze_Gantt_Formatierung(rngGantt)
+
+        wsProj.Rows(22).RowHeight = 10
+
+        ' FTE-Bereich (Rows 23-27)
+        wsProj.Cells(23, 1).Value = "KAPAZITAETSPLANUNG (FTE)"
+        wsProj.Cells(23, 1).Font.Color = RGB(120, 130, 140)
+        wsProj.Cells(23, 1).Font.Bold = True
+        wsProj.Cells(23, 1).Font.Size = 9
+        wsProj.Rows(23).RowHeight = 20
+
+        For col = 0 To anzahlMonate - 1
+            With wsProj.Cells(23, col + 2)
+                .NumberFormat = "@"
+                .Value = monate(col)
+                .Font.Bold = True
+                .Font.Color = RGB(255, 255, 255)
+                .Interior.Color = RGB(0, 124, 193)
+                .HorizontalAlignment = xlCenter
+            End With
+        Next col
+
+        rFTE = 23
+        wsProj.Cells(rFTE + 1, 1).Value = "Teilprojekt 1"
+        wsProj.Cells(rFTE + 2, 1).Value = "Teilprojekt 2"
+        wsProj.Cells(rFTE + 3, 1).Value = "Teilprojekt 3"
+        For row = rFTE + 1 To rFTE + 3
+            wsProj.Rows(row).RowHeight = 20
+        Next row
+
+        wsProj.Cells(rFTE + 4, 1).Value = "SUMME " & UCase(projektNamen(i))
+        wsProj.Cells(rFTE + 4, 1).Font.Bold = True
+        wsProj.Rows(rFTE + 4).RowHeight = 20
+
+        For col = 2 To lastCol
+            wsProj.Cells(rFTE + 4, col).FormulaR1C1 = "=SUM(R[-3]C:R[-1]C)"
+            With wsProj.Cells(rFTE + 4, col)
+                .Font.Bold = True
+                .Interior.Color = RGB(0, 47, 94)
+                .Font.Color = RGB(255, 255, 255)
+            End With
+        Next col
+
+        Set rngFTE = wsProj.Range("B24:" & colLetter & "26")
+        Call Setze_FTE_Formatierung(rngFTE)
+        rngFTE.Borders(xlInsideHorizontal).LineStyle = xlContinuous
+        rngFTE.Borders(xlInsideHorizontal).Color = RGB(210, 215, 225)
+        rngFTE.Borders(xlInsideVertical).LineStyle = xlContinuous
+        rngFTE.Borders(xlInsideVertical).Color = RGB(210, 215, 225)
+
+        wsProj.Columns(1).ColumnWidth = 28
+        wsProj.Columns("B:" & colLetter).ColumnWidth = 9
+        Set wsProj = Nothing
+    Next i
+
+    ' Gesamtuebersicht (Header + Projektzeilen + GESAMT-Summe) zentral aufbauen
+    Call Baue_Gesamtuebersicht(wb)
+End Sub
+
+' =========================================================================
+' 5b. GESAMTUEBERSICHT DYNAMISCH AUFBAUEN
+'     Liest alle aktuell vorhandenen Projektblaetter (IstProjektBlatt) und
+'     baut die Gesamtuebersicht komplett neu auf. Dadurch bleibt sie immer
+'     synchron - egal ob Projekte hinzugefuegt, umbenannt, geloescht oder
+'     manuell kopiert wurden. Wird von Erstelle_Planungsblaetter,
+'     Neues_Projekt_Hinzufuegen, Aktualisiere_Monatszeile und
+'     Exportiere_Als_JSON_Und_PPTX aufgerufen.
+' =========================================================================
+Private Sub Baue_Gesamtuebersicht(wb As Workbook)
+    Dim wsGesamt As Worksheet
+    Dim wsProj As Worksheet
+    Dim monate As Variant
+    Dim anzahlMonate As Integer
+    Dim lastCol As Integer
+    Dim colLetter As String
+    Dim col As Long
+    Dim rowGesamt As Long
+    Dim projName As String
+    Dim fteSummeZeile As Long
+    Dim rngGesamt As Range
+    Dim bgCI As Long
+    Dim wsAktiv As Worksheet
+
+    bgCI = RGB(236, 242, 248)
+    fteSummeZeile = 27  ' Feste Vorlagen-Struktur: 3 Teilprojekte (Rows 24-26) + Summe (27)
+
+    On Error Resume Next
+    Set wsGesamt = wb.Worksheets("Gesamtuebersicht")
+    On Error GoTo 0
+    If wsGesamt Is Nothing Then
+        Set wsGesamt = wb.Worksheets.Add(After:=wb.Sheets(wb.Sheets.Count))
+        wsGesamt.Name = "Gesamtuebersicht"
+    End If
+
+    monate = Lese_Monate(wb)
+    anzahlMonate = UBound(monate) + 1
+    lastCol = 1 + anzahlMonate
+    colLetter = Split(wsGesamt.Cells(1, lastCol).Address, "$")(1)
+
+    ' Blatt komplett zuruecksetzen (Inhalt + Formatierung + bedingte Formate)
+    wsGesamt.Cells.Clear
+    wsGesamt.Cells.Font.Name = "Calibri"
+    wsGesamt.Cells.Font.Size = 11
+    wsGesamt.Cells.Interior.Color = bgCI
+
+    ' Header-Zeile
+    wsGesamt.Cells(1, 1).Value = "Projekt"
+    With wsGesamt.Cells(1, 1)
+        .Font.Bold = True
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(0, 47, 94)
+    End With
+    For col = 0 To anzahlMonate - 1
+        With wsGesamt.Cells(1, col + 2)
+            .NumberFormat = "@"
+            .Value = monate(col)
+            .Font.Bold = True
+            .Font.Color = RGB(255, 255, 255)
+            .Interior.Color = RGB(0, 47, 94)
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+        End With
+    Next col
+    wsGesamt.Rows(1).RowHeight = 26
+
+    ' Eine Zeile pro aktuell vorhandenem Projektblatt (beliebige Anzahl)
+    rowGesamt = 2
+    For Each wsProj In wb.Worksheets
+        If IstProjektBlatt(wsProj) Then
+            projName = Trim(CStr(wsProj.Cells(1, 1).Value))
+            If Len(projName) = 0 Then projName = wsProj.Name
+
+            wsGesamt.Cells(rowGesamt, 1).Value = projName & " (FTE)"
+            For col = 2 To lastCol
+                wsGesamt.Cells(rowGesamt, col).Formula = _
+                    "='" & wsProj.Name & "'!" & wsProj.Cells(fteSummeZeile, col).Address(False, False)
+            Next col
+            rowGesamt = rowGesamt + 1
+        End If
+    Next wsProj
+
+    ' Gesamtsumme
+    wsGesamt.Cells(rowGesamt, 1).Value = "GESAMT PORTFOLIO FTE"
+    wsGesamt.Cells(rowGesamt, 1).Font.Bold = True
+    wsGesamt.Rows(rowGesamt).RowHeight = 22
+
+    For col = 2 To lastCol
+        wsGesamt.Cells(rowGesamt, col).FormulaR1C1 = "=SUM(R2C:R[-1]C)"
+        With wsGesamt.Cells(rowGesamt, col)
+            .Font.Bold = True
+            .Interior.Color = RGB(0, 47, 94)
+            .Font.Color = RGB(255, 255, 255)
+        End With
+    Next col
+
+    If rowGesamt >= 3 Then
+        Set rngGesamt = wsGesamt.Range("B2:" & colLetter & CStr(rowGesamt - 1))
+        Call Setze_FTE_Formatierung(rngGesamt)
+        rngGesamt.Borders(xlInsideHorizontal).LineStyle = xlContinuous
+        rngGesamt.Borders(xlInsideHorizontal).Color = RGB(210, 215, 225)
+        rngGesamt.Borders(xlInsideVertical).LineStyle = xlContinuous
+        rngGesamt.Borders(xlInsideVertical).Color = RGB(210, 215, 225)
+    End If
+
+    wsGesamt.Columns(1).ColumnWidth = 28
+    wsGesamt.Columns("B:" & colLetter).ColumnWidth = 9
+
+    ' Gitternetzlinien ausblenden, ohne das aktuell aktive Blatt zu veraendern
+    Set wsAktiv = wb.ActiveSheet
+    wsGesamt.Activate
+    ActiveWindow.DisplayGridlines = False
+    If Not wsAktiv Is Nothing Then wsAktiv.Activate
+End Sub
+
+' =========================================================================
+' GANTT BEDINGTE FORMATIERUNG
+' =========================================================================
+Sub Setze_Gantt_Formatierung(rng As Range)
+    rng.FormatConditions.Delete
+    rng.HorizontalAlignment = xlCenter
+    rng.VerticalAlignment = xlCenter
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlEqual, Formula1:="=""p""")
+        .Interior.Color = RGB(10, 85, 185):  .Font.Color = RGB(10, 85, 185)
+    End With
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlEqual, Formula1:="=""k""")
+        .Interior.Color = RGB(40, 140, 225): .Font.Color = RGB(40, 140, 225)
+    End With
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlEqual, Formula1:="=""t""")
+        .Interior.Color = RGB(195, 85, 215): .Font.Color = RGB(195, 85, 215)
+    End With
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlEqual, Formula1:="=""g""")
+        .Interior.Color = RGB(205, 20, 90):  .Font.Color = RGB(205, 20, 90)
+    End With
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlEqual, Formula1:="=""?""")
+        .Interior.Color = RGB(0, 47, 94):    .Font.Color = RGB(0, 47, 94)
+    End With
+End Sub
+
+' =========================================================================
+' FTE HEATMAP BEDINGTE FORMATIERUNG
+' =========================================================================
+Sub Setze_FTE_Formatierung(rng As Range)
+    rng.FormatConditions.Delete
+    rng.HorizontalAlignment = xlCenter
+    rng.VerticalAlignment = xlCenter
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlGreater, Formula1:="2")
+        .Interior.Color = RGB(245, 200, 215): .Font.Color = RGB(150, 10, 60): .Font.Bold = True
+    End With
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlBetween, Formula1:="1.5", Formula2:="2")
+        .Interior.Color = RGB(235, 205, 240): .Font.Color = RGB(120, 30, 140)
+    End With
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlBetween, Formula1:="1", Formula2:="1.49")
+        .Interior.Color = RGB(200, 225, 245): .Font.Color = RGB(10, 85, 185)
+    End With
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlBetween, Formula1:="0.01", Formula2:="0.99")
+        .Interior.Color = RGB(220, 245, 250): .Font.Color = RGB(20, 120, 160)
+    End With
+    With rng.FormatConditions.Add(Type:=xlCellValue, Operator:=xlEqual, Formula1:="0")
+        .Font.Color = RGB(180, 190, 200)
+    End With
+End Sub
+
+' =========================================================================
+' MONATS-UPDATE FUNKTION (Daten bleiben erhalten!)
+' =========================================================================
+Sub Aktualisiere_Monatszeile()
+    Dim wb As Workbook
+    Dim wsProj As Worksheet
+    Dim monate As Variant
+    Dim anzahlMonate As Integer
+    Dim lastCol As Integer
+    Dim col As Integer
+    Dim clearCol As Integer
+
+    Set wb = ActiveWorkbook
+    monate = Lese_Monate(wb)
+    anzahlMonate = UBound(monate) + 1
+    lastCol = 1 + anzahlMonate
+
+    ' FIX: Alle Projektblaetter iterieren (auch umbenannte)
+    For Each wsProj In wb.Worksheets
+        If IstProjektBlatt(wsProj) Then
+
+            ' Alte Monats-Header loeschen (Zeile 2 und 23, Spalten 2 bis 26)
+            For clearCol = 2 To 26
+                wsProj.Cells(2, clearCol).ClearContents
+                wsProj.Cells(2, clearCol).Interior.Color = RGB(0, 47, 94)
+                wsProj.Cells(23, clearCol).ClearContents
+                wsProj.Cells(23, clearCol).Interior.Color = RGB(0, 124, 193)
+            Next clearCol
+
+            ' Neue Header mit voller Formatierung schreiben (Zeile 2 = Gantt-Header)
+            For col = 0 To anzahlMonate - 1
+                With wsProj.Cells(2, col + 2)
+                    .NumberFormat = "@"
+                    .Value = monate(col)
+                    .Font.Bold = True
+                    .Font.Color = RGB(255, 255, 255)
+                    .Interior.Color = RGB(0, 47, 94)
+                    .HorizontalAlignment = xlCenter
+                    .VerticalAlignment = xlCenter
+                End With
+                ' Zeile 23 = FTE-Header
+                With wsProj.Cells(23, col + 2)
+                    .NumberFormat = "@"
+                    .Value = monate(col)
+                    .Font.Bold = True
+                    .Font.Color = RGB(255, 255, 255)
+                    .Interior.Color = RGB(0, 124, 193)
+                    .HorizontalAlignment = xlCenter
+                End With
+            Next col
+        End If
+    Next wsProj
+
+    ' Gesamtuebersicht komplett neu aufbauen (Header + Projektzeilen + Summe)
+    Call Baue_Gesamtuebersicht(wb)
+
+    MsgBox "Monate wurden angepasst - Projektdaten bleiben erhalten!" & vbNewLine & _
+           "Startmonat: " & monate(0) & "  |  Anzahl: " & anzahlMonate, _
+           vbInformation, "Update erfolgreich"
+End Sub
+
+' =========================================================================
+' 6. WEITERES PROJEKT HINZUFUEGEN (fuer > 12 Projekte)
+'    Dupliziert die Struktur/Formatierung eines bestehenden Projektblatts
+'    (per Sheet-Copy, dadurch bleiben bedingte Formatierung, Formeln und
+'    Spaltenbreiten exakt erhalten) und leert nur die Eingabebereiche.
+'    Kann beliebig oft aufgerufen werden - es gibt keine Obergrenze.
+' =========================================================================
+Sub Neues_Projekt_Hinzufuegen()
+    Dim wb As Workbook
+    Dim wsTemplate As Worksheet
+    Dim wsNeu As Worksheet
+    Dim wsProj As Worksheet
+    Dim anzahlBestehend As Long
+    Dim neuerName As String
+    Dim monate As Variant
+    Dim anzahlMonate As Integer
+    Dim lastCol As Integer
+    Dim colLetter As String
+    Dim n As Long
+
+    Set wb = ActiveWorkbook
+
+    ' Letztes vorhandenes Projektblatt als Vorlage nehmen (garantiert korrekte
+    ' Struktur, bedingte Formatierung und Formeln)
+    anzahlBestehend = 0
+    For Each wsProj In wb.Worksheets
+        If IstProjektBlatt(wsProj) Then
+            Set wsTemplate = wsProj
+            anzahlBestehend = anzahlBestehend + 1
+        End If
+    Next wsProj
+
+    If wsTemplate Is Nothing Then
+        MsgBox "Kein bestehendes Projektblatt gefunden." & vbNewLine & _
+               "Bitte zuerst 'Erstelle_Komplettes_Planungs_Tool' ausfuehren.", _
+               vbExclamation, "Neues Projekt"
+        Exit Sub
+    End If
+
+    ' Naechsten freien Namen "Projekt NN" ermitteln (ueberspringt bereits
+    ' vergebene bzw. umbenannte Blaetter)
+    n = anzahlBestehend + 1
+    neuerName = "Projekt " & Format(n, "00")
+    Do While Blatt_Existiert(wb, neuerName)
+        n = n + 1
+        neuerName = "Projekt " & Format(n, "00")
+    Loop
+
+    wsTemplate.Copy After:=wb.Worksheets(wb.Worksheets.Count)
+    Set wsNeu = wb.Worksheets(wb.Worksheets.Count)
+    wsNeu.Name = neuerName
+
+    monate = Lese_Monate(wb)
+    anzahlMonate = UBound(monate) + 1
+    lastCol = 1 + anzahlMonate
+    colLetter = Split(wsNeu.Cells(1, lastCol).Address, "$")(1)
+
+    ' Titelzeile auf den neuen Namen setzen
+    With wsNeu.Range("A1")
+        .Value = neuerName
+    End With
+
+    ' Eingabebereiche leeren (Gantt-Kuerzel + FTE-Werte); Formeln, Formatierung
+    ' und bedingte Formatierung der Vorlage bleiben unveraendert erhalten
+    wsNeu.Range("B4:" & colLetter & "21").ClearContents
+    wsNeu.Range("B24:" & colLetter & "26").ClearContents
+
+    ' Teilprojekt-Namen und Summenzeile zuruecksetzen
+    wsNeu.Cells(4, 1).Value = "Teilprojekt 1"
+    wsNeu.Cells(10, 1).Value = "Teilprojekt 2"
+    wsNeu.Cells(16, 1).Value = "Teilprojekt 3"
+    wsNeu.Cells(24, 1).Value = "Teilprojekt 1"
+    wsNeu.Cells(25, 1).Value = "Teilprojekt 2"
+    wsNeu.Cells(26, 1).Value = "Teilprojekt 3"
+    wsNeu.Cells(27, 1).Value = "SUMME " & UCase(neuerName)
+
+    ' Gesamtuebersicht um das neue Projekt erweitern
+    Call Baue_Gesamtuebersicht(wb)
+
+    wsNeu.Activate
+    MsgBox "Neues Projektblatt '" & neuerName & "' wurde erstellt." & vbNewLine & _
+           "Die Gesamtuebersicht wurde automatisch ergaenzt." & vbNewLine & vbNewLine & _
+           "Du kannst das Blatt jederzeit umbenennen und mit Gantt-Kuerzeln / FTE befuellen.", _
+           vbInformation, "Projekt hinzugefuegt"
+End Sub
+
+Private Function Blatt_Existiert(wb As Workbook, name As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = wb.Worksheets(name)
+    On Error GoTo 0
+    Blatt_Existiert = Not (ws Is Nothing)
+End Function
+
+' =========================================================================
+' 7. GESAMTUEBERSICHT MANUELL AKTUALISIEREN
+'    Fuer den Fall, dass Projektblaetter manuell kopiert, umbenannt oder
+'    geloescht wurden, ohne "Neues_Projekt_Hinzufuegen" zu benutzen.
+' =========================================================================
+Sub Aktualisiere_Gesamtuebersicht()
+    Dim wb As Workbook
+    Dim anzahl As Long
+    Dim ws As Worksheet
+
+    Set wb = ActiveWorkbook
+    anzahl = 0
+    For Each ws In wb.Worksheets
+        If IstProjektBlatt(ws) Then anzahl = anzahl + 1
+    Next ws
+
+    Call Baue_Gesamtuebersicht(wb)
+
+    MsgBox "Gesamtuebersicht wurde neu aufgebaut (" & anzahl & " Projekte gefunden).", _
+           vbInformation, "Gesamtuebersicht aktualisiert"
+End Sub

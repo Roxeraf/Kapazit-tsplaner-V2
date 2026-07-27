@@ -12,7 +12,7 @@ export default function JiraProjects() {
       .jiraStatus()
       .then((status) => {
         setJiraStatus(status);
-        if (!status.configured) return [];
+        if (!status.configured) return;
         return api.jiraListProjects().then(setProjects);
       })
       .catch((e) => setError(String(e)));

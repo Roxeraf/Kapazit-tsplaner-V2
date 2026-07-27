@@ -37,7 +37,7 @@ export default function ProjectDetail() {
       .jiraStatus()
       .then((status) => {
         setJiraConfigured(status.configured);
-        if (!status.configured) return [];
+        if (!status.configured) return;
         return api.jiraListProjects().then((all) => setRelevantJiraProjects(all.filter((p) => p.relevant)));
       })
       .catch(() => setJiraConfigured(false));

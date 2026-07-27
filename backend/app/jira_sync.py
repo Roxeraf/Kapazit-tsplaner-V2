@@ -37,6 +37,18 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
     else:
         raw_worklogs = jira_client.fetch_worklogs_for_component(project.jira_component, since)
 
+    # Der Cache kennt nur eine Zeile je (Person, Ticket, Tag) — Tempo erlaubt aber mehrere
+    # Buchungen am selben Tag/Ticket (z.B. vormittags/nachmittags getrennt). Vor dem Speichern
+    # zusammenrechnen, statt mit doppeltem Schlüssel gegen den Unique-Constraint zu laufen.
+    aggregiert: dict[tuple[str, str, str], dict] = {}
+    for wl in raw_worklogs:
+        key = (wl["issue_key"], wl["author_account_id"], wl["started"])
+        if key in aggregiert:
+            aggregiert[key]["stunden"] += wl["stunden"]
+        else:
+            aggregiert[key] = dict(wl)
+    raw_worklogs = list(aggregiert.values())
+
     known_account_ids = {
         m.jira_account_id
         for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))

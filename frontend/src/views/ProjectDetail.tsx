@@ -71,34 +71,39 @@ export default function ProjectDetail() {
   const linkedJiraProjectName =
     relevantJiraProjects.find((p) => p.key === project?.jira_project_key)?.name ?? project?.jira_project_key;
 
-  const handlePhaseChange = async (subprojectId: number, monat: string, codes: PhaseCode[]) => {
-    await api.setPhasen(subprojectId, monat, codes);
-    load();
-  };
-
   const handleFteChange = async (subprojectId: number, monat: string, raw: string) => {
     const value = Number(raw);
     await api.setFte(subprojectId, monat, Number.isFinite(value) ? value : 0);
     load();
   };
 
-  const handleProjectPhaseChange = async (monat: string, codes: PhaseCode[]) => {
+  // Ein Klick ist ein Drag der Länge 1: beides läuft über denselben Commit-Pfad, der erst am
+  // Ende (mouseup) die betroffenen Monate nacheinander speichert und dann einmal neu lädt —
+  // sonst würde jede Zelle während des Ziehens einen eigenen Request+Reload auslösen.
+  const commitProjectPhaseDrag = async (code: PhaseCode, changes: Record<string, boolean>) => {
     if (!project) return;
-    await api.setProjectPhasen(project.id, monat, codes);
+    for (const [monat, makeActive] of Object.entries(changes)) {
+      const current = project.phasen[monat] ?? [];
+      if (current.includes(code) === makeActive) continue;
+      const next = makeActive ? [...current, code] : current.filter((c) => c !== code);
+      await api.setProjectPhasen(project.id, monat, next);
+    }
     load();
   };
 
-  const toggleProjectPhase = (monat: string, code: PhaseCode) => {
-    if (!project) return;
-    const current = project.phasen[monat] ?? [];
-    const next = current.includes(code) ? current.filter((c) => c !== code) : [...current, code];
-    handleProjectPhaseChange(monat, next);
-  };
-
-  const toggleSubprojectPhase = (subprojectId: number, phasen: Record<string, PhaseCode[]>, monat: string, code: PhaseCode) => {
-    const current = phasen[monat] ?? [];
-    const next = current.includes(code) ? current.filter((c) => c !== code) : [...current, code];
-    handlePhaseChange(subprojectId, monat, next);
+  const commitSubprojectPhaseDrag = async (
+    subprojectId: number,
+    phasen: Record<string, PhaseCode[]>,
+    code: PhaseCode,
+    changes: Record<string, boolean>,
+  ) => {
+    for (const [monat, makeActive] of Object.entries(changes)) {
+      const current = phasen[monat] ?? [];
+      if (current.includes(code) === makeActive) continue;
+      const next = makeActive ? [...current, code] : current.filter((c) => c !== code);
+      await api.setPhasen(subprojectId, monat, next);
+    }
+    load();
   };
 
   const handleProjectFteChange = async (monat: string, raw: string) => {
@@ -304,7 +309,7 @@ export default function ProjectDetail() {
             </tr>
           </thead>
           <tbody>
-            <PhaseRows phasen={project.phasen} monate={monate} onToggle={toggleProjectPhase} />
+            <PhaseRows phasen={project.phasen} monate={monate} onCommit={commitProjectPhaseDrag} />
             <tr>
               <td className="label">FTE (Soll){project.fte_aus_teilprojekten && " (Σ Teilprojekte)"}</td>
               {monate.map((m) =>
@@ -363,7 +368,7 @@ export default function ProjectDetail() {
               <PhaseRows
                 phasen={sp.phasen}
                 monate={monate}
-                onToggle={(m, code) => toggleSubprojectPhase(sp.id, sp.phasen, m, code)}
+                onCommit={(code, changes) => commitSubprojectPhaseDrag(sp.id, sp.phasen, code, changes)}
               />
               <tr>
                 <td className="label">FTE (Soll)</td>
@@ -404,15 +409,50 @@ export default function ProjectDetail() {
   );
 }
 
+interface Drag {
+  code: PhaseCode;
+  makeActive: boolean;
+  changes: Record<string, boolean>;
+}
+
 function PhaseRows({
   phasen,
   monate,
-  onToggle,
+  onCommit,
 }: {
   phasen: Record<string, PhaseCode[]>;
   monate: string[];
-  onToggle: (monat: string, code: PhaseCode) => void;
+  onCommit: (code: PhaseCode, changes: Record<string, boolean>) => void;
 }) {
+  const [drag, setDrag] = useState<Drag | null>(null);
+
+  // Drag endet, sobald die Maustaste irgendwo losgelassen wird (auch außerhalb der Tabelle).
+  useEffect(() => {
+    if (!drag) return;
+    const finish = () => {
+      onCommit(drag.code, drag.changes);
+      setDrag(null);
+    };
+    window.addEventListener("mouseup", finish);
+    return () => window.removeEventListener("mouseup", finish);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag]);
+
+  const isActive = (code: PhaseCode, monat: string) => {
+    if (drag && drag.code === code && monat in drag.changes) return drag.changes[monat];
+    return (phasen[monat] ?? []).includes(code);
+  };
+
+  const startDrag = (code: PhaseCode, monat: string) => {
+    const makeActive = !(phasen[monat] ?? []).includes(code);
+    setDrag({ code, makeActive, changes: { [monat]: makeActive } });
+  };
+
+  const enterDrag = (code: PhaseCode, monat: string) => {
+    if (!drag || drag.code !== code || monat in drag.changes) return;
+    setDrag({ ...drag, changes: { ...drag.changes, [monat]: drag.makeActive } });
+  };
+
   return (
     <>
       {PHASE_CODES.map((code) => (
@@ -422,12 +462,16 @@ function PhaseRows({
             {PHASE_LABELS[code]}
           </td>
           {monate.map((m) => {
-            const active = (phasen[m] ?? []).includes(code);
+            const active = isActive(code, m);
             return (
               <td key={m} style={{ padding: "3px" }}>
                 <button
                   type="button"
-                  onClick={() => onToggle(m, code)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    startDrag(code, m);
+                  }}
+                  onMouseEnter={() => enterDrag(code, m)}
                   aria-label={`${PHASE_LABELS[code]} ${m} ${active ? "entfernen" : "setzen"}`}
                   style={{
                     display: "block",
@@ -437,6 +481,7 @@ function PhaseRows({
                     background: active ? PHASE_COLORS[code] : "transparent",
                     borderRadius: "3px",
                     cursor: "pointer",
+                    userSelect: "none",
                   }}
                 />
               </td>

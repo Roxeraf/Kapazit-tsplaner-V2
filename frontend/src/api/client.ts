@@ -12,6 +12,7 @@ import type {
   Team,
   TeamMember,
   TeamWithMembers,
+  UnassignedAuthor,
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -88,6 +89,7 @@ export const api = {
 
   // Team-Kapazität
   listTeams: () => request<TeamWithMembers[]>("/team"),
+  listUnassignedAuthors: () => request<UnassignedAuthor[]>("/team/unassigned-authors"),
   createTeam: (name: string) =>
     request<Team>("/team/teams", { method: "POST", body: JSON.stringify({ name }) }),
   updateTeam: (teamId: number, payload: { name?: string }) =>

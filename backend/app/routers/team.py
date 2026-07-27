@@ -90,6 +90,24 @@ def delete_team(team_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+@router.get("/unassigned-authors", response_model=list[schemas.UnassignedAuthorOut])
+def list_unassigned_authors(db: Session = Depends(get_db)):
+    """Personen, die laut Jira/Tempo-Worklogs schon gebucht haben, aber noch kein Teammitglied
+    sind (siehe jira_sync.sync_project) — zum Team-Aufbau per Klick statt manueller Suche."""
+    bereits_mitglied = {
+        row[0]
+        for row in db.query(models.TeamMember.jira_account_id).filter(
+            models.TeamMember.jira_account_id.isnot(None)
+        )
+    }
+    rows = db.query(models.UnassignedJiraAuthor).order_by(models.UnassignedJiraAuthor.display_name).all()
+    return [
+        schemas.UnassignedAuthorOut(account_id=r.jira_account_id, display_name=r.display_name)
+        for r in rows
+        if r.jira_account_id not in bereits_mitglied
+    ]
+
+
 @router.get("/members", response_model=list[schemas.TeamMemberOut])
 def list_members(db: Session = Depends(get_db)):
     members = db.query(models.TeamMember).order_by(models.TeamMember.name).all()

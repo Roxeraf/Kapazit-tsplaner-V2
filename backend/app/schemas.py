@@ -138,6 +138,11 @@ class TeamMemberOut(BaseModel):
     assignments: list[AssignmentOut]
 
 
+class UnassignedAuthorOut(BaseModel):
+    account_id: str
+    display_name: str
+
+
 class TeamWithMembers(TeamOut):
     members: list[TeamMemberOut]
 

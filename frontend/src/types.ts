@@ -112,6 +112,11 @@ export interface JiraAccountMatch {
   email: string | null;
 }
 
+export interface UnassignedAuthor {
+  account_id: string;
+  display_name: string;
+}
+
 export type JiraProjectStatus = "aktiv" | "on_hold" | "beendet";
 
 export const JIRA_PROJECT_STATUS_LABELS: Record<JiraProjectStatus, string> = {

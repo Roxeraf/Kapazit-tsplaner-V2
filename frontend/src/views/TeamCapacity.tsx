@@ -7,6 +7,7 @@ import type {
   JiraSyncResult,
   SubprojectListItem,
   TeamWithMembers,
+  UnassignedAuthor,
 } from "../types";
 
 export default function TeamCapacity() {
@@ -16,6 +17,7 @@ export default function TeamCapacity() {
   const [syncResult, setSyncResult] = useState<JiraSyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unassignedAuthors, setUnassignedAuthors] = useState<UnassignedAuthor[]>([]);
 
   const [newTeamName, setNewTeamName] = useState("");
   const [memberName, setMemberName] = useState("");
@@ -26,11 +28,12 @@ export default function TeamCapacity() {
   const [jiraMatches, setJiraMatches] = useState<JiraAccountMatch[]>([]);
 
   const load = () => {
-    Promise.all([api.listTeams(), api.listAllSubprojects(), api.jiraStatus()])
-      .then(([t, s, j]) => {
+    Promise.all([api.listTeams(), api.listAllSubprojects(), api.jiraStatus(), api.listUnassignedAuthors()])
+      .then(([t, s, j, u]) => {
         setTeams(t);
         setSubprojects(s);
         setJiraStatus(j);
+        setUnassignedAuthors(u);
       })
       .catch((e) => setError(String(e)));
   };
@@ -109,6 +112,16 @@ export default function TeamCapacity() {
     load();
   };
 
+  const handleCreateFromAuthor = async (author: UnassignedAuthor, wochenstunden: number) => {
+    await api.createMember({
+      name: author.display_name,
+      jira_account_id: author.account_id,
+      wochenstunden,
+      team_id: null,
+    });
+    load();
+  };
+
   return (
     <div>
       <div className="toolbar">
@@ -183,6 +196,20 @@ export default function TeamCapacity() {
             hinterlegte Jira-Account-ID unten in der Teammitglieder-Liste — deshalb kann die Buchung
             keinem Wochenstunden-Wert zugeordnet werden und fließt nicht in die Ist-FTE ein.
           </p>
+        </div>
+      )}
+
+      {unassignedAuthors.length > 0 && (
+        <div className="card" style={{ marginTop: "1rem" }}>
+          <strong>Personen aus Buchungen ohne Teammitglied</strong>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0.25rem 0 0.75rem" }}>
+            Diese Namen kommen aus Jira/Tempo-Zeitbuchungen (Klarname automatisch aufgelöst) und
+            haben noch keinen Teameintrag — Wochenstunden prüfen und anlegen, dann verschwinden
+            sie aus dieser Liste.
+          </p>
+          {unassignedAuthors.map((author) => (
+            <UnassignedAuthorRow key={author.account_id} author={author} onCreate={handleCreateFromAuthor} />
+          ))}
         </div>
       )}
 
@@ -298,6 +325,44 @@ export default function TeamCapacity() {
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+function UnassignedAuthorRow({
+  author,
+  onCreate,
+}: {
+  author: UnassignedAuthor;
+  onCreate: (author: UnassignedAuthor, wochenstunden: number) => void;
+}) {
+  const [wochenstunden, setWochenstunden] = useState(40);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "0.6rem",
+        padding: "0.4rem 0",
+        borderTop: "1px solid var(--border)",
+      }}
+    >
+      <span style={{ flex: 1 }}>{author.display_name}</span>
+      <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+        Wochenstunden
+        <input
+          type="number"
+          min={1}
+          max={48}
+          value={wochenstunden}
+          onChange={(e) => setWochenstunden(Number(e.target.value))}
+          style={{ width: "4rem" }}
+        />
+      </label>
+      <button type="button" className="btn secondary" onClick={() => onCreate(author, wochenstunden)}>
+        + Teammitglied anlegen
+      </button>
     </div>
   );
 }

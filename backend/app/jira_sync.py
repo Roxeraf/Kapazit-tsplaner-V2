@@ -56,10 +56,12 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
 
     gespeichert = 0
     unzugeordnet = 0
+    unzugeordnete_accounts: dict[str, str] = {}
     unbekannte_beispiele: dict[str, str] = {}
     for wl in raw_worklogs:
         if wl["author_account_id"] not in known_account_ids:
             unzugeordnet += 1
+            unzugeordnete_accounts.setdefault(wl["author_account_id"], wl["author_display_name"])
             if len(unbekannte_beispiele) < MAX_UNBEKANNTE_BEISPIELE:
                 unbekannte_beispiele.setdefault(wl["author_account_id"], wl["author_display_name"])
             continue
@@ -83,6 +85,18 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
         entry.stunden = wl["stunden"]
         entry.projekt_mapping = str(project.id)
         gespeichert += 1
+
+    # Neue unbekannte Autoren mit aufgelöstem Klarnamen persistieren, für die Übersicht
+    # "Personen aus Buchungen ohne Teammitglied" in der Team-Kapazität-Ansicht. Tempo liefert
+    # selbst keinen Namen (siehe tempo_client.py), deshalb hier per Jira auflösen — aber nur für
+    # Accounts, die wir noch nicht kennen, damit nicht bei jedem Sync erneut aufgelöst wird.
+    bereits_erfasst = {row[0] for row in db.query(models.UnassignedJiraAuthor.jira_account_id).all()}
+    for account_id in unzugeordnete_accounts.keys() - bereits_erfasst:
+        try:
+            display_name = jira_client.get_user(account_id).get("displayName", unzugeordnete_accounts[account_id])
+        except Exception:  # noqa: BLE001 – Name ist nur Anzeigesache, Sync darf trotzdem gelingen
+            display_name = unzugeordnete_accounts[account_id]
+        db.add(models.UnassignedJiraAuthor(jira_account_id=account_id, display_name=display_name))
 
     db.commit()
     return (

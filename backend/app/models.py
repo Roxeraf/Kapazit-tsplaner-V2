@@ -159,6 +159,20 @@ class Assignment(Base):
     subproject: Mapped["Subproject"] = relationship(back_populates="assignments")
 
 
+class UnassignedJiraAuthor(Base):
+    """Autoren aus Jira/Tempo-Worklogs ohne bekanntes Teammitglied (siehe jira_sync.sync_project).
+
+    Wird bei jedem Sync ergänzt, damit auf der Team-Kapazität-Seite direkt sichtbar ist, wer
+    schon gebucht hat, aber noch nicht als Teammitglied angelegt ist — inkl. per Jira aufgelöstem
+    Klarnamen (Tempo-Worklogs liefern selbst nur die Account-ID, siehe tempo_client.py).
+    """
+
+    __tablename__ = "unassigned_jira_authors"
+
+    jira_account_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+
+
 class JiraWorklogCache(Base):
     """Ist-Daten aus Jira (Worklog-Sync, Phase 2)."""
 

@@ -109,6 +109,15 @@ def search_users(query: str) -> list[dict]:
         return resp.json()
 
 
+def get_user(account_id: str) -> dict:
+    """Klarname zu einer Jira-Account-ID — Worklogs (v.a. über Tempo) liefern nur die ID,
+    keinen Namen. Für die Anzeige "wer hat gebucht" in der Team-Kapazität-Ansicht."""
+    with _client() as client:
+        resp = client.get("/rest/api/3/user", params={"accountId": account_id})
+        resp.raise_for_status()
+        return resp.json()
+
+
 def search_issues_for_component(component: str, since: str) -> list[dict]:
     """Issues (Key + numerische ID) mit gegebener Jira-Component oder -Label seit `since`.
 

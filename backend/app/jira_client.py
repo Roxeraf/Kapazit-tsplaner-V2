@@ -49,18 +49,21 @@ def fetch_worklogs_for_component(component: str, since: str) -> list[dict]:
 
     with _client() as client:
         issue_keys: list[str] = []
-        start_at = 0
+        next_page_token: str | None = None
         while True:
-            resp = client.get(
-                "/rest/api/3/search",
-                params={"jql": jql, "fields": "key", "startAt": start_at, "maxResults": 100},
-            )
+            # Atlassian hat GET /rest/api/3/search Ende 2025 abgeschaltet (liefert seither
+            # 410 Gone). Nachfolger ist POST /rest/api/3/search/jql mit Cursor-Pagination
+            # (nextPageToken) statt startAt/total.
+            body: dict = {"jql": jql, "fields": ["key"], "maxResults": 100}
+            if next_page_token:
+                body["nextPageToken"] = next_page_token
+            resp = client.post("/rest/api/3/search/jql", json=body)
             resp.raise_for_status()
             data = resp.json()
             issues = data.get("issues", [])
             issue_keys.extend(issue["key"] for issue in issues)
-            start_at += len(issues)
-            if not issues or start_at >= data.get("total", 0):
+            next_page_token = data.get("nextPageToken")
+            if not issues or not next_page_token:
                 break
 
         worklogs: list[dict] = []

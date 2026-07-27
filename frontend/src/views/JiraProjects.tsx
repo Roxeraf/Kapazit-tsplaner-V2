@@ -5,37 +5,45 @@ import { JIRA_PROJECT_STATUS_LABELS, type JiraProject, type JiraProjectStatus, t
 export default function JiraProjects() {
   const [jiraStatus, setJiraStatus] = useState<JiraStatus | null>(null);
   const [projects, setProjects] = useState<JiraProject[]>([]);
+  const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => {
+  const load = (query?: string) => {
     api
       .jiraStatus()
       .then((status) => {
         setJiraStatus(status);
         if (!status.configured) return;
-        return api.jiraListProjects().then(setProjects);
+        return api.jiraListProjects(query).then(setProjects);
       })
       .catch((e) => setError(String(e)));
   };
 
-  useEffect(load, []);
+  useEffect(() => load(), []);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => load(search || undefined), 300);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const handleRelevantChange = async (project: JiraProject, relevant: boolean) => {
     await api.jiraSetProject(project.key, { relevant, status: project.status });
-    load();
+    load(search || undefined);
   };
 
   const handleStatusChange = async (project: JiraProject, status: JiraProjectStatus) => {
     await api.jiraSetProject(project.key, { relevant: project.relevant, status });
-    load();
+    load(search || undefined);
   };
 
   return (
     <div>
       <h2 className="section-title">Jira-Projekte</h2>
       <p style={{ color: "var(--text-muted)" }}>
-        Auswahl, welche Jira-Projekte im Kapazitätsplaner geplant werden. Nur relevant markierte
-        Projekte tauchen im Component-Picker im Projekt-Detail auf.
+        Auswahl, welche Jira-Projekte im Kapazitätsplaner geplant werden. Beim Aktivieren wird
+        automatisch ein Kapa-Projekt angelegt (taucht dann im Portfolio auf); die Component/Label-
+        Zuordnung erfolgt danach im Projekt-Detail.
       </p>
 
       {error && <p style={{ color: "var(--rot)" }}>{error}</p>}
@@ -43,6 +51,16 @@ export default function JiraProjects() {
 
       {jiraStatus?.configured && (
         <div className="card">
+          <div className="field-row" style={{ marginTop: 0, marginBottom: "0.75rem" }}>
+            <label>
+              Suche
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Name oder Key"
+              />
+            </label>
+          </div>
           <table className="planner">
             <thead>
               <tr>
@@ -52,6 +70,13 @@ export default function JiraProjects() {
               </tr>
             </thead>
             <tbody>
+              {projects.length === 0 && (
+                <tr>
+                  <td colSpan={3} style={{ color: "var(--text-muted)" }}>
+                    Keine Jira-Projekte gefunden.
+                  </td>
+                </tr>
+              )}
               {projects.map((p) => (
                 <tr key={p.key}>
                   <td className="label">

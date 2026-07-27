@@ -113,7 +113,8 @@ export const api = {
     request<JiraSyncResult>(`/jira/sync${projectId ? `?project_id=${projectId}` : ""}`, {
       method: "POST",
     }),
-  jiraListProjects: () => request<JiraProject[]>("/jira/projects"),
+  jiraListProjects: (query?: string) =>
+    request<JiraProject[]>(`/jira/projects${query ? `?query=${encodeURIComponent(query)}` : ""}`),
   jiraSetProject: (key: string, payload: { relevant: boolean; status: JiraProjectStatus }) =>
     request<JiraProject>(`/jira/projects/${encodeURIComponent(key)}`, {
       method: "PUT",

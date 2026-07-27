@@ -23,6 +23,9 @@ class Project(Base):
     # Auf Projekt- statt Teilprojekt-Ebene, da Teilprojekte nur die Feinplanung innerhalb
     # eines Projekts sind und kein eigenes Jira-Gegenstück haben.
     jira_component: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Jira-Projekt-Key, falls dieses Kapa-Projekt aus dem Jira-Projekt-Katalog (Abschnitt 10 in
+    # CONCEPT.md) automatisch angelegt wurde — verhindert Doppelanlage beim erneuten Aktivieren.
+    jira_project_key: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)
 
     subprojects: Mapped[list["Subproject"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Subproject.reihenfolge"

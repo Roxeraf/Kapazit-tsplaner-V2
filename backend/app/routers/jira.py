@@ -4,6 +4,8 @@ Siehe CONCEPT.md Abschnitt 4. Ohne JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN bleib
 der Sync deaktiviert (Projekt-/FTE-Planung funktioniert unabhängig davon weiter).
 """
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -47,12 +49,12 @@ def lookup_account(query: str = Query(..., min_length=2)):
 
 
 @router.get("/projects", response_model=list[schemas.JiraProjectOut])
-def list_jira_projects(db: Session = Depends(get_db)):
-    """Alle Jira-Projekte, gemischt mit lokalem "wird geplant"/Status-Flag (siehe Katalog)."""
+def list_jira_projects(query: str | None = None, db: Session = Depends(get_db)):
+    """Alle (oder per `query` gefilterte) Jira-Projekte, gemischt mit lokalem Katalog-Flag."""
     if not jira_client.is_configured():
         raise HTTPException(status_code=409, detail="Jira ist nicht konfiguriert.")
     try:
-        jira_projects = jira_client.list_projects()
+        jira_projects = jira_client.list_projects(query)
     except Exception as exc:  # noqa: BLE001 – Jira-Fehlermeldung 1:1 durchreichen
         raise HTTPException(status_code=502, detail=f"Jira-Anfrage fehlgeschlagen: {exc}") from exc
 
@@ -70,21 +72,38 @@ def list_jira_projects(db: Session = Depends(get_db)):
 
 @router.put("/projects/{project_key}", response_model=schemas.JiraProjectOut)
 def set_jira_project(project_key: str, payload: schemas.JiraProjectUpdate, db: Session = Depends(get_db)):
-    """Markiert ein Jira-Projekt als "wird geplant" (oder nicht) und setzt den Status."""
-    entry = db.get(models.JiraProjectCatalog, project_key)
-    if entry is None:
-        entry = models.JiraProjectCatalog(jira_project_key=project_key)
-        db.add(entry)
-    entry.relevant = payload.relevant
-    entry.status = payload.status
-    db.commit()
+    """Markiert ein Jira-Projekt als "wird geplant" (oder nicht) und setzt den Status.
 
+    Beim erstmaligen Aktivieren (relevant=true) wird automatisch ein Kapa-Projekt angelegt,
+    damit das Jira-Projekt in der Portfolio-Ansicht auftaucht (siehe CONCEPT.md Abschnitt 10).
+    """
     name = project_key
     if jira_client.is_configured():
         try:
             name = next((p["name"] for p in jira_client.list_projects() if p["key"] == project_key), project_key)
         except Exception:  # noqa: BLE001 – Name ist nur Anzeigesache, Katalog-Update darf trotzdem gelingen
             pass
+
+    entry = db.get(models.JiraProjectCatalog, project_key)
+    if entry is None:
+        entry = models.JiraProjectCatalog(jira_project_key=project_key)
+        db.add(entry)
+    entry.relevant = payload.relevant
+    entry.status = payload.status
+
+    if payload.relevant:
+        existing = db.query(models.Project).filter(models.Project.jira_project_key == project_key).first()
+        if existing is None:
+            heute = date.today()
+            db.add(
+                models.Project(
+                    name=name,
+                    start_monat=f"{heute.month:02d}.{heute.year}",
+                    jira_project_key=project_key,
+                )
+            )
+
+    db.commit()
     return schemas.JiraProjectOut(key=project_key, name=name, relevant=entry.relevant, status=entry.status)
 
 

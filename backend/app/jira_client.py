@@ -31,16 +31,20 @@ def _client() -> httpx.Client:
     )
 
 
-def list_projects() -> list[dict]:
-    """Alle Jira-Projekte (Key + Name), für den Auswahlkatalog in `/jira/projects`."""
+def list_projects(query: str | None = None) -> list[dict]:
+    """Jira-Projekte (Key + Name), für den Auswahlkatalog in `/jira/projects`.
+
+    `query` filtert serverseitig auf Name/Key (Jira-Substring-Suche), damit auch bei vielen
+    Projekten nicht immer alles geladen werden muss.
+    """
     with _client() as client:
         projects: list[dict] = []
         start_at = 0
         while True:
-            resp = client.get(
-                "/rest/api/3/project/search",
-                params={"startAt": start_at, "maxResults": 50},
-            )
+            params = {"startAt": start_at, "maxResults": 50}
+            if query:
+                params["query"] = query
+            resp = client.get("/rest/api/3/project/search", params=params)
             resp.raise_for_status()
             data = resp.json()
             values = data.get("values", [])

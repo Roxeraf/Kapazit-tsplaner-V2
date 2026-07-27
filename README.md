@@ -6,9 +6,10 @@ BUILD-Bereich des plx.crew Portals. Konzept und Architektur: [`CONCEPT.md`](CONC
 
 Dieses Repo enthält Projekt-/FTE-Planung als Web-Formular (inkl. Schulungsphase),
 PPTX-Export über das bestehende Node-Skript, die Jira-Ist-Integration
-(Worklog-Sync + Ist-FTE je Projekt) und die Team-Kapazität (MA-/Team-Stammdaten,
-Zuordnung MA ↔ Teilprojekt). Nur die Gap-Analyse/Hochrechnung ist noch nicht
-umgesetzt — siehe `CONCEPT.md` Abschnitt 11.
+(Worklog-Sync + Ist-FTE je Projekt), die Team-Kapazität (MA-/Team-Stammdaten,
+Zuordnung MA ↔ Teilprojekt) sowie die Soll-Ist-Gap-Analyse mit Hochrechnung
+(Trendfortschreibung) je Projekt, inkl. Mini-Gap-Indikator im Portfolio-Dashboard
+— siehe `CONCEPT.md` Abschnitt 11.
 
 ## Struktur
 
@@ -87,7 +88,9 @@ npm run dev
 | `GET /jira/status` | Prüft, ob `JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` gesetzt sind |
 | `GET /jira/lookup-account?query=` | Jira-Nutzersuche (für `team_members.jira_account_id`) |
 | `POST /jira/sync` | Worklog-Sync für alle (oder ein) Projekt(e) mit gesetzter `jira_component` |
-| `GET /gap`, `/forecast` | Platzhalter für Gap-Analyse/Hochrechnung (siehe CONCEPT.md) |
+| `GET /gap` | Soll/Ist/Gap je Monat und Projekt inkl. Hochrechnung (Trendfortschreibung), optional `?team_id=` |
+| `GET /gap/{project_id}` | Gap-Analyse für ein einzelnes Projekt |
+| `GET /forecast` | Hochrechnung Jahresende/Projektende je Projekt (Kurzform von `/gap`), optional `?team_id=` |
 
 ## Migration bestehender Excel-Daten
 

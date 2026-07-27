@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { ProjectSummary } from "../types";
+import type { ForecastSummary, GapStatus, ProjectSummary } from "../types";
 
 export default function PortfolioDashboard() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [gapByProject, setGapByProject] = useState<Record<number, GapStatus>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -21,6 +22,12 @@ export default function PortfolioDashboard() {
       .then(setProjects)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+    api
+      .getForecast()
+      .then((rows: ForecastSummary[]) =>
+        setGapByProject(Object.fromEntries(rows.map((r) => [r.project_id, r.status]))),
+      )
+      .catch(() => undefined); // Mini-Indikator ist optional, kein Blocker fürs Dashboard
   };
 
   useEffect(load, []);
@@ -98,7 +105,16 @@ export default function PortfolioDashboard() {
       <div className="project-grid">
         {projects.map((p) => (
           <Link key={p.id} to={`/projekte/${p.id}`} className="project-card card">
-            <h3>{p.name}</h3>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+              <h3 style={{ margin: 0 }}>{p.name}</h3>
+              {gapByProject[p.id] && (
+                <span
+                  className={`gap-status-dot gap-dot--${gapByProject[p.id]}`}
+                  style={{ width: "10px", height: "10px", flexShrink: 0 }}
+                  title={`Gap-Analyse: ${gapByProject[p.id]}`}
+                />
+              )}
+            </div>
             {p.kunde && <p className="kunde">{p.kunde}</p>}
             <p className="zeitraum">
               {p.monate[0]} – {p.monate[p.monate.length - 1]}

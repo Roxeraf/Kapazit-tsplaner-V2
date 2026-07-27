@@ -8,6 +8,14 @@
   --text: #1c2b3a;
   --text-muted: #5c7089;
 
+  --gruen: #1e8a4c;
+  --gelb: #d69a00;
+  --grau: #8a97a6;
+
+  --gap-soll: #c3d6ea;
+  --gap-ist: var(--blau);
+  --gap-hochrechnung: #f2a71b;
+
   color-scheme: light;
   font-family: "Calibri", "Segoe UI", system-ui, sans-serif;
   color: var(--text);
@@ -248,4 +256,112 @@ table.planner input.fte-input {
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 0.9rem;
+}
+
+.gap-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: #eef3fa;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.gap-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.gap-badge--gruen {
+  color: var(--gruen);
+  background: #e5f4ec;
+}
+
+.gap-badge--gelb {
+  color: var(--gelb);
+  background: #fbf1dc;
+}
+
+.gap-badge--rot {
+  color: var(--rot);
+  background: #fbe6e5;
+}
+
+.gap-badge--grau {
+  color: var(--grau);
+  background: #eef1f4;
+}
+
+.gap-dot--gruen {
+  background: var(--gruen);
+}
+
+.gap-dot--gelb {
+  background: var(--gelb);
+}
+
+.gap-dot--rot {
+  background: var(--rot);
+}
+
+.gap-dot--grau {
+  background: var(--grau);
+}
+
+.gap-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  height: 140px;
+  padding-top: 0.5rem;
+  overflow-x: auto;
+}
+
+.gap-chart-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 34px;
+  height: 100%;
+}
+
+.gap-bar-group {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.gap-bar {
+  width: 8px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+}
+
+.gap-bar--soll {
+  background: var(--gap-soll);
+}
+
+.gap-bar--ist {
+  background: var(--gap-ist);
+}
+
+.gap-bar--hochrechnung {
+  background: var(--gap-hochrechnung);
+  opacity: 0.85;
+}
+
+.gap-chart-label {
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
-from .routers import export, jira, projects, stubs, team  # noqa: F401 (registriert Modelle via projects/export)
+from .routers import export, gap, jira, projects, team  # noqa: F401 (registriert Modelle via projects/export)
 
 Base.metadata.create_all(bind=engine)
 
@@ -23,7 +23,7 @@ app.include_router(projects.router)
 app.include_router(export.router)
 app.include_router(team.router)
 app.include_router(jira.router)
-app.include_router(stubs.router)
+app.include_router(gap.router)
 
 
 @app.get("/health")

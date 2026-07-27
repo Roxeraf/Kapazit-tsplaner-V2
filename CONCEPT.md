@@ -164,7 +164,8 @@ Dieses Repo enthält:
 1. **Schritt 1 (MVP):** Projekt-/FTE-Planung als Web-Formular inkl. Schulungsphase (`s`), PPTX-Export weiter nutzbar.
 2. **Schritt 2 (Jira-Ist-Integration):** Worklog-Sync (`POST /jira/sync`) und Ist-FTE-Anzeige je Projekt/Monat (`GET /projects/{id}` liefert `ist` auf Projekt-Ebene, neben `fte` je Teilprojekt).
 3. **Schritt 4 (Team-Kapazität):** MA-/Team-Stammdaten inkl. Jira-Account-Zuordnung und Zuordnung MA ↔ Teilprojekt (`/team/*`), Voraussetzung für Schritt 2.
+4. **Schritt 3 (Gap-Analyse + Hochrechnung):** `GET /gap` (Soll/Ist/Gap je Monat und Projekt, optional `?team_id=`) und `GET /forecast` (Kurzform: eine Zeile "Hochrechnung Jahresende/Projektende" je Projekt). Hochrechnung nach Variante 1 (Trendfortschreibung, Durchschnitt der letzten 3 Ist-Monate, siehe `backend/app/gap_analysis.py`). Frontend-View **Gap-Analyse** zeigt Soll/Ist/Hochrechnung als Chart je Projekt mit Team-Filter; Portfolio-Dashboard zeigt den Mini-Gap-Indikator (grün/gelb/rot/grau) je Projektkachel.
 
 Details zu Aufbau und lokalem Betrieb siehe [`README.md`](README.md).
 
-Noch nicht umgesetzt: **Schritt 3 (Gap-Analyse/Hochrechnung)** — `GET /gap` und `/forecast` bleiben Platzhalter, ebenso Portal-SSO und der Excel-Migrationslauf für Bestandsdaten. Siehe Abschnitt 10 für offene Entscheidungen.
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO und der Excel-Migrationslauf für Bestandsdaten. Siehe Abschnitt 10 für offene Entscheidungen.

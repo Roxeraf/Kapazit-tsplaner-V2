@@ -50,6 +50,7 @@ export interface ProjectDetail extends ProjectSummary {
   aus_teilprojekten: boolean;
   ist: Record<string, number>;
   subprojects: SubprojectDetail[];
+  team_assignments: ProjectAssignment[];
 }
 
 export interface Team {
@@ -63,10 +64,16 @@ export interface TeamWithMembers extends Team {
 
 export interface Assignment {
   id: number;
-  subproject_id: number;
-  subproject_name: string;
+  project_id: number;
   project_name: string;
-  anteil: number;
+  fte: number;
+}
+
+export interface ProjectAssignment {
+  id: number;
+  team_member_id: number;
+  member_name: string;
+  fte: number;
 }
 
 export interface TeamMember {

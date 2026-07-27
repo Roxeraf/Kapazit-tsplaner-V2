@@ -61,6 +61,15 @@ class SubprojectListItem(BaseModel):
     project_name: str
 
 
+class ProjectAssignmentOut(BaseModel):
+    """Team-Zuordnung aus Sicht des Projekts (Gegenstück zu AssignmentOut aus MA-Sicht)."""
+
+    id: int
+    team_member_id: int
+    member_name: str
+    fte: float
+
+
 class ProjectDetail(ProjectSummary):
     jira_component: str | None
     jira_project_key: str | None  # gesetzt, wenn aus dem Jira-Projekt-Katalog automatisch angelegt
@@ -68,6 +77,7 @@ class ProjectDetail(ProjectSummary):
     fte: dict[str, float]  # monat -> Soll-FTE (Summe aus Teilprojekten, falls vorhanden)
     aus_teilprojekten: bool  # true = phasen/fte sind aus Teilprojekten zusammengefasst (read-only)
     ist: dict[str, float]  # monat -> Ist-FTE aus Jira-Worklogs (siehe CONCEPT.md Abschnitt 4)
+    team_assignments: list[ProjectAssignmentOut]
     subprojects: list[SubprojectDetail]
 
 
@@ -116,16 +126,15 @@ class TeamMemberUpdate(BaseModel):
 
 
 class AssignmentCreate(BaseModel):
-    subproject_id: int
-    anteil: float = 100
+    project_id: int
+    fte: float = 0
 
 
 class AssignmentOut(BaseModel):
     id: int
-    subproject_id: int
-    subproject_name: str
+    project_id: int
     project_name: str
-    anteil: float
+    fte: float
 
 
 class TeamMemberOut(BaseModel):

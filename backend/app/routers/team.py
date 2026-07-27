@@ -1,4 +1,4 @@
-"""Team-Kapazität: MA-Stammdaten, Teams und Zuordnung MA <-> Teilprojekt.
+"""Team-Kapazität: MA-Stammdaten, Teams und Zuordnung MA <-> Projekt.
 
 Voraussetzung für die Jira-Ist-Integration (siehe ../jira_sync.py): nur MA mit
 gepflegtem `jira_account_id` werden bei der FTE-Umrechnung berücksichtigt.
@@ -16,10 +16,9 @@ router = APIRouter(prefix="/team", tags=["team"])
 def _assignment_out(a: models.Assignment) -> schemas.AssignmentOut:
     return schemas.AssignmentOut(
         id=a.id,
-        subproject_id=a.subproject_id,
-        subproject_name=a.subproject.name,
-        project_name=a.subproject.project.name,
-        anteil=a.anteil,
+        project_id=a.project_id,
+        project_name=a.project.name,
+        fte=a.fte,
     )
 
 
@@ -143,14 +142,10 @@ def delete_member(member_id: int, db: Session = Depends(get_db)):
 @router.post("/members/{member_id}/assignments", response_model=schemas.TeamMemberOut, status_code=201)
 def create_assignment(member_id: int, payload: schemas.AssignmentCreate, db: Session = Depends(get_db)):
     member = _get_member_or_404(db, member_id)
-    subproject = db.get(models.Subproject, payload.subproject_id)
-    if subproject is None:
-        raise HTTPException(status_code=404, detail="Teilprojekt nicht gefunden")
-    db.add(
-        models.Assignment(
-            team_member_id=member_id, subproject_id=payload.subproject_id, anteil=payload.anteil
-        )
-    )
+    project = db.get(models.Project, payload.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+    db.add(models.Assignment(team_member_id=member_id, project_id=payload.project_id, fte=payload.fte))
     db.commit()
     db.refresh(member)
     return _member_out(member)

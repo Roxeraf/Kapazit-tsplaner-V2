@@ -89,6 +89,7 @@ export const api = {
 
   // Team-Kapazität
   listTeams: () => request<TeamWithMembers[]>("/team"),
+  listMembers: () => request<TeamMember[]>("/team/members"),
   listUnassignedAuthors: () => request<UnassignedAuthor[]>("/team/unassigned-authors"),
   createTeam: (name: string) =>
     request<Team>("/team/teams", { method: "POST", body: JSON.stringify({ name }) }),
@@ -111,10 +112,10 @@ export const api = {
     }>,
   ) => request<TeamMember>(`/team/members/${memberId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteMember: (memberId: number) => request<void>(`/team/members/${memberId}`, { method: "DELETE" }),
-  createAssignment: (memberId: number, subprojectId: number, anteil: number) =>
+  createAssignment: (memberId: number, projectId: number, fte: number) =>
     request<TeamMember>(`/team/members/${memberId}/assignments`, {
       method: "POST",
-      body: JSON.stringify({ subproject_id: subprojectId, anteil }),
+      body: JSON.stringify({ project_id: projectId, fte }),
     }),
   deleteAssignment: (assignmentId: number) =>
     request<void>(`/team/assignments/${assignmentId}`, { method: "DELETE" }),

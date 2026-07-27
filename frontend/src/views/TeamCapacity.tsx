@@ -5,19 +5,20 @@ import type {
   JiraAccountMatch,
   JiraStatus,
   JiraSyncResult,
-  SubprojectListItem,
+  ProjectSummary,
   TeamWithMembers,
   UnassignedAuthor,
 } from "../types";
 
 export default function TeamCapacity() {
   const [teams, setTeams] = useState<TeamWithMembers[]>([]);
-  const [subprojects, setSubprojects] = useState<SubprojectListItem[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [jiraStatus, setJiraStatus] = useState<JiraStatus | null>(null);
   const [syncResult, setSyncResult] = useState<JiraSyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unassignedAuthors, setUnassignedAuthors] = useState<UnassignedAuthor[]>([]);
+  const [dragOverTeamId, setDragOverTeamId] = useState<number | null>(null);
 
   const [newTeamName, setNewTeamName] = useState("");
   const [memberName, setMemberName] = useState("");
@@ -28,10 +29,10 @@ export default function TeamCapacity() {
   const [jiraMatches, setJiraMatches] = useState<JiraAccountMatch[]>([]);
 
   const load = () => {
-    Promise.all([api.listTeams(), api.listAllSubprojects(), api.jiraStatus(), api.listUnassignedAuthors()])
-      .then(([t, s, j, u]) => {
+    Promise.all([api.listTeams(), api.listProjects(), api.jiraStatus(), api.listUnassignedAuthors()])
+      .then(([t, p, j, u]) => {
         setTeams(t);
-        setSubprojects(s);
+        setProjects(p);
         setJiraStatus(j);
         setUnassignedAuthors(u);
       })
@@ -106,9 +107,14 @@ export default function TeamCapacity() {
     load();
   };
 
-  const handleAddAssignment = async (memberId: number, subprojectId: string, anteil: number) => {
-    if (!subprojectId) return;
-    await api.createAssignment(memberId, Number(subprojectId), anteil);
+  const handleAddAssignment = async (memberId: number, projectId: string, fte: number) => {
+    if (!projectId) return;
+    await api.createAssignment(memberId, Number(projectId), fte);
+    load();
+  };
+
+  const handleDropMemberOnTeam = async (memberId: number, teamId: number) => {
+    await api.updateMember(memberId, { team_id: teamId === 0 ? null : teamId });
     load();
   };
 
@@ -302,15 +308,40 @@ export default function TeamCapacity() {
         </button>
       </form>
 
+      {teams.length > 0 && (
+        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "1.25rem", marginBottom: 0 }}>
+          Mitglieder per Drag &amp; Drop auf ein anderes Team ziehen, um sie zu verschieben.
+        </p>
+      )}
+
       {teams.map((team) => (
-        <div key={team.id} className="card" style={{ marginTop: "1.25rem" }}>
+        <div
+          key={team.id}
+          className="card"
+          style={{
+            marginTop: "0.75rem",
+            outline: dragOverTeamId === team.id ? "2px solid var(--blau)" : "none",
+            outlineOffset: "-2px",
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOverTeamId(team.id);
+          }}
+          onDragLeave={() => setDragOverTeamId((id) => (id === team.id ? null : id))}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOverTeamId(null);
+            const memberId = Number(e.dataTransfer.getData("text/plain"));
+            if (memberId) handleDropMemberOnTeam(memberId, team.id);
+          }}
+        >
           <h3 style={{ color: "var(--navy)", marginTop: 0 }}>{team.name}</h3>
           {team.members.length === 0 && <p style={{ color: "var(--text-muted)" }}>Keine Mitglieder.</p>}
           {team.members.map((member) => (
             <MemberRow
               key={member.id}
               member={member}
-              subprojects={subprojects}
+              projects={projects}
               onFieldBlur={handleMemberFieldBlur}
               onAddAssignment={handleAddAssignment}
               onDeleteAssignment={async (id) => {
@@ -369,25 +400,32 @@ function UnassignedAuthorRow({
 
 function MemberRow({
   member,
-  subprojects,
+  projects,
   onFieldBlur,
   onAddAssignment,
   onDeleteAssignment,
   onDeleteMember,
 }: {
   member: TeamWithMembers["members"][number];
-  subprojects: SubprojectListItem[];
+  projects: ProjectSummary[];
   onFieldBlur: (memberId: number, field: "name" | "jira_account_id" | "wochenstunden", raw: string) => void;
-  onAddAssignment: (memberId: number, subprojectId: string, anteil: number) => void;
+  onAddAssignment: (memberId: number, projectId: string, fte: number) => void;
   onDeleteAssignment: (assignmentId: number) => void;
   onDeleteMember: () => void;
 }) {
-  const [newSubprojectId, setNewSubprojectId] = useState("");
-  const [newAnteil, setNewAnteil] = useState(100);
+  const [newProjectId, setNewProjectId] = useState("");
+  const [newFte, setNewFte] = useState(0.5);
 
   return (
-    <div style={{ borderTop: "1px solid var(--border)", padding: "0.75rem 0" }}>
+    <div
+      draggable
+      onDragStart={(e) => e.dataTransfer.setData("text/plain", String(member.id))}
+      style={{ borderTop: "1px solid var(--border)", padding: "0.75rem 0", cursor: "grab" }}
+    >
       <div className="field-row" style={{ marginTop: 0, alignItems: "center" }}>
+        <span style={{ alignSelf: "center", color: "var(--text-muted)" }} title="Ziehbar, um das Team zu wechseln">
+          ⠿
+        </span>
         <label>
           Name
           <input defaultValue={member.name} onBlur={(e) => onFieldBlur(member.id, "name", e.target.value)} />
@@ -422,7 +460,7 @@ function MemberRow({
         {member.assignments.length === 0 && <span style={{ color: "var(--text-muted)" }}>keine</span>}
         {member.assignments.map((a) => (
           <span key={a.id} className="legend-chip" style={{ marginRight: "0.5rem" }}>
-            {a.project_name} / {a.subproject_name} ({a.anteil}%)
+            {a.project_name} ({a.fte} FTE)
             <button
               type="button"
               onClick={() => onDeleteAssignment(a.id)}
@@ -436,24 +474,25 @@ function MemberRow({
 
       <div className="field-row" style={{ marginTop: "0.4rem" }}>
         <label>
-          Teilprojekt zuordnen
-          <select value={newSubprojectId} onChange={(e) => setNewSubprojectId(e.target.value)}>
+          Projekt zuordnen
+          <select value={newProjectId} onChange={(e) => setNewProjectId(e.target.value)}>
             <option value="">— wählen —</option>
-            {subprojects.map((sp) => (
-              <option key={sp.id} value={sp.id}>
-                {sp.project_name} / {sp.name}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </select>
         </label>
         <label>
-          Anteil (%)
+          FTE
           <input
             type="number"
-            min={1}
-            max={100}
-            value={newAnteil}
-            onChange={(e) => setNewAnteil(Number(e.target.value))}
+            min={0.1}
+            max={2}
+            step={0.1}
+            value={newFte}
+            onChange={(e) => setNewFte(Number(e.target.value))}
           />
         </label>
         <button
@@ -461,8 +500,8 @@ function MemberRow({
           className="btn secondary"
           style={{ alignSelf: "flex-end" }}
           onClick={() => {
-            onAddAssignment(member.id, newSubprojectId, newAnteil);
-            setNewSubprojectId("");
+            onAddAssignment(member.id, newProjectId, newFte);
+            setNewProjectId("");
           }}
         >
           + Zuordnen

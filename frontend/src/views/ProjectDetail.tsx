@@ -9,6 +9,7 @@ import {
   type JiraProject,
   type PhaseCode,
   type ProjectDetail as ProjectDetailT,
+  type TeamMember,
 } from "../types";
 
 const PHASE_CODES: PhaseCode[] = ["p", "k", "t", "s", "g", "?"];
@@ -27,6 +28,9 @@ export default function ProjectDetail() {
   const [pickerComponents, setPickerComponents] = useState<JiraComponent[]>([]);
   const [pickerLabels, setPickerLabels] = useState<string[]>([]);
   const [subprojectToDelete, setSubprojectToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [newAssignmentMemberId, setNewAssignmentMemberId] = useState("");
+  const [newAssignmentFte, setNewAssignmentFte] = useState(0.5);
 
   const load = () => {
     api
@@ -34,6 +38,10 @@ export default function ProjectDetail() {
       .then(setProject)
       .catch((e) => setError(String(e)));
   };
+
+  useEffect(() => {
+    api.listMembers().then(setMembers).catch((e) => setError(String(e)));
+  }, []);
 
   useEffect(load, [projectId]);
 
@@ -156,6 +164,18 @@ export default function ProjectDetail() {
     if (!subprojectToDelete) return;
     await api.deleteSubproject(subprojectToDelete.id);
     setSubprojectToDelete(null);
+    load();
+  };
+
+  const handleAddTeamAssignment = async () => {
+    if (!project || !newAssignmentMemberId) return;
+    await api.createAssignment(Number(newAssignmentMemberId), project.id, newAssignmentFte);
+    setNewAssignmentMemberId("");
+    load();
+  };
+
+  const handleDeleteTeamAssignment = async (assignmentId: number) => {
+    await api.deleteAssignment(assignmentId);
     load();
   };
 
@@ -359,6 +379,54 @@ export default function ProjectDetail() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="card" style={{ marginBottom: "1.25rem" }}>
+        <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Team-Zuordnung</h3>
+        {project.team_assignments.length === 0 && (
+          <p style={{ color: "var(--text-muted)", margin: 0 }}>Noch niemand zugeordnet.</p>
+        )}
+        {project.team_assignments.map((a) => (
+          <span key={a.id} className="legend-chip" style={{ marginRight: "0.5rem" }}>
+            {a.member_name} ({a.fte} FTE)
+            <button
+              type="button"
+              onClick={() => handleDeleteTeamAssignment(a.id)}
+              style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <div className="field-row">
+          <label>
+            Teammitglied
+            <select value={newAssignmentMemberId} onChange={(e) => setNewAssignmentMemberId(e.target.value)}>
+              <option value="">— wählen —</option>
+              {members
+                .filter((m) => !project.team_assignments.some((a) => a.team_member_id === m.id))
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            FTE
+            <input
+              type="number"
+              min={0.1}
+              max={2}
+              step={0.1}
+              value={newAssignmentFte}
+              onChange={(e) => setNewAssignmentFte(Number(e.target.value))}
+            />
+          </label>
+          <button type="button" className="btn secondary" style={{ alignSelf: "flex-end" }} onClick={handleAddTeamAssignment}>
+            + Zuordnen
+          </button>
+        </div>
       </div>
 
       {project.subprojects.length > 0 && (

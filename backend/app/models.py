@@ -36,6 +36,9 @@ class Project(Base):
     fte_plan: Mapped[list["ProjectFtePlan"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    assignments: Mapped[list["Assignment"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class ProjectGanttPhase(Base):
@@ -81,9 +84,6 @@ class Subproject(Base):
         back_populates="subproject", cascade="all, delete-orphan"
     )
     fte_plan: Mapped[list["FtePlan"]] = relationship(
-        back_populates="subproject", cascade="all, delete-orphan"
-    )
-    assignments: Mapped[list["Assignment"]] = relationship(
         back_populates="subproject", cascade="all, delete-orphan"
     )
 
@@ -146,17 +146,19 @@ class TeamMember(Base):
 
 
 class Assignment(Base):
-    """Verknüpft MA <-> Teilprojekt mit Anteil (%)."""
+    """Verknüpft MA <-> Projekt mit einem FTE-Wert (nicht Prozent — direkt in derselben Einheit
+    wie FTE-Soll/-Ist, siehe CONCEPT.md). Auf Projekt- statt Teilprojekt-Ebene, konsistent zur
+    übrigen Projekt/Teilprojekt-Logik (Teilprojekte sind reine Feinplanung ohne eigene MA-Zuordnung)."""
 
     __tablename__ = "assignments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     team_member_id: Mapped[int] = mapped_column(ForeignKey("team_members.id"))
-    subproject_id: Mapped[int] = mapped_column(ForeignKey("subprojects.id"))
-    anteil: Mapped[float] = mapped_column(Float, default=100)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    fte: Mapped[float] = mapped_column(Float, default=0)
 
     team_member: Mapped["TeamMember"] = relationship(back_populates="assignments")
-    subproject: Mapped["Subproject"] = relationship(back_populates="assignments")
+    project: Mapped["Project"] = relationship(back_populates="assignments")
 
 
 class UnassignedJiraAuthor(Base):

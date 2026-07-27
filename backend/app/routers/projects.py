@@ -75,6 +75,12 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         aus_teilprojekten=bool(p.subprojects),
         ist=jira_sync.berechne_ist_fte(db, p),
         subprojects=[_subproject_detail(sp) for sp in p.subprojects],
+        team_assignments=[
+            schemas.ProjectAssignmentOut(
+                id=a.id, team_member_id=a.team_member_id, member_name=a.team_member.name, fte=a.fte
+            )
+            for a in p.assignments
+        ],
     )
 
 

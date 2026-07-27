@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import ConfirmDialog from "../components/ConfirmDialog";
 import type {
   JiraAccountMatch,
   JiraStatus,
@@ -19,6 +20,8 @@ export default function TeamCapacity() {
   const [error, setError] = useState<string | null>(null);
   const [unassignedAuthors, setUnassignedAuthors] = useState<UnassignedAuthor[]>([]);
   const [dragOverTeamId, setDragOverTeamId] = useState<number | null>(null);
+  const [teamToDelete, setTeamToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [memberToDelete, setMemberToDelete] = useState<{ id: number; name: string } | null>(null);
 
   const [newTeamName, setNewTeamName] = useState("");
   const [memberName, setMemberName] = useState("");
@@ -115,6 +118,20 @@ export default function TeamCapacity() {
 
   const handleDropMemberOnTeam = async (memberId: number, teamId: number) => {
     await api.updateMember(memberId, { team_id: teamId === 0 ? null : teamId });
+    load();
+  };
+
+  const handleDeleteTeam = async () => {
+    if (!teamToDelete) return;
+    await api.deleteTeam(teamToDelete.id);
+    setTeamToDelete(null);
+    load();
+  };
+
+  const handleDeleteMember = async () => {
+    if (!memberToDelete) return;
+    await api.deleteMember(memberToDelete.id);
+    setMemberToDelete(null);
     load();
   };
 
@@ -335,7 +352,19 @@ export default function TeamCapacity() {
             if (memberId) handleDropMemberOnTeam(memberId, team.id);
           }}
         >
-          <h3 style={{ color: "var(--navy)", marginTop: 0 }}>{team.name}</h3>
+          <div className="toolbar" style={{ marginBottom: "0.25rem" }}>
+            <h3 style={{ color: "var(--navy)", margin: 0 }}>{team.name}</h3>
+            {team.id !== 0 && (
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ color: "var(--rot)", borderColor: "var(--rot)" }}
+                onClick={() => setTeamToDelete({ id: team.id, name: team.name })}
+              >
+                Team löschen
+              </button>
+            )}
+          </div>
           {team.members.length === 0 && <p style={{ color: "var(--text-muted)" }}>Keine Mitglieder.</p>}
           {team.members.map((member) => (
             <MemberRow
@@ -348,14 +377,26 @@ export default function TeamCapacity() {
                 await api.deleteAssignment(id);
                 load();
               }}
-              onDeleteMember={async () => {
-                await api.deleteMember(member.id);
-                load();
-              }}
+              onDeleteMember={() => setMemberToDelete({ id: member.id, name: member.name })}
             />
           ))}
         </div>
       ))}
+
+      <ConfirmDialog
+        open={teamToDelete !== null}
+        title="Team löschen"
+        message={`Team "${teamToDelete?.name}" wirklich löschen? Die Mitglieder bleiben erhalten und werden auf "ohne Team" gesetzt.`}
+        onConfirm={handleDeleteTeam}
+        onCancel={() => setTeamToDelete(null)}
+      />
+      <ConfirmDialog
+        open={memberToDelete !== null}
+        title="Teammitglied entfernen"
+        message={`Teammitglied "${memberToDelete?.name}" wirklich entfernen? Zuordnungen zu Projekten gehen dabei verloren.`}
+        onConfirm={handleDeleteMember}
+        onCancel={() => setMemberToDelete(null)}
+      />
     </div>
   );
 }

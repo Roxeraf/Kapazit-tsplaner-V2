@@ -84,7 +84,10 @@ def update_team(team_id: int, payload: schemas.TeamUpdate, db: Session = Depends
 
 @router.delete("/teams/{team_id}", status_code=204)
 def delete_team(team_id: int, db: Session = Depends(get_db)):
+    """Löscht das Team, aber nicht dessen Mitglieder — die werden auf "ohne Team" gesetzt."""
     team = _get_team_or_404(db, team_id)
+    for member in team.members:
+        member.team_id = None
     db.delete(team)
     db.commit()
 

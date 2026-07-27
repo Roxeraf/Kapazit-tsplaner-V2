@@ -63,8 +63,8 @@ Direkt aus der Excel-Struktur abgeleitet, nur normalisiert:
 | Tabelle | Felder (Auszug) | Entspricht Excel |
 |---|---|---|
 | `projects` | id, name, kunde, start_monat, anzahl_monate | Projektblatt Kopf |
-| `subprojects` | id, project_id, name, reihenfolge | 3 Teilprojekte je Blatt |
-| `gantt_phases` | id, subproject_id, monat, phase_code (`p/k/t/g/?`) | Gantt-Zellen |
+| `subprojects` | id, project_id, name, reihenfolge, jira_component | 3 Teilprojekte je Blatt |
+| `gantt_phases` | id, subproject_id, monat, phase_code (`p/k/t/s/g/?`) | Gantt-Zellen |
 | `fte_plan` | id, subproject_id, monat, wert_soll | FTE-Zeilen (Soll) |
 | `team_members` | id, name, jira_account_id, wochenstunden, team_id | neu |
 | `teams` | id, name (Team-Kapa) | neu |
@@ -72,7 +72,7 @@ Direkt aus der Excel-Struktur abgeleitet, nur normalisiert:
 | `jira_worklogs_cache` | id, jira_account_id, jira_issue_key, datum, stunden, projekt_mapping | Ist-Daten aus Jira |
 | `gap_snapshots` | id, project_id, monat, soll, ist, gap, hochrechnung, erstellt_am | berechnet, historisiert |
 
-**Phasencodes und FTE-Heatmap-Schwellen** werden 1:1 aus dem Excel übernommen (siehe Referenzdokument), damit die Optik/Farblogik für alle Beteiligten vertraut bleibt.
+**Phasencodes und FTE-Heatmap-Schwellen** werden 1:1 aus dem Excel übernommen (siehe Referenzdokument), damit die Optik/Farblogik für alle Beteiligten vertraut bleibt. Ergänzt um den Phasencode `s` (Schulung), der im Excel-Tool noch nicht existierte, aber für die Rollout-Planung (Pflichtenheft → Konfiguration → Test → Schulung → GoLive) benötigt wird.
 
 ---
 
@@ -82,10 +82,12 @@ Direkt aus der Excel-Struktur abgeleitet, nur normalisiert:
 
 Ablauf:
 
-1. **Mapping MA → Jira:** `team_members.jira_account_id` wird einmalig per `Atlassian:lookupJiraAccountId` gepflegt.
-2. **Mapping Ticket → Projekt/Teilprojekt:** entweder über Jira-Projekt-Schlüssel (z. B. PNE-Komponente je Kundenprojekt) oder ein Custom Field "Kapa-Projekt". Empfehlung: Component oder Label, da ohne Custom-Field-Setup nutzbar.
-3. **Sync-Job** fragt periodisch `Atlassian:searchJiraIssuesUsingJql` + Worklog-Daten ab, aggregiert `Stunden pro MA/Monat/Teilprojekt` und schreibt in `jira_worklogs_cache`.
-4. **Umrechnung Stunden → FTE:** `Ist_FTE(Monat) = Summe_Stunden / (Wochenstunden_MA × Arbeitswochen_Monat)`, aggregiert je Teilprojekt.
+1. **Mapping MA → Jira:** `team_members.jira_account_id` wird über die Team-Kapazität-Ansicht gepflegt — Suche per `GET /jira/lookup-account?query=` (Jira-Nutzersuche über Name/E-Mail), Übernahme der `accountId` per Klick.
+2. **Mapping Ticket → Projekt/Teilprojekt:** über `subprojects.jira_component` (Jira-Component oder -Label je Teilprojekt), gepflegt im Projekt-Detail. Entscheidung zur offenen Frage in Abschnitt 10: Component/Label statt Custom Field, da ohne Jira-seitiges Setup nutzbar.
+3. **Sync-Job:** `POST /jira/sync` fragt für jedes Teilprojekt mit gesetzter `jira_component` alle Issues der Component/des Labels ab (JQL) und lädt deren Worklogs; nur Buchungen von MA mit bekannter `jira_account_id` werden übernommen (sonst fehlen die Wochenstunden für die FTE-Umrechnung). Ergebnis wird in `jira_worklogs_cache` upgesertet (aktuell manuell auslösbar über die Team-Kapazität-Ansicht; ein periodischer Scheduler ist eine spätere Ausbaustufe).
+4. **Umrechnung Stunden → FTE:** `Ist_FTE(Monat) = Summe_Stunden / (Wochenstunden_MA × Arbeitswochen_Monat)`, aggregiert je Teilprojekt. `Arbeitswochen_Monat` wird pauschal mit 52/12 ≈ 4,33 angesetzt (siehe `backend/app/constants.py`).
+
+Konfiguration über Umgebungsvariablen `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` (siehe `backend/.env.example`); ohne diese bleibt der Sync deaktiviert (`GET /jira/status`), die übrige Planung funktioniert unabhängig davon weiter.
 
 ---
 
@@ -145,15 +147,23 @@ Ergebnis pro Projekt: eine Zeile "Hochrechnung Jahresende/Projektende" — zeigt
 
 ## 10. Offene Punkte
 
-- Mapping Jira-Ticket → Kapa-Projekt: Component, Label oder Custom Field? (beeinflusst Aufwand im Sync-Job)
+- ~~Mapping Jira-Ticket → Kapa-Projekt: Component, Label oder Custom Field?~~ Entschieden: Component/Label über `subprojects.jira_component` (siehe Abschnitt 4).
 - Portal-Login/SSO-Anbindung technisch klären
 - Hochrechnungsmethode: reicht Trendfortschreibung, oder wird Restaufwand-basierte Variante von Anfang an gebraucht?
-- Datenhoheit Team-Kapazität: eigene Pflege im Tool oder Anbindung an Personal-/HR-Datenquelle?
+- Datenhoheit Team-Kapazität: eigene Pflege im Tool oder Anbindung an Personal-/HR-Datenquelle? (aktuell: eigene Pflege im Tool, siehe Abschnitt 11)
+- Periodischer Jira-Sync-Job (Cron/Scheduler) statt manuellem Auslösen über die UI
+- Kein Alembic/Migrationstool im Repo — Schemaänderungen an bestehenden (nicht-SQLite-frischen) Datenbanken erfordern aktuell manuelle Anpassung
 
 ---
 
 ## 11. Umsetzungsstand
 
-Dieses Repo enthält den **Schritt 1 des Phasenplans** (Abschnitt 9): Projekt-/FTE-Planung als Web-Formular, PPTX-Export weiter nutzbar. Details zu Aufbau und lokalem Betrieb siehe [`README.md`](README.md).
+Dieses Repo enthält:
 
-Noch nicht umgesetzt (spätere Phasen): Jira-Ist-Integration, Gap-Analyse/Hochrechnung, Team-Kapazität, Portal-SSO, Excel-Migrationslauf. Die zugehörigen Tabellen/Endpunkte sind im Datenmodell bzw. als Stub-Views bereits vorbereitet, aber funktional leer — siehe Abschnitt 10 für die offenen Entscheidungen, die vor der Umsetzung dieser Phasen zu klären sind.
+1. **Schritt 1 (MVP):** Projekt-/FTE-Planung als Web-Formular inkl. Schulungsphase (`s`), PPTX-Export weiter nutzbar.
+2. **Schritt 2 (Jira-Ist-Integration):** Worklog-Sync (`POST /jira/sync`) und Ist-FTE-Anzeige je Teilprojekt/Monat (`GET /projects/{id}` liefert `ist` neben `fte`).
+3. **Schritt 4 (Team-Kapazität):** MA-/Team-Stammdaten inkl. Jira-Account-Zuordnung und Zuordnung MA ↔ Teilprojekt (`/team/*`), Voraussetzung für Schritt 2.
+
+Details zu Aufbau und lokalem Betrieb siehe [`README.md`](README.md).
+
+Noch nicht umgesetzt: **Schritt 3 (Gap-Analyse/Hochrechnung)** — `GET /gap` und `/forecast` bleiben Platzhalter, ebenso Portal-SSO und der Excel-Migrationslauf für Bestandsdaten. Siehe Abschnitt 10 für offene Entscheidungen.

@@ -16,6 +16,11 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg2://kapazitaetsplaner:kapazitaetsplaner@db:5432/kapazitaetsplaner
+      # Jira-Ist-Integration (CONCEPT.md Abschnitt 4) — optional, aus Host-Umgebung
+      # durchgereicht; ohne gesetzte Werte bleibt der Sync deaktiviert.
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_EMAIL: ${JIRA_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
     depends_on:
       - db
     ports:

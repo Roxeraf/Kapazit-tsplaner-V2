@@ -4,11 +4,16 @@ PHASE_LABELS = {
     "p": "Pflichtenheft",
     "k": "Konfiguration",
     "t": "Test",
+    "s": "Schulung",
     "g": "GoLive",
     "?": "Meilenstein",
 }
 
 PHASE_CODES = list(PHASE_LABELS.keys())
+
+# Für die Ist-FTE-Umrechnung (Jira-Integration, siehe CONCEPT.md Abschnitt 4):
+# Stunden -> FTE über einen pauschalen Wert für Arbeitswochen pro Monat (52 / 12).
+ARBEITSWOCHEN_PRO_MONAT = 52 / 12
 
 MONAT_NAMEN = [
     "Jan", "Feb", "Mrz", "Apr", "Mai", "Jun",

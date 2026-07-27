@@ -4,11 +4,11 @@ Web-App-Ablösung des Excel/VBA-Kapazitätsplaners — Planungslogik 1:1 aus dem
 Excel-Tool übernommen (Gantt-Phasencodes, FTE-Raster), als Kachel im
 BUILD-Bereich des plx.crew Portals. Konzept und Architektur: [`CONCEPT.md`](CONCEPT.md).
 
-Dieses Repo enthält den **MVP** aus Abschnitt 9 des Konzepts: Projekt-/FTE-Planung
-als Web-Formular, PPTX-Export weiter nutzbar über das bestehende Node-Skript.
-Spätere Phasen (Jira-Ist-Integration, Gap-Analyse, Team-Kapazität) sind im
-Datenmodell vorbereitet, aber noch nicht funktional — siehe `CONCEPT.md`
-Abschnitt 11.
+Dieses Repo enthält Projekt-/FTE-Planung als Web-Formular (inkl. Schulungsphase),
+PPTX-Export über das bestehende Node-Skript, die Jira-Ist-Integration
+(Worklog-Sync + Ist-FTE je Teilprojekt) und die Team-Kapazität (MA-/Team-Stammdaten,
+Zuordnung MA ↔ Teilprojekt). Nur die Gap-Analyse/Hochrechnung ist noch nicht
+umgesetzt — siehe `CONCEPT.md` Abschnitt 11.
 
 ## Struktur
 
@@ -46,6 +46,11 @@ uvicorn app.main:app --reload --port 8000
 
 Für PostgreSQL statt SQLite: `DATABASE_URL=postgresql+psycopg2://user:pass@host:5432/db` setzen.
 
+Für die Jira-Ist-Integration (optional, siehe `backend/.env.example`):
+`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` setzen. Ohne diese Variablen
+bleibt der Sync deaktiviert (`GET /jira/status` meldet `configured: false`),
+die restliche Planung funktioniert unabhängig davon.
+
 **Export-Skript-Abhängigkeiten** (wird vom Backend per `node` aufgerufen):
 
 ```sh
@@ -69,11 +74,20 @@ npm run dev
 | `GET/POST /projects` | Projekte auflisten/anlegen |
 | `GET/PUT/DELETE /projects/{id}` | Projekt lesen/ändern/löschen |
 | `POST /projects/{id}/subprojects` | Teilprojekt anlegen |
-| `PUT /projects/subprojects/{id}/phasen` | Gantt-Phasencodes für einen Monat setzen |
+| `GET/PUT/DELETE /projects/subprojects/{id}` | Teilprojekt lesen (inkl. `jira_component`, `ist`)/ändern/löschen |
+| `GET /projects/subprojects/all` | Alle Teilprojekte flach (für die Zuordnung MA ↔ Teilprojekt) |
+| `PUT /projects/subprojects/{id}/phasen` | Gantt-Phasencodes für einen Monat setzen (`p/k/t/s/g/?`) |
 | `PUT /projects/subprojects/{id}/fte` | FTE-Soll-Wert für einen Monat setzen |
 | `GET /projects/{id}/export/pptx` | Projekt als PPTX exportieren |
 | `GET /projects/export/pptx/portfolio` | Alle Projekte als eine PPTX exportieren |
-| `GET /team`, `/gap`, `/forecast` | Platzhalter für spätere Phasen (siehe CONCEPT.md) |
+| `GET /team` | Teams inkl. Mitgliedern (Team-Kapazität-Übersicht) |
+| `POST/PUT/DELETE /team/teams(/{id})` | Team anlegen/ändern/löschen |
+| `GET/POST /team/members`, `PUT/DELETE /team/members/{id}` | MA-Stammdaten pflegen |
+| `POST /team/members/{id}/assignments`, `DELETE /team/assignments/{id}` | MA ↔ Teilprojekt zuordnen/entfernen |
+| `GET /jira/status` | Prüft, ob `JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` gesetzt sind |
+| `GET /jira/lookup-account?query=` | Jira-Nutzersuche (für `team_members.jira_account_id`) |
+| `POST /jira/sync` | Worklog-Sync für alle (oder ein) Teilprojekt(e) mit gesetzter `jira_component` |
+| `GET /gap`, `/forecast` | Platzhalter für Gap-Analyse/Hochrechnung (siehe CONCEPT.md) |
 
 ## Migration bestehender Excel-Daten
 

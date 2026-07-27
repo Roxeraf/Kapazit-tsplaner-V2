@@ -34,6 +34,8 @@ class Subproject(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     name: Mapped[str] = mapped_column(String(200))
     reihenfolge: Mapped[int] = mapped_column(default=0)
+    # Mapping zu Jira (Component oder Label des Jira-Projekts), siehe CONCEPT.md Abschnitt 4.
+    jira_component: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="subprojects")
     gantt_phases: Mapped[list["GanttPhase"]] = relationship(
@@ -76,9 +78,9 @@ class FtePlan(Base):
 
 
 # ---------------------------------------------------------------------------
-# Ab hier: Tabellen für spätere Phasen (siehe CONCEPT.md, Abschnitt 9).
-# Modelle sind vorbereitet, damit das Schema stabil steht; die zugehörigen
-# Endpunkte liefern für die MVP-Phase bewusst nur Platzhalterdaten.
+# Team-Kapazität (Phase 4) und Jira-Ist-Integration (Phase 2), siehe CONCEPT.md
+# Abschnitt 9. GapSnapshot (Phase 3, Hochrechnung) bleibt vorbereitet, aber noch
+# ohne Endpunkte.
 # ---------------------------------------------------------------------------
 
 
@@ -122,12 +124,16 @@ class JiraWorklogCache(Base):
     """Ist-Daten aus Jira (Worklog-Sync, Phase 2)."""
 
     __tablename__ = "jira_worklogs_cache"
+    __table_args__ = (
+        UniqueConstraint("jira_account_id", "jira_issue_key", "datum", name="uq_worklog_eintrag"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     jira_account_id: Mapped[str] = mapped_column(String(100))
     jira_issue_key: Mapped[str] = mapped_column(String(50))
     datum: Mapped[str] = mapped_column(String(10))  # ISO "YYYY-MM-DD"
     stunden: Mapped[float] = mapped_column(Float)
+    # subprojects.id als String — welchem Teilprojekt der Worklog zugeordnet wurde.
     projekt_mapping: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 

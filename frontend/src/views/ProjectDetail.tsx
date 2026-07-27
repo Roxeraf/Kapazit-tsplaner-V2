@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { PHASE_COLORS, PHASE_LABELS, type PhaseCode, type ProjectDetail as ProjectDetailT } from "../types";
 
-const PHASE_CODES: PhaseCode[] = ["p", "k", "t", "g", "?"];
+const PHASE_CODES: PhaseCode[] = ["p", "k", "t", "s", "g", "?"];
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -33,6 +33,11 @@ export default function ProjectDetail() {
   const handleFteChange = async (subprojectId: number, monat: string, raw: string) => {
     const value = Number(raw);
     await api.setFte(subprojectId, monat, Number.isFinite(value) ? value : 0);
+    load();
+  };
+
+  const handleJiraComponentChange = async (subprojectId: number, raw: string) => {
+    await api.updateSubproject(subprojectId, { jira_component: raw.trim() || null });
     load();
   };
 
@@ -75,7 +80,18 @@ export default function ProjectDetail() {
 
       {project.subprojects.map((sp) => (
         <div key={sp.id} className="card" style={{ marginBottom: "1.25rem", overflowX: "auto" }}>
-          <h3 style={{ color: "var(--navy)", marginTop: 0 }}>{sp.name}</h3>
+          <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
+            <h3 style={{ color: "var(--navy)", margin: 0 }}>{sp.name}</h3>
+            <label style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", gap: "0.4rem", alignItems: "center" }}>
+              Jira-Komponente/Label
+              <input
+                style={{ padding: "0.3rem 0.5rem", border: "1px solid var(--border)", borderRadius: "4px" }}
+                defaultValue={sp.jira_component ?? ""}
+                placeholder="z. B. ETE"
+                onBlur={(e) => handleJiraComponentChange(sp.id, e.target.value)}
+              />
+            </label>
+          </div>
           <table className="planner">
             <thead>
               <tr>
@@ -109,6 +125,14 @@ export default function ProjectDetail() {
                       defaultValue={sp.fte[m] ?? ""}
                       onBlur={(e) => handleFteChange(sp.id, m, e.target.value)}
                     />
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="label">FTE (Ist, Jira)</td>
+                {monate.map((m) => (
+                  <td key={m} style={{ color: "var(--text-muted)" }}>
+                    {sp.ist[m] !== undefined ? sp.ist[m].toFixed(2) : "–"}
                   </td>
                 ))}
               </tr>

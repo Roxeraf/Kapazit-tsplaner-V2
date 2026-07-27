@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import CollapsiblePanel from "../components/CollapsiblePanel";
 import ConfirmDialog from "../components/ConfirmDialog";
 import type {
   JiraAccountMatch,
@@ -222,10 +223,43 @@ export default function TeamCapacity() {
         </div>
       )}
 
+      {teams.length > 0 && (
+        <CollapsiblePanel title={`Alle Teammitglieder (${teams.flatMap((t) => t.members).length})`}>
+          <table className="planner" style={{ fontSize: "0.85rem" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>Name</th>
+                <th style={{ textAlign: "left" }}>Team</th>
+                <th>Wochenstunden</th>
+                <th style={{ textAlign: "left" }}>Jira-Account-ID</th>
+                <th style={{ textAlign: "left" }}>Zuordnungen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teams
+                .flatMap((t) => t.members)
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((m) => (
+                  <tr key={m.id}>
+                    <td className="label">{m.name}</td>
+                    <td style={{ textAlign: "left" }}>{m.team_name ?? "— ohne Team —"}</td>
+                    <td>{m.wochenstunden}</td>
+                    <td style={{ textAlign: "left", color: "var(--text-muted)" }}>{m.jira_account_id ?? "–"}</td>
+                    <td style={{ textAlign: "left" }}>
+                      {m.assignments.length === 0
+                        ? "–"
+                        : m.assignments.map((a) => `${a.project_name} (${a.fte} FTE)`).join(", ")}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </CollapsiblePanel>
+      )}
+
       {unassignedAuthors.length > 0 && (
-        <div className="card" style={{ marginTop: "1rem" }}>
-          <strong>Personen aus Buchungen ohne Teammitglied</strong>
-          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0.25rem 0 0.75rem" }}>
+        <CollapsiblePanel title={`Personen aus Buchungen ohne Teammitglied (${unassignedAuthors.length})`}>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "0 0 0.75rem" }}>
             Diese Namen kommen aus Jira/Tempo-Zeitbuchungen (Klarname automatisch aufgelöst) und
             haben noch keinen Teameintrag — Wochenstunden prüfen und anlegen, dann verschwinden
             sie aus dieser Liste.
@@ -233,7 +267,7 @@ export default function TeamCapacity() {
           {unassignedAuthors.map((author) => (
             <UnassignedAuthorRow key={author.account_id} author={author} onCreate={handleCreateFromAuthor} />
           ))}
-        </div>
+        </CollapsiblePanel>
       )}
 
       <form className="card" style={{ marginTop: "1rem" }} onSubmit={handleCreateTeam}>

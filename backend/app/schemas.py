@@ -1,4 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
+
+JiraProjectStatus = Literal["aktiv", "on_hold", "beendet"]
 
 
 class ProjectCreate(BaseModel):
@@ -163,3 +167,20 @@ class JiraSyncResultItem(BaseModel):
 class JiraSyncResult(BaseModel):
     status: str
     ergebnisse: list[JiraSyncResultItem]
+
+
+class JiraProjectOut(BaseModel):
+    key: str
+    name: str
+    relevant: bool
+    status: JiraProjectStatus
+
+
+class JiraProjectUpdate(BaseModel):
+    relevant: bool
+    status: JiraProjectStatus = "aktiv"
+
+
+class JiraComponentOut(BaseModel):
+    id: str
+    name: str

@@ -46,6 +46,60 @@ def lookup_account(query: str = Query(..., min_length=2)):
     ]
 
 
+@router.get("/projects", response_model=list[schemas.JiraProjectOut])
+def list_jira_projects(db: Session = Depends(get_db)):
+    """Alle Jira-Projekte, gemischt mit lokalem "wird geplant"/Status-Flag (siehe Katalog)."""
+    if not jira_client.is_configured():
+        raise HTTPException(status_code=409, detail="Jira ist nicht konfiguriert.")
+    try:
+        jira_projects = jira_client.list_projects()
+    except Exception as exc:  # noqa: BLE001 – Jira-Fehlermeldung 1:1 durchreichen
+        raise HTTPException(status_code=502, detail=f"Jira-Anfrage fehlgeschlagen: {exc}") from exc
+
+    catalog = {c.jira_project_key: c for c in db.query(models.JiraProjectCatalog).all()}
+    return [
+        schemas.JiraProjectOut(
+            key=p["key"],
+            name=p["name"],
+            relevant=catalog[p["key"]].relevant if p["key"] in catalog else False,
+            status=catalog[p["key"]].status if p["key"] in catalog else "aktiv",
+        )
+        for p in jira_projects
+    ]
+
+
+@router.put("/projects/{project_key}", response_model=schemas.JiraProjectOut)
+def set_jira_project(project_key: str, payload: schemas.JiraProjectUpdate, db: Session = Depends(get_db)):
+    """Markiert ein Jira-Projekt als "wird geplant" (oder nicht) und setzt den Status."""
+    entry = db.get(models.JiraProjectCatalog, project_key)
+    if entry is None:
+        entry = models.JiraProjectCatalog(jira_project_key=project_key)
+        db.add(entry)
+    entry.relevant = payload.relevant
+    entry.status = payload.status
+    db.commit()
+
+    name = project_key
+    if jira_client.is_configured():
+        try:
+            name = next((p["name"] for p in jira_client.list_projects() if p["key"] == project_key), project_key)
+        except Exception:  # noqa: BLE001 – Name ist nur Anzeigesache, Katalog-Update darf trotzdem gelingen
+            pass
+    return schemas.JiraProjectOut(key=project_key, name=name, relevant=entry.relevant, status=entry.status)
+
+
+@router.get("/projects/{project_key}/components", response_model=list[schemas.JiraComponentOut])
+def list_jira_project_components(project_key: str):
+    """Components eines Jira-Projekts, für den Component-Picker im Projekt-Detail."""
+    if not jira_client.is_configured():
+        raise HTTPException(status_code=409, detail="Jira ist nicht konfiguriert.")
+    try:
+        components = jira_client.list_components(project_key)
+    except Exception as exc:  # noqa: BLE001 – Jira-Fehlermeldung 1:1 durchreichen
+        raise HTTPException(status_code=502, detail=f"Jira-Anfrage fehlgeschlagen: {exc}") from exc
+    return [schemas.JiraComponentOut(**c) for c in components]
+
+
 @router.post("/sync", response_model=schemas.JiraSyncResult)
 def sync(project_id: int | None = None, db: Session = Depends(get_db)):
     """Synchronisiert Worklogs für alle (oder ein) Projekt(e) mit gesetzter Jira-Komponente."""

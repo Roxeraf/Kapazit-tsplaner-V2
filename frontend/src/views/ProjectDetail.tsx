@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client";
-import { PHASE_COLORS, PHASE_LABELS, type PhaseCode, type ProjectDetail as ProjectDetailT } from "../types";
+import {
+  PHASE_COLORS,
+  PHASE_LABELS,
+  type JiraComponent,
+  type JiraProject,
+  type PhaseCode,
+  type ProjectDetail as ProjectDetailT,
+} from "../types";
 
 const PHASE_CODES: PhaseCode[] = ["p", "k", "t", "s", "g", "?"];
 
@@ -11,6 +18,10 @@ export default function ProjectDetail() {
   const [project, setProject] = useState<ProjectDetailT | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newSubprojectName, setNewSubprojectName] = useState("");
+  const [jiraConfigured, setJiraConfigured] = useState(false);
+  const [relevantJiraProjects, setRelevantJiraProjects] = useState<JiraProject[]>([]);
+  const [pickerJiraProjectKey, setPickerJiraProjectKey] = useState("");
+  const [pickerComponents, setPickerComponents] = useState<JiraComponent[]>([]);
 
   const load = () => {
     api
@@ -20,6 +31,28 @@ export default function ProjectDetail() {
   };
 
   useEffect(load, [projectId]);
+
+  useEffect(() => {
+    api
+      .jiraStatus()
+      .then((status) => {
+        setJiraConfigured(status.configured);
+        if (!status.configured) return [];
+        return api.jiraListProjects().then((all) => setRelevantJiraProjects(all.filter((p) => p.relevant)));
+      })
+      .catch(() => setJiraConfigured(false));
+  }, []);
+
+  const handlePickerJiraProjectChange = async (key: string) => {
+    setPickerJiraProjectKey(key);
+    setPickerComponents([]);
+    if (!key) return;
+    try {
+      setPickerComponents(await api.jiraListComponents(key));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const handlePhaseChange = async (subprojectId: number, monat: string, raw: string) => {
     const codes = raw
@@ -79,6 +112,46 @@ export default function ProjectDetail() {
             onBlur={(e) => handleJiraComponentChange(e.target.value)}
           />
         </label>
+        {jiraConfigured && (
+          <div className="field-row" style={{ marginTop: "0.5rem" }}>
+            <label>
+              Oder aus Jira-Projekt wählen
+              <select
+                value={pickerJiraProjectKey}
+                onChange={(e) => handlePickerJiraProjectChange(e.target.value)}
+              >
+                <option value="">
+                  {relevantJiraProjects.length === 0
+                    ? "— keine Jira-Projekte als 'wird geplant' markiert —"
+                    : "— Jira-Projekt wählen —"}
+                </option>
+                {relevantJiraProjects.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.name} ({p.key})
+                  </option>
+                ))}
+              </select>
+            </label>
+            {pickerJiraProjectKey && (
+              <label>
+                Komponente
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) handleJiraComponentChange(e.target.value);
+                  }}
+                >
+                  <option value="">— Komponente wählen —</option>
+                  {pickerComponents.map((c) => (
+                    <option key={c.id} value={c.name}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
         {Object.keys(project.ist).length > 0 && (
           <table className="planner" style={{ marginTop: "0.75rem" }}>
             <thead>

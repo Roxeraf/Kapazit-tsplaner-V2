@@ -100,3 +100,23 @@ export interface JiraAccountMatch {
   display_name: string;
   email: string | null;
 }
+
+export type JiraProjectStatus = "aktiv" | "on_hold" | "beendet";
+
+export const JIRA_PROJECT_STATUS_LABELS: Record<JiraProjectStatus, string> = {
+  aktiv: "Aktiv",
+  on_hold: "On Hold",
+  beendet: "Beendet",
+};
+
+export interface JiraProject {
+  key: string;
+  name: string;
+  relevant: boolean;
+  status: JiraProjectStatus;
+}
+
+export interface JiraComponent {
+  id: string;
+  name: string;
+}

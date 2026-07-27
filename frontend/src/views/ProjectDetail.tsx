@@ -500,6 +500,7 @@ function PhaseRows({
                       borderBottomLeftRadius: active && !prevActive ? "5px" : 0,
                       borderTopRightRadius: active && !nextActive ? "5px" : 0,
                       borderBottomRightRadius: active && !nextActive ? "5px" : 0,
+                      transition: "height 120ms ease-out, background-color 120ms ease-out, border-radius 120ms ease-out",
                     }}
                   />
                 </button>

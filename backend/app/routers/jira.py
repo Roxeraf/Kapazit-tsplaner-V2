@@ -119,6 +119,17 @@ def list_jira_project_components(project_key: str):
     return [schemas.JiraComponentOut(**c) for c in components]
 
 
+@router.get("/projects/{project_key}/labels", response_model=list[str])
+def list_jira_project_labels(project_key: str):
+    """Im Jira-Projekt tatsächlich verwendete Labels, als Ergänzung zum Component-Picker."""
+    if not jira_client.is_configured():
+        raise HTTPException(status_code=409, detail="Jira ist nicht konfiguriert.")
+    try:
+        return jira_client.list_labels(project_key)
+    except Exception as exc:  # noqa: BLE001 – Jira-Fehlermeldung 1:1 durchreichen
+        raise HTTPException(status_code=502, detail=f"Jira-Anfrage fehlgeschlagen: {exc}") from exc
+
+
 @router.post("/sync", response_model=schemas.JiraSyncResult)
 def sync(project_id: int | None = None, db: Session = Depends(get_db)):
     """Synchronisiert Worklogs für alle (oder ein) Projekt(e) mit gesetzter Jira-Komponente."""

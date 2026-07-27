@@ -132,4 +132,5 @@ export const api = {
     }),
   jiraListComponents: (key: string) =>
     request<JiraComponent[]>(`/jira/projects/${encodeURIComponent(key)}/components`),
+  jiraListLabels: (key: string) => request<string[]>(`/jira/projects/${encodeURIComponent(key)}/labels`),
 };

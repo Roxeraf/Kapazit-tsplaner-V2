@@ -63,6 +63,37 @@ def list_components(project_key: str) -> list[dict]:
         return [{"id": c["id"], "name": c["name"]} for c in resp.json()]
 
 
+def list_labels(project_key: str) -> list[str]:
+    """Labels, die tatsächlich auf Issues in diesem Jira-Projekt verwendet werden.
+
+    Jira hat keine "Labels je Projekt"-API (Labels sind global/freitextig) — deshalb werden
+    die Issues des Projekts durchsucht und die verwendeten Labels gesammelt. Ergänzung zu
+    list_components(), da viele Teams statt/zusätzlich zu Components mit Labels arbeiten.
+    """
+    with _client() as client:
+        labels: set[str] = set()
+        start_at = 0
+        while True:
+            resp = client.get(
+                "/rest/api/3/search",
+                params={
+                    "jql": f'project = "{project_key}"',
+                    "fields": "labels",
+                    "startAt": start_at,
+                    "maxResults": 100,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            issues = data.get("issues", [])
+            for issue in issues:
+                labels.update(issue.get("fields", {}).get("labels") or [])
+            start_at += len(issues)
+            if not issues or start_at >= data.get("total", 0):
+                break
+    return sorted(labels)
+
+
 def search_users(query: str) -> list[dict]:
     """Nutzersuche für die MA-Stammdatenpflege (Zuordnung Team-Member -> Jira-Account)."""
     with _client() as client:

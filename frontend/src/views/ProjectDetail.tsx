@@ -22,6 +22,7 @@ export default function ProjectDetail() {
   const [relevantJiraProjects, setRelevantJiraProjects] = useState<JiraProject[]>([]);
   const [pickerJiraProjectKey, setPickerJiraProjectKey] = useState("");
   const [pickerComponents, setPickerComponents] = useState<JiraComponent[]>([]);
+  const [pickerLabels, setPickerLabels] = useState<string[]>([]);
 
   const load = () => {
     api
@@ -46,9 +47,12 @@ export default function ProjectDetail() {
   const handlePickerJiraProjectChange = async (key: string) => {
     setPickerJiraProjectKey(key);
     setPickerComponents([]);
+    setPickerLabels([]);
     if (!key) return;
     try {
-      setPickerComponents(await api.jiraListComponents(key));
+      const [components, labels] = await Promise.all([api.jiraListComponents(key), api.jiraListLabels(key)]);
+      setPickerComponents(components);
+      setPickerLabels(labels);
     } catch (e) {
       setError(String(e));
     }
@@ -170,19 +174,37 @@ export default function ProjectDetail() {
             )}
             {pickerJiraProjectKey && (
               <label>
-                Komponente
+                Komponente/Label
                 <select
                   defaultValue=""
                   onChange={(e) => {
                     if (e.target.value) handleJiraComponentChange(e.target.value);
                   }}
                 >
-                  <option value="">— Komponente wählen —</option>
-                  {pickerComponents.map((c) => (
-                    <option key={c.id} value={c.name}>
-                      {c.name}
+                  <option value="">— wählen —</option>
+                  {pickerComponents.length > 0 && (
+                    <optgroup label="Components">
+                      {pickerComponents.map((c) => (
+                        <option key={`c-${c.id}`} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {pickerLabels.length > 0 && (
+                    <optgroup label="Labels">
+                      {pickerLabels.map((l) => (
+                        <option key={`l-${l}`} value={l}>
+                          {l}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {pickerComponents.length === 0 && pickerLabels.length === 0 && (
+                    <option value="" disabled>
+                      Keine Components oder Labels in diesem Jira-Projekt gefunden
                     </option>
-                  ))}
+                  )}
                 </select>
               </label>
             )}

@@ -29,7 +29,12 @@ class ProjectSummary(BaseModel):
     kunde: str | None
     start_monat: str
     anzahl_monate: int
+    reihenfolge: int
     monate: list[str]
+
+
+class ProjectReorder(BaseModel):
+    project_ids: list[int]
 
 
 class SubprojectCreate(BaseModel):

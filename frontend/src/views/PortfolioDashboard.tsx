@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import ConfirmDialog from "../components/ConfirmDialog";
 import type { ForecastSummary, GapStatus, ProjectSummary } from "../types";
 
 export default function PortfolioDashboard() {
@@ -9,6 +10,9 @@ export default function PortfolioDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
 
   const [name, setName] = useState("");
   const [kunde, setKunde] = useState("");
@@ -39,6 +43,32 @@ export default function PortfolioDashboard() {
     setKunde("");
     setShowForm(false);
     load();
+  };
+
+  const handleDeleteProject = async () => {
+    if (!projectToDelete) return;
+    await api.deleteProject(projectToDelete.id);
+    setProjectToDelete(null);
+    load();
+  };
+
+  const handleDrop = (targetId: number) => {
+    const currentDragId = dragId;
+    setDragId(null);
+    setDragOverId(null);
+    if (currentDragId === null || currentDragId === targetId) return;
+
+    const ordered = [...projects];
+    const fromIndex = ordered.findIndex((p) => p.id === currentDragId);
+    const toIndex = ordered.findIndex((p) => p.id === targetId);
+    if (fromIndex === -1 || toIndex === -1) return;
+    const [moved] = ordered.splice(fromIndex, 1);
+    ordered.splice(toIndex, 0, moved);
+    setProjects(ordered);
+    api.reorderProjects(ordered.map((p) => p.id)).catch((e) => {
+      setError(String(e));
+      load();
+    });
   };
 
   return (
@@ -104,24 +134,69 @@ export default function PortfolioDashboard() {
 
       <div className="project-grid">
         {projects.map((p) => (
-          <Link key={p.id} to={`/projekte/${p.id}`} className="project-card card">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-              <h3 style={{ margin: 0 }}>{p.name}</h3>
-              {gapByProject[p.id] && (
-                <span
-                  className={`gap-status-dot gap-dot--${gapByProject[p.id]}`}
-                  style={{ width: "10px", height: "10px", flexShrink: 0 }}
-                  title={`Gap-Analyse: ${gapByProject[p.id]}`}
-                />
-              )}
-            </div>
-            {p.kunde && <p className="kunde">{p.kunde}</p>}
-            <p className="zeitraum">
-              {p.monate[0]} – {p.monate[p.monate.length - 1]}
-            </p>
-          </Link>
+          <div
+            key={p.id}
+            className="project-card-wrapper"
+            draggable
+            onDragStart={() => setDragId(p.id)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOverId(p.id);
+            }}
+            onDragLeave={() => setDragOverId((id) => (id === p.id ? null : id))}
+            onDrop={(e) => {
+              e.preventDefault();
+              handleDrop(p.id);
+            }}
+            onDragEnd={() => {
+              setDragId(null);
+              setDragOverId(null);
+            }}
+            style={{
+              outline: dragOverId === p.id && dragId !== p.id ? "2px solid var(--blau)" : "none",
+              outlineOffset: "-2px",
+            }}
+          >
+            <Link to={`/projekte/${p.id}`} className="project-card card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                <h3 style={{ margin: 0 }}>{p.name}</h3>
+                {gapByProject[p.id] && (
+                  <span
+                    className={`gap-status-dot gap-dot--${gapByProject[p.id]}`}
+                    style={{ width: "10px", height: "10px", flexShrink: 0 }}
+                    title={`Gap-Analyse: ${gapByProject[p.id]}`}
+                  />
+                )}
+              </div>
+              {p.kunde && <p className="kunde">{p.kunde}</p>}
+              <p className="zeitraum">
+                {p.monate[0]} – {p.monate[p.monate.length - 1]}
+              </p>
+            </Link>
+            <button
+              type="button"
+              className="project-card-delete"
+              draggable={false}
+              title="Projekt löschen"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setProjectToDelete({ id: p.id, name: p.name });
+              }}
+            >
+              ✕
+            </button>
+          </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={projectToDelete !== null}
+        title="Projekt löschen"
+        message={`Projekt "${projectToDelete?.name}" wirklich löschen? Alle Teilprojekte, Planungsdaten und Team-Zuordnungen dieses Projekts gehen dabei unwiderruflich verloren.`}
+        onConfirm={handleDeleteProject}
+        onCancel={() => setProjectToDelete(null)}
+      />
     </div>
   );
 }

@@ -1,10 +1,26 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from .database import Base, engine
 from .routers import export, gap, jira, projects, team  # noqa: F401 (registriert Modelle via projects/export)
 
 Base.metadata.create_all(bind=engine)
+
+# Leichtgewichtige Migration für bestehende SQLite-DBs: create_all legt nur fehlende Tabellen an,
+# keine fehlenden Spalten an bestehenden Tabellen (kein Alembic im Repo, siehe CONCEPT.md Abschnitt 8).
+_inspector = inspect(engine)
+if "projects" in _inspector.get_table_names():
+    _columns = {col["name"] for col in _inspector.get_columns("projects")}
+    if "reihenfolge" not in _columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN reihenfolge INTEGER DEFAULT 0"))
+            conn.execute(
+                text(
+                    "UPDATE projects SET reihenfolge = "
+                    "(SELECT COUNT(*) FROM projects p2 WHERE p2.id <= projects.id) - 1"
+                )
+            )
 
 app = FastAPI(
     title="Kapazitätsplaner API",

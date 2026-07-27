@@ -19,6 +19,8 @@ class Project(Base):
     kunde: Mapped[str | None] = mapped_column(String(200), nullable=True)
     start_monat: Mapped[str] = mapped_column(String(7))  # "MM.YYYY"
     anzahl_monate: Mapped[int] = mapped_column(default=14)
+    # Sortierposition der Kachel auf dem Portfolio-Dashboard (frei per Drag & Drop änderbar).
+    reihenfolge: Mapped[int] = mapped_column(default=0)
     # Mapping zu Jira (Component oder Label des Jira-Projekts), siehe CONCEPT.md Abschnitt 4.
     # Auf Projekt- statt Teilprojekt-Ebene, da Teilprojekte nur die Feinplanung innerhalb
     # eines Projekts sind und kein eigenes Jira-Gegenstück haben.

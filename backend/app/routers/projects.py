@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import jira_sync, models, schemas
@@ -67,6 +68,7 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         kunde=p.kunde,
         start_monat=p.start_monat,
         anzahl_monate=p.anzahl_monate,
+        reihenfolge=p.reihenfolge,
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
         jira_component=p.jira_component,
         jira_project_key=p.jira_project_key,
@@ -100,7 +102,7 @@ def _get_subproject_or_404(db: Session, subproject_id: int) -> models.Subproject
 
 @router.get("", response_model=list[schemas.ProjectSummary])
 def list_projects(db: Session = Depends(get_db)):
-    projects = db.query(models.Project).order_by(models.Project.id).all()
+    projects = db.query(models.Project).order_by(models.Project.reihenfolge, models.Project.id).all()
     return [
         schemas.ProjectSummary(
             id=p.id,
@@ -108,6 +110,7 @@ def list_projects(db: Session = Depends(get_db)):
             kunde=p.kunde,
             start_monat=p.start_monat,
             anzahl_monate=p.anzahl_monate,
+            reihenfolge=p.reihenfolge,
             monate=berechne_monate(p.start_monat, p.anzahl_monate),
         )
         for p in projects
@@ -116,11 +119,24 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("", response_model=schemas.ProjectDetail, status_code=201)
 def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)):
-    project = models.Project(**payload.model_dump())
+    max_reihenfolge = db.query(func.max(models.Project.reihenfolge)).scalar()
+    project = models.Project(**payload.model_dump(), reihenfolge=(max_reihenfolge or 0) + 1)
     db.add(project)
     db.commit()
     db.refresh(project)
     return _project_detail(db, project)
+
+
+@router.put("/reorder", status_code=204)
+def reorder_projects(payload: schemas.ProjectReorder, db: Session = Depends(get_db)):
+    """Setzt die Sortierposition der Portfolio-Kacheln anhand der übergebenen Reihenfolge der IDs.
+
+    Muss vor der Route /{project_id} stehen, da beide Pfade denselben Segmentaufbau haben und
+    Starlette sonst "reorder" als project_id-Pfadparameter fehlinterpretieren würde.
+    """
+    for index, project_id in enumerate(payload.project_ids):
+        db.query(models.Project).filter(models.Project.id == project_id).update({"reihenfolge": index})
+    db.commit()
 
 
 @router.get("/{project_id}", response_model=schemas.ProjectDetail)

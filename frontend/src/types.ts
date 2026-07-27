@@ -24,6 +24,7 @@ export interface ProjectSummary {
   kunde: string | null;
   start_monat: string;
   anzahl_monate: number;
+  reihenfolge: number;
   monate: string[];
 }
 

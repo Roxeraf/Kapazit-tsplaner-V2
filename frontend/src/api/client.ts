@@ -53,6 +53,9 @@ export const api = {
       jira_component: string | null;
     }>,
   ) => request<ProjectDetail>(`/projects/${projectId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteProject: (projectId: number) => request<void>(`/projects/${projectId}`, { method: "DELETE" }),
+  reorderProjects: (projectIds: number[]) =>
+    request<void>("/projects/reorder", { method: "PUT", body: JSON.stringify({ project_ids: projectIds }) }),
   createSubproject: (projectId: number, name: string, reihenfolge: number) =>
     request(`/projects/${projectId}/subprojects`, {
       method: "POST",

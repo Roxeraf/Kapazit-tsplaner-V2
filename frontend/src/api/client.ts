@@ -1,5 +1,8 @@
 import type {
   JiraAccountMatch,
+  JiraComponent,
+  JiraProject,
+  JiraProjectStatus,
   JiraStatus,
   JiraSyncResult,
   ProjectDetail,
@@ -106,8 +109,16 @@ export const api = {
   jiraStatus: () => request<JiraStatus>("/jira/status"),
   jiraLookupAccount: (query: string) =>
     request<JiraAccountMatch[]>(`/jira/lookup-account?query=${encodeURIComponent(query)}`),
-  jiraSync: (subprojectId?: number) =>
-    request<JiraSyncResult>(`/jira/sync${subprojectId ? `?subproject_id=${subprojectId}` : ""}`, {
+  jiraSync: (projectId?: number) =>
+    request<JiraSyncResult>(`/jira/sync${projectId ? `?project_id=${projectId}` : ""}`, {
       method: "POST",
     }),
+  jiraListProjects: () => request<JiraProject[]>("/jira/projects"),
+  jiraSetProject: (key: string, payload: { relevant: boolean; status: JiraProjectStatus }) =>
+    request<JiraProject>(`/jira/projects/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  jiraListComponents: (key: string) =>
+    request<JiraComponent[]>(`/jira/projects/${encodeURIComponent(key)}/components`),
 };

@@ -139,6 +139,20 @@ class JiraWorklogCache(Base):
     projekt_mapping: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
+class JiraProjectCatalog(Base):
+    """Verwaltung, welche Jira-Projekte im Kapazitätsplaner geplant werden (siehe /jira/projects).
+
+    Rein lokale Zusatzinfo zu einem Jira-Projekt (Key kommt aus Jira) — legt fest, ob es in der
+    Auswahl als "wird geplant" markiert ist und welchen Planungsstatus es hat.
+    """
+
+    __tablename__ = "jira_project_catalog"
+
+    jira_project_key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    relevant: Mapped[bool] = mapped_column(default=False)
+    status: Mapped[str] = mapped_column(String(20), default="aktiv")  # aktiv/on_hold/beendet
+
+
 class GapSnapshot(Base):
     """Berechnete Soll-Ist-Gap-Werte inkl. Hochrechnung (Phase 3), historisiert."""
 

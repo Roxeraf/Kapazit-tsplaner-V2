@@ -31,6 +31,34 @@ def _client() -> httpx.Client:
     )
 
 
+def list_projects() -> list[dict]:
+    """Alle Jira-Projekte (Key + Name), für den Auswahlkatalog in `/jira/projects`."""
+    with _client() as client:
+        projects: list[dict] = []
+        start_at = 0
+        while True:
+            resp = client.get(
+                "/rest/api/3/project/search",
+                params={"startAt": start_at, "maxResults": 50},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            values = data.get("values", [])
+            projects.extend({"key": p["key"], "name": p["name"]} for p in values)
+            start_at += len(values)
+            if data.get("isLast", True) or not values:
+                break
+    return projects
+
+
+def list_components(project_key: str) -> list[dict]:
+    """Components eines Jira-Projekts, für den Component-Picker je Kapa-Projekt."""
+    with _client() as client:
+        resp = client.get(f"/rest/api/3/project/{project_key}/components")
+        resp.raise_for_status()
+        return [{"id": c["id"], "name": c["name"]} for c in resp.json()]
+
+
 def search_users(query: str) -> list[dict]:
     """Nutzersuche für die MA-Stammdatenpflege (Zuordnung Team-Member -> Jira-Account)."""
     with _client() as client:

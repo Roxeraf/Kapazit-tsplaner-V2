@@ -1,0 +1,11 @@
+{
+  "name": "kapazitaetsplaner-export",
+  "version": "1.0.0",
+  "description": "PPTX-Export für den Kapazitätsplaner (aufgerufen vom Backend, siehe CONCEPT.md Abschnitt 8)",
+  "main": "PLX_generate_pptx.js",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "pptxgenjs": "^4.0.1"
+  }
+}
+

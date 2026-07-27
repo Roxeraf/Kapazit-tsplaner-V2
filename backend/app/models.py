@@ -1,0 +1,146 @@
+from sqlalchemy import (
+    Float,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .database import Base
+
+
+class Project(Base):
+    """Entspricht dem Projektblatt-Kopf im Excel-Tool."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    kunde: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    start_monat: Mapped[str] = mapped_column(String(7))  # "MM.YYYY"
+    anzahl_monate: Mapped[int] = mapped_column(default=14)
+
+    subprojects: Mapped[list["Subproject"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", order_by="Subproject.reihenfolge"
+    )
+
+
+class Subproject(Base):
+    """Entspricht einem der 3 Teilprojekte je Projektblatt."""
+
+    __tablename__ = "subprojects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    reihenfolge: Mapped[int] = mapped_column(default=0)
+
+    project: Mapped["Project"] = relationship(back_populates="subprojects")
+    gantt_phases: Mapped[list["GanttPhase"]] = relationship(
+        back_populates="subproject", cascade="all, delete-orphan"
+    )
+    fte_plan: Mapped[list["FtePlan"]] = relationship(
+        back_populates="subproject", cascade="all, delete-orphan"
+    )
+    assignments: Mapped[list["Assignment"]] = relationship(
+        back_populates="subproject", cascade="all, delete-orphan"
+    )
+
+
+class GanttPhase(Base):
+    """Entspricht einer belegten Gantt-Zelle. Mehrere Phasen pro Monat = mehrere Zeilen."""
+
+    __tablename__ = "gantt_phases"
+    __table_args__ = (UniqueConstraint("subproject_id", "monat", "phase_code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subproject_id: Mapped[int] = mapped_column(ForeignKey("subprojects.id"))
+    monat: Mapped[str] = mapped_column(String(10))  # z.B. "Apr 26"
+    phase_code: Mapped[str] = mapped_column(String(1))  # p/k/t/g/?
+
+    subproject: Mapped["Subproject"] = relationship(back_populates="gantt_phases")
+
+
+class FtePlan(Base):
+    """Entspricht den FTE-Zeilen (Soll) je Teilprojekt/Monat."""
+
+    __tablename__ = "fte_plan"
+    __table_args__ = (UniqueConstraint("subproject_id", "monat"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subproject_id: Mapped[int] = mapped_column(ForeignKey("subprojects.id"))
+    monat: Mapped[str] = mapped_column(String(10))
+    wert_soll: Mapped[float] = mapped_column(Float, default=0)
+
+    subproject: Mapped["Subproject"] = relationship(back_populates="fte_plan")
+
+
+# ---------------------------------------------------------------------------
+# Ab hier: Tabellen für spätere Phasen (siehe CONCEPT.md, Abschnitt 9).
+# Modelle sind vorbereitet, damit das Schema stabil steht; die zugehörigen
+# Endpunkte liefern für die MVP-Phase bewusst nur Platzhalterdaten.
+# ---------------------------------------------------------------------------
+
+
+class Team(Base):
+    __tablename__ = "teams"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+
+    members: Mapped[list["TeamMember"]] = relationship(back_populates="team")
+
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    jira_account_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    wochenstunden: Mapped[float] = mapped_column(Float, default=40)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+
+    team: Mapped["Team | None"] = relationship(back_populates="members")
+    assignments: Mapped[list["Assignment"]] = relationship(back_populates="team_member")
+
+
+class Assignment(Base):
+    """Verknüpft MA <-> Teilprojekt mit Anteil (%)."""
+
+    __tablename__ = "assignments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_member_id: Mapped[int] = mapped_column(ForeignKey("team_members.id"))
+    subproject_id: Mapped[int] = mapped_column(ForeignKey("subprojects.id"))
+    anteil: Mapped[float] = mapped_column(Float, default=100)
+
+    team_member: Mapped["TeamMember"] = relationship(back_populates="assignments")
+    subproject: Mapped["Subproject"] = relationship(back_populates="assignments")
+
+
+class JiraWorklogCache(Base):
+    """Ist-Daten aus Jira (Worklog-Sync, Phase 2)."""
+
+    __tablename__ = "jira_worklogs_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    jira_account_id: Mapped[str] = mapped_column(String(100))
+    jira_issue_key: Mapped[str] = mapped_column(String(50))
+    datum: Mapped[str] = mapped_column(String(10))  # ISO "YYYY-MM-DD"
+    stunden: Mapped[float] = mapped_column(Float)
+    projekt_mapping: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class GapSnapshot(Base):
+    """Berechnete Soll-Ist-Gap-Werte inkl. Hochrechnung (Phase 3), historisiert."""
+
+    __tablename__ = "gap_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    monat: Mapped[str] = mapped_column(String(10))
+    soll: Mapped[float] = mapped_column(Float)
+    ist: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hochrechnung: Mapped[float | None] = mapped_column(Float, nullable=True)
+    erstellt_am: Mapped[str] = mapped_column(String(30))

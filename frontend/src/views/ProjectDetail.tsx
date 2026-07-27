@@ -494,8 +494,8 @@ function PhaseRows({
                     style={{
                       display: "block",
                       width: "100%",
-                      height: active ? BAR_HEIGHT : 2,
-                      background: active ? PHASE_COLORS[code] : "var(--border)",
+                      height: active ? BAR_HEIGHT : 0,
+                      background: active ? PHASE_COLORS[code] : "transparent",
                       borderTopLeftRadius: active && !prevActive ? "5px" : 0,
                       borderBottomLeftRadius: active && !prevActive ? "5px" : 0,
                       borderTopRightRadius: active && !nextActive ? "5px" : 0,

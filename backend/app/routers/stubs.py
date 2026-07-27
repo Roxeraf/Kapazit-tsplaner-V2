@@ -1,18 +1,14 @@
-"""Endpunkte für spätere Phasenplan-Schritte (CONCEPT.md, Abschnitt 9: Phasen 2-4).
+"""Endpunkte für noch ausstehende Phasenplan-Schritte (CONCEPT.md, Abschnitt 9: Phase 3).
 
-Liefern bewusst nur leere/Platzhalter-Antworten, damit Frontend-Views schon
-gegen eine stabile Route entwickeln können, ohne dass Jira-Sync, Gap-Berechnung
-oder Team-Pflege bereits produktiv sein müssen.
+Team-Kapazität (Phase 4, ../team.py) und Jira-Ist-Integration (Phase 2, ../jira.py)
+sind bereits umgesetzt. Liefert bewusst nur leere/Platzhalter-Antworten für die
+noch offene Gap-Analyse/Hochrechnung, damit Frontend-Views schon gegen eine
+stabile Route entwickeln können.
 """
 
 from fastapi import APIRouter
 
 router = APIRouter(tags=["future-phases"])
-
-
-@router.get("/team")
-def list_teams():
-    return {"status": "not_implemented", "phase": "4 – Team-Kapazität", "teams": []}
 
 
 @router.get("/gap")

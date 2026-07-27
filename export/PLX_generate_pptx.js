@@ -83,6 +83,7 @@ const CI = {
     p: { bg: "0A55B9", label: "Pflichtenheft" },
     k: { bg: "288CE1", label: "Konfiguration" },
     t: { bg: "C355D7", label: "Test"          },
+    s: { bg: "F2A71B", label: "Schulung"      },
     g: { bg: "CD145A", label: "GoLive"        },
     "?":{ bg: "002F5E", label: "Meilenstein"  }
   },
@@ -286,6 +287,7 @@ const legendRows = [
   [{ text:"Pflichtenheft",options:{fontSize:10}},{text:"p",options:{align:"center",bold:true,color:CI.phase.p.bg,fontSize:10}},{text:"",options:{fill:{color:CI.phase.p.bg}}}],
   [{ text:"Konfiguration",options:{fontSize:10}},{text:"k",options:{align:"center",bold:true,color:CI.phase.k.bg,fontSize:10}},{text:"",options:{fill:{color:CI.phase.k.bg}}}],
   [{ text:"Test",         options:{fontSize:10}},{text:"t",options:{align:"center",bold:true,color:CI.phase.t.bg,fontSize:10}},{text:"",options:{fill:{color:CI.phase.t.bg}}}],
+  [{ text:"Schulung",     options:{fontSize:10}},{text:"s",options:{align:"center",bold:true,color:CI.phase.s.bg,fontSize:10}},{text:"",options:{fill:{color:CI.phase.s.bg}}}],
   [{ text:"GoLive",       options:{fontSize:10}},{text:"g",options:{align:"center",bold:true,color:CI.phase.g.bg,fontSize:10}},{text:"",options:{fill:{color:CI.phase.g.bg}}}],
   [{ text:"Meilenstein",  options:{fontSize:10}},{text:"?",options:{align:"center",bold:true,color:CI.white,fill:{color:CI.phase["?"].bg},fontSize:10}},{text:"",options:{fill:{color:CI.phase["?"].bg}}}],
 ];
@@ -314,7 +316,7 @@ slideL.addTable(hR, {
 // PROJEKT-FOLIEN: Gantt als Farbbalken + FTE
 // =========================================================================
 const projekte = config.projekte || [];
-const phasenOrder = ["p","k","t","g","?"];
+const phasenOrder = ["p","k","t","s","g","?"];
 const tW  = L.contentW;            // Tabellenbreite
 const lbW = 1.45;                  // Label-Spalte
 const mW  = (tW - lbW) / MONATE.length;  // Monats-Spaltenbreite

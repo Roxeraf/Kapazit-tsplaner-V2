@@ -26,6 +26,8 @@ services:
       JIRA_BASE_URL: ${JIRA_BASE_URL:-}
       JIRA_EMAIL: ${JIRA_EMAIL:-}
       JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      # Optional, nur bei Tempo-Timesheets-Nutzung (siehe backend/.env.example).
+      TEMPO_API_TOKEN: ${TEMPO_API_TOKEN:-}
     depends_on:
       db:
         condition: service_healthy

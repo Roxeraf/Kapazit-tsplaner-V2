@@ -109,17 +109,29 @@ def search_users(query: str) -> list[dict]:
         return resp.json()
 
 
+def search_issues_for_component(component: str, since: str) -> list[dict]:
+    """Issues (Key + numerische ID) mit gegebener Jira-Component oder -Label seit `since`.
+
+    Rückgabe je Issue: `{"key": "ABC-1", "id": "10001"}`. Basis sowohl für den nativen
+    Worklog-Fallback (fetch_worklogs_for_component) als auch für Tempo (tempo_client.py).
+    """
+    jql = f'(component = "{component}" OR labels = "{component}") AND worklogDate >= "{since}"'
+    with _client() as client:
+        issues = _search_issues(client, jql, "key")
+    return [{"key": issue["key"], "id": issue["id"]} for issue in issues]
+
+
 def fetch_worklogs_for_component(component: str, since: str) -> list[dict]:
     """Worklogs aller Issues mit gegebener Component/Label seit `since` (ISO-Datum "YYYY-MM-DD").
 
-    Empfehlung aus CONCEPT.md Abschnitt 4: Mapping über Jira-Component oder -Label, da ohne
-    Custom-Field-Setup nutzbar. Rückgabe je Worklog: issue_key, author_account_id, started, stunden.
+    Fallback über das native Jira-Worklog-Feature, wenn Tempo nicht konfiguriert ist (siehe
+    tempo_client.py) — bei Tempo-Nutzung zeigt der native Worklog-Autor häufig den
+    Tempo-Systemaccount statt der echten Person. Rückgabe je Worklog: issue_key,
+    author_account_id, started, stunden.
     """
-    jql = f'(component = "{component}" OR labels = "{component}") AND worklogDate >= "{since}"'
+    issue_keys = [issue["key"] for issue in search_issues_for_component(component, since)]
 
     with _client() as client:
-        issue_keys = [issue["key"] for issue in _search_issues(client, jql, "key")]
-
         worklogs: list[dict] = []
         for issue_key in issue_keys:
             wl_start_at = 0

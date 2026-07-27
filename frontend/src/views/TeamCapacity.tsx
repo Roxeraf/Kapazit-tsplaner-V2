@@ -119,6 +119,7 @@ export default function TeamCapacity() {
           {jiraStatus && (
             <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
               Jira: {jiraStatus.configured ? "verbunden" : "nicht konfiguriert"}
+              {jiraStatus.configured && (jiraStatus.tempo_configured ? " (Worklogs über Tempo)" : " (natives Jira-Worklog)")}
             </span>
           )}
           <button className="btn" onClick={handleSync} disabled={!jiraStatus?.configured || syncing}>

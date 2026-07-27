@@ -81,6 +81,7 @@ export interface TeamMember {
 export interface JiraStatus {
   configured: boolean;
   base_url: string | null;
+  tempo_configured: boolean;
   hinweis: string;
 }
 

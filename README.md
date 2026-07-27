@@ -51,6 +51,12 @@ Für die Jira-Ist-Integration (optional, siehe `backend/.env.example`):
 bleibt der Sync deaktiviert (`GET /jira/status` meldet `configured: false`),
 die restliche Planung funktioniert unabhängig davon.
 
+Wird in Jira mit **Tempo Timesheets** statt der nativen Jira-Zeitbuchung gearbeitet,
+zusätzlich `TEMPO_API_TOKEN` setzen (Bearer-Token, erzeugt in Jira unter
+Tempo → Einstellungen → API Integration). Grund: Bei Tempo-Nutzung zeigt der native
+Jira-Worklog-Autor oft den Tempo-Systemaccount statt der echten Person — mit gesetztem
+Token wird stattdessen direkt gegen die Tempo-API gesynct.
+
 **Export-Skript-Abhängigkeiten** (wird vom Backend per `node` aufgerufen):
 
 ```sh

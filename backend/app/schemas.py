@@ -149,6 +149,7 @@ class TeamWithMembers(TeamOut):
 class JiraStatus(BaseModel):
     configured: bool
     base_url: str | None
+    tempo_configured: bool  # true = Worklogs kommen über die Tempo-API statt nativem Jira-Worklog
     hinweis: str
 
 

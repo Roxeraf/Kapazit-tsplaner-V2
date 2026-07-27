@@ -9,7 +9,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import jira_client, jira_sync, models, schemas
+from .. import jira_client, jira_sync, models, schemas, tempo_client
 from ..database import get_db
 
 router = APIRouter(prefix="/jira", tags=["jira"])
@@ -18,14 +18,18 @@ router = APIRouter(prefix="/jira", tags=["jira"])
 @router.get("/status", response_model=schemas.JiraStatus)
 def jira_status():
     configured = jira_client.is_configured()
+    tempo_configured = tempo_client.is_configured()
+    if not configured:
+        hinweis = "JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN sind nicht gesetzt – Sync ist deaktiviert."
+    elif tempo_configured:
+        hinweis = "Jira-Verbindung konfiguriert. Worklogs kommen über Tempo (TEMPO_API_TOKEN gesetzt)."
+    else:
+        hinweis = "Jira-Verbindung konfiguriert (natives Jira-Worklog, kein TEMPO_API_TOKEN gesetzt)."
     return schemas.JiraStatus(
         configured=configured,
         base_url=jira_client.JIRA_BASE_URL if configured else None,
-        hinweis=(
-            "Jira-Verbindung konfiguriert."
-            if configured
-            else "JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN sind nicht gesetzt – Sync ist deaktiviert."
-        ),
+        tempo_configured=tempo_configured,
+        hinweis=hinweis,
     )
 
 

@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from . import jira_client, models
+from . import jira_client, models, tempo_client
 from .constants import ARBEITSWOCHEN_PRO_MONAT, MONAT_NAMEN
 
 # Rückblickzeitraum für den Sync: reicht für die üblichen Projektlaufzeiten (siehe anzahl_monate).
@@ -31,7 +31,11 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
     Team-Stammdaten hinterlegten Jira-Account-IDs, falls eine Zuordnung fehlschlägt).
     """
     since = (date.today() - timedelta(days=SYNC_LOOKBACK_DAYS)).isoformat()
-    raw_worklogs = jira_client.fetch_worklogs_for_component(project.jira_component, since)
+    if tempo_client.is_configured():
+        issues = jira_client.search_issues_for_component(project.jira_component, since)
+        raw_worklogs = tempo_client.fetch_worklogs_for_issues(issues, since)
+    else:
+        raw_worklogs = jira_client.fetch_worklogs_for_component(project.jira_component, since)
 
     known_account_ids = {
         m.jira_account_id

@@ -88,6 +88,19 @@ export default function ProjectDetail() {
     load();
   };
 
+  const toggleProjectPhase = (monat: string, code: PhaseCode) => {
+    if (!project) return;
+    const current = project.phasen[monat] ?? [];
+    const next = current.includes(code) ? current.filter((c) => c !== code) : [...current, code];
+    handleProjectPhaseChange(monat, next);
+  };
+
+  const toggleSubprojectPhase = (subprojectId: number, phasen: Record<string, PhaseCode[]>, monat: string, code: PhaseCode) => {
+    const current = phasen[monat] ?? [];
+    const next = current.includes(code) ? current.filter((c) => c !== code) : [...current, code];
+    handlePhaseChange(subprojectId, monat, next);
+  };
+
   const handleProjectFteChange = async (monat: string, raw: string) => {
     if (!project) return;
     const value = Number(raw);
@@ -272,16 +285,6 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      <div className="legend-row">
-        {PHASE_CODES.map((code) => (
-          <span key={code} className="legend-chip">
-            <span className="legend-swatch" style={{ background: PHASE_COLORS[code] }} />
-            {code} = {PHASE_LABELS[code]}
-          </span>
-        ))}
-        <span className="legend-chip">Mehrere Phasen im selben Monat: einfach mehrere Buttons anklicken</span>
-      </div>
-
       <div className="card" style={{ marginBottom: "1.25rem", overflowX: "auto" }}>
         <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
           <h3 style={{ color: "var(--navy)", margin: 0 }}>Projekt gesamt</h3>
@@ -301,14 +304,7 @@ export default function ProjectDetail() {
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td className="label">Phasencode(s)</td>
-              {monate.map((m) => (
-                <td key={m}>
-                  <PhaseToggleCell active={project.phasen[m] ?? []} onChange={(codes) => handleProjectPhaseChange(m, codes)} />
-                </td>
-              ))}
-            </tr>
+            <PhaseRows phasen={project.phasen} monate={monate} onToggle={toggleProjectPhase} />
             <tr>
               <td className="label">FTE (Soll){project.fte_aus_teilprojekten && " (Σ Teilprojekte)"}</td>
               {monate.map((m) =>
@@ -364,14 +360,11 @@ export default function ProjectDetail() {
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td className="label">Phasencode(s)</td>
-                {monate.map((m) => (
-                  <td key={m}>
-                    <PhaseToggleCell active={sp.phasen[m] ?? []} onChange={(codes) => handlePhaseChange(sp.id, m, codes)} />
-                  </td>
-                ))}
-              </tr>
+              <PhaseRows
+                phasen={sp.phasen}
+                monate={monate}
+                onToggle={(m, code) => toggleSubprojectPhase(sp.id, sp.phasen, m, code)}
+              />
               <tr>
                 <td className="label">FTE (Soll)</td>
                 {monate.map((m) => (
@@ -411,37 +404,46 @@ export default function ProjectDetail() {
   );
 }
 
-function PhaseToggleCell({ active, onChange }: { active: PhaseCode[]; onChange: (codes: PhaseCode[]) => void }) {
-  const toggle = (code: PhaseCode) => {
-    onChange(active.includes(code) ? active.filter((c) => c !== code) : [...active, code]);
-  };
+function PhaseRows({
+  phasen,
+  monate,
+  onToggle,
+}: {
+  phasen: Record<string, PhaseCode[]>;
+  monate: string[];
+  onToggle: (monat: string, code: PhaseCode) => void;
+}) {
   return (
-    <div style={{ display: "flex", gap: "2px", flexWrap: "wrap", justifyContent: "center" }}>
-      {PHASE_CODES.map((code) => {
-        const isActive = active.includes(code);
-        return (
-          <button
-            key={code}
-            type="button"
-            title={PHASE_LABELS[code]}
-            onClick={() => toggle(code)}
-            style={{
-              width: "1.5rem",
-              height: "1.5rem",
-              fontSize: "0.7rem",
-              lineHeight: 1,
-              borderRadius: "3px",
-              border: `1px solid ${isActive ? PHASE_COLORS[code] : "var(--border)"}`,
-              background: isActive ? PHASE_COLORS[code] : "transparent",
-              color: isActive ? "white" : "var(--text-muted)",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            {code}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      {PHASE_CODES.map((code) => (
+        <tr key={code}>
+          <td className="label">
+            <span className="legend-swatch" style={{ background: PHASE_COLORS[code], marginRight: "0.4rem" }} />
+            {PHASE_LABELS[code]}
+          </td>
+          {monate.map((m) => {
+            const active = (phasen[m] ?? []).includes(code);
+            return (
+              <td key={m} style={{ padding: "3px" }}>
+                <button
+                  type="button"
+                  onClick={() => onToggle(m, code)}
+                  aria-label={`${PHASE_LABELS[code]} ${m} ${active ? "entfernen" : "setzen"}`}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    height: "1.5rem",
+                    border: `1px solid ${active ? PHASE_COLORS[code] : "var(--border)"}`,
+                    background: active ? PHASE_COLORS[code] : "transparent",
+                    borderRadius: "3px",
+                    cursor: "pointer",
+                  }}
+                />
+              </td>
+            );
+          })}
+        </tr>
+      ))}
+    </>
   );
 }

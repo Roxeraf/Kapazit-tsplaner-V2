@@ -9,6 +9,11 @@ services:
       - db_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kapazitaetsplaner -d kapazitaetsplaner"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
 
   backend:
     build:
@@ -22,7 +27,8 @@ services:
       JIRA_EMAIL: ${JIRA_EMAIL:-}
       JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
 

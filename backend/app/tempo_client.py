@@ -13,6 +13,7 @@ von jira_client.py.
 """
 
 import os
+from datetime import date
 
 import httpx
 
@@ -44,7 +45,10 @@ def _paginated_get(client: httpx.Client, path: str, params: dict) -> list[dict]:
     next_params: dict | None = params
     while True:
         resp = client.get(url, params=next_params)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(f"{exc}\nAntwort: {resp.text}", request=exc.request, response=exc.response) from exc
         data = resp.json()
         results.extend(data.get("results", []))
         next_url = data.get("metadata", {}).get("next")
@@ -66,12 +70,15 @@ def fetch_worklogs_for_issues(issues: list[dict], since: str) -> list[dict]:
         return []
     id_to_key = {str(issue["id"]): issue["key"] for issue in issues}
     issue_ids = list(id_to_key.keys())
+    today = date.today().isoformat()
 
     with _client() as client:
         raw: list[dict] = []
         for start in range(0, len(issue_ids), ISSUE_BATCH_SIZE):
             batch = issue_ids[start : start + ISSUE_BATCH_SIZE]
-            raw.extend(_paginated_get(client, "/worklogs", {"issue": batch, "from": since, "limit": 1000}))
+            raw.extend(
+                _paginated_get(client, "/worklogs", {"issue": batch, "from": since, "to": today, "limit": 1000})
+            )
 
     worklogs: list[dict] = []
     for wl in raw:

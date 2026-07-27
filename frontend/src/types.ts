@@ -143,3 +143,30 @@ export interface JiraComponent {
   id: string;
   name: string;
 }
+
+export type GapStatus = "gruen" | "gelb" | "rot" | "grau";
+
+export interface GapAnalysis {
+  project_id: number;
+  project_name: string;
+  monate: string[];
+  soll: Record<string, number>;
+  ist: Record<string, number>;
+  gap: Record<string, number>;
+  hochrechnung: Record<string, number>;
+  soll_gesamt: number;
+  projiziert_gesamt: number;
+  gap_gesamt: number;
+  gap_pct: number | null;
+  status: GapStatus;
+}
+
+export interface ForecastSummary {
+  project_id: number;
+  project_name: string;
+  soll_gesamt: number;
+  projiziert_gesamt: number;
+  gap_gesamt: number;
+  gap_pct: number | null;
+  status: GapStatus;
+}

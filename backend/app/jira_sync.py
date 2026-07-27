@@ -17,8 +17,8 @@ def _monat_label(iso_datum: str) -> str:
     return f"{MONAT_NAMEN[int(monat) - 1]} {int(jahr) % 100:02d}"
 
 
-def sync_subproject(db: Session, subproject: models.Subproject) -> tuple[int, int]:
-    """Holt Worklogs aus Jira für die Component/Label des Teilprojekts und cached sie.
+def sync_project(db: Session, project: models.Project) -> tuple[int, int]:
+    """Holt Worklogs aus Jira für die Component/Label des Projekts und cached sie.
 
     Nur Buchungen von MA mit bekanntem `jira_account_id` (siehe team_members) werden
     übernommen, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
@@ -26,7 +26,7 @@ def sync_subproject(db: Session, subproject: models.Subproject) -> tuple[int, in
     Rückgabe: (Anzahl gecachter Worklogs, Anzahl unzugeordneter Buchungen).
     """
     since = (date.today() - timedelta(days=SYNC_LOOKBACK_DAYS)).isoformat()
-    raw_worklogs = jira_client.fetch_worklogs_for_component(subproject.jira_component, since)
+    raw_worklogs = jira_client.fetch_worklogs_for_component(project.jira_component, since)
 
     known_account_ids = {
         m.jira_account_id
@@ -57,26 +57,26 @@ def sync_subproject(db: Session, subproject: models.Subproject) -> tuple[int, in
             )
             db.add(entry)
         entry.stunden = wl["stunden"]
-        entry.projekt_mapping = str(subproject.id)
+        entry.projekt_mapping = str(project.id)
         gespeichert += 1
 
     db.commit()
     return gespeichert, unzugeordnet
 
 
-def berechne_ist_fte(db: Session, subproject: models.Subproject) -> dict[str, float]:
+def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:
     """Ist-FTE je Monat aus dem Worklog-Cache.
 
     Formel (CONCEPT.md Abschnitt 4, Punkt 4):
     Ist_FTE(Monat) = Summe_Stunden / (Wochenstunden_MA × Arbeitswochen_Monat), je MA berechnet
-    und je Teilprojekt/Monat aufsummiert.
+    und je Projekt/Monat aufsummiert.
     """
-    if subproject.jira_component is None:
+    if project.jira_component is None:
         return {}
 
     rows = (
         db.query(models.JiraWorklogCache)
-        .filter(models.JiraWorklogCache.projekt_mapping == str(subproject.id))
+        .filter(models.JiraWorklogCache.projekt_mapping == str(project.id))
         .all()
     )
     if not rows:

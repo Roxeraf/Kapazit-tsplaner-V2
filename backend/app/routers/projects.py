@@ -8,20 +8,17 @@ from ..database import get_db
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-def _subproject_detail(db: Session, sp: models.Subproject) -> schemas.SubprojectDetail:
+def _subproject_detail(sp: models.Subproject) -> schemas.SubprojectDetail:
     phasen: dict[str, list[str]] = {}
     for gp in sp.gantt_phases:
         phasen.setdefault(gp.monat, []).append(gp.phase_code)
     fte = {f.monat: f.wert_soll for f in sp.fte_plan}
-    ist = jira_sync.berechne_ist_fte(db, sp)
     return schemas.SubprojectDetail(
         id=sp.id,
         name=sp.name,
         reihenfolge=sp.reihenfolge,
-        jira_component=sp.jira_component,
         phasen=phasen,
         fte=fte,
-        ist=ist,
     )
 
 
@@ -33,7 +30,9 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         start_monat=p.start_monat,
         anzahl_monate=p.anzahl_monate,
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
-        subprojects=[_subproject_detail(db, sp) for sp in p.subprojects],
+        jira_component=p.jira_component,
+        ist=jira_sync.berechne_ist_fte(db, p),
+        subprojects=[_subproject_detail(sp) for sp in p.subprojects],
     )
 
 
@@ -123,7 +122,7 @@ def create_subproject(project_id: int, payload: schemas.SubprojectCreate, db: Se
     db.add(sp)
     db.commit()
     db.refresh(sp)
-    return _subproject_detail(db, sp)
+    return _subproject_detail(sp)
 
 
 @router.put("/subprojects/{subproject_id}", response_model=schemas.SubprojectDetail)
@@ -133,7 +132,7 @@ def update_subproject(subproject_id: int, payload: schemas.SubprojectUpdate, db:
         setattr(sp, field, value)
     db.commit()
     db.refresh(sp)
-    return _subproject_detail(db, sp)
+    return _subproject_detail(sp)
 
 
 @router.delete("/subprojects/{subproject_id}", status_code=204)
@@ -159,7 +158,7 @@ def set_phasen(subproject_id: int, payload: schemas.PhasenUpdate, db: Session = 
         db.add(models.GanttPhase(subproject_id=subproject_id, monat=payload.monat, phase_code=code))
     db.commit()
     db.refresh(sp)
-    return _subproject_detail(db, sp)
+    return _subproject_detail(sp)
 
 
 @router.put("/subprojects/{subproject_id}/fte", response_model=schemas.SubprojectDetail)
@@ -178,4 +177,4 @@ def set_fte(subproject_id: int, payload: schemas.FteUpdate, db: Session = Depend
         entry.wert_soll = payload.wert_soll
     db.commit()
     db.refresh(sp)
-    return _subproject_detail(db, sp)
+    return _subproject_detail(sp)

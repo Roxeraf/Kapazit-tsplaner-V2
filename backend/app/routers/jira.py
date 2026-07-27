@@ -47,35 +47,35 @@ def lookup_account(query: str = Query(..., min_length=2)):
 
 
 @router.post("/sync", response_model=schemas.JiraSyncResult)
-def sync(subproject_id: int | None = None, db: Session = Depends(get_db)):
-    """Synchronisiert Worklogs für alle (oder ein) Teilprojekt(e) mit gesetzter Jira-Komponente."""
+def sync(project_id: int | None = None, db: Session = Depends(get_db)):
+    """Synchronisiert Worklogs für alle (oder ein) Projekt(e) mit gesetzter Jira-Komponente."""
     if not jira_client.is_configured():
         raise HTTPException(status_code=409, detail="Jira ist nicht konfiguriert.")
 
-    query = db.query(models.Subproject).filter(models.Subproject.jira_component.isnot(None))
-    if subproject_id is not None:
-        query = query.filter(models.Subproject.id == subproject_id)
-    subprojects = query.all()
+    query = db.query(models.Project).filter(models.Project.jira_component.isnot(None))
+    if project_id is not None:
+        query = query.filter(models.Project.id == project_id)
+    projects = query.all()
 
     ergebnisse = []
-    for sp in subprojects:
+    for p in projects:
         try:
-            gespeichert, unzugeordnet = jira_sync.sync_subproject(db, sp)
+            gespeichert, unzugeordnet = jira_sync.sync_project(db, p)
             ergebnisse.append(
                 schemas.JiraSyncResultItem(
-                    subproject_id=sp.id,
-                    subproject_name=sp.name,
-                    jira_component=sp.jira_component,
+                    project_id=p.id,
+                    project_name=p.name,
+                    jira_component=p.jira_component,
                     worklogs_synced=gespeichert,
                     unzugeordnete_buchungen=unzugeordnet,
                 )
             )
-        except Exception as exc:  # noqa: BLE001 – ein fehlgeschlagenes TP darf den Sync nicht abbrechen
+        except Exception as exc:  # noqa: BLE001 – ein fehlgeschlagenes Projekt darf den Sync nicht abbrechen
             ergebnisse.append(
                 schemas.JiraSyncResultItem(
-                    subproject_id=sp.id,
-                    subproject_name=sp.name,
-                    jira_component=sp.jira_component,
+                    project_id=p.id,
+                    project_name=p.name,
+                    jira_component=p.jira_component,
                     worklogs_synced=0,
                     unzugeordnete_buchungen=0,
                     error=str(exc),

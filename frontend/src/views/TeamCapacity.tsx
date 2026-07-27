@@ -138,13 +138,13 @@ export default function TeamCapacity() {
           <strong>Sync-Ergebnis</strong>
           {syncResult.ergebnisse.length === 0 && (
             <p style={{ color: "var(--text-muted)" }}>
-              Keine Teilprojekte mit gesetzter Jira-Komponente gefunden (siehe Projekt-Detail).
+              Keine Projekte mit gesetzter Jira-Komponente gefunden (siehe Projekt-Detail).
             </p>
           )}
           <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.2rem" }}>
             {syncResult.ergebnisse.map((r) => (
-              <li key={r.subproject_id}>
-                {r.subproject_name} ({r.jira_component}):{" "}
+              <li key={r.project_id}>
+                {r.project_name} ({r.jira_component}):{" "}
                 {r.error ? (
                   <span style={{ color: "var(--rot)" }}>{r.error}</span>
                 ) : (

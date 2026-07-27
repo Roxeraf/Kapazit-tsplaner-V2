@@ -63,6 +63,29 @@ def list_components(project_key: str) -> list[dict]:
         return [{"id": c["id"], "name": c["name"]} for c in resp.json()]
 
 
+def _search_issues(client: httpx.Client, jql: str, fields: str) -> list[dict]:
+    """Paginiert über die aktuelle Jira-Such-API.
+
+    `GET /rest/api/3/search` wurde von Atlassian abgeschaltet (410 Gone); der Nachfolger
+    `/rest/api/3/search/jql` paginiert über `nextPageToken` statt `startAt`/`total`.
+    """
+    issues: list[dict] = []
+    next_page_token: str | None = None
+    while True:
+        params: dict = {"jql": jql, "fields": fields, "maxResults": 100}
+        if next_page_token:
+            params["nextPageToken"] = next_page_token
+        resp = client.get("/rest/api/3/search/jql", params=params)
+        resp.raise_for_status()
+        data = resp.json()
+        page_issues = data.get("issues", [])
+        issues.extend(page_issues)
+        next_page_token = data.get("nextPageToken")
+        if not next_page_token or not page_issues:
+            break
+    return issues
+
+
 def list_labels(project_key: str) -> list[str]:
     """Labels, die tatsächlich auf Issues in diesem Jira-Projekt verwendet werden.
 
@@ -71,26 +94,10 @@ def list_labels(project_key: str) -> list[str]:
     list_components(), da viele Teams statt/zusätzlich zu Components mit Labels arbeiten.
     """
     with _client() as client:
+        issues = _search_issues(client, f'project = "{project_key}"', "labels")
         labels: set[str] = set()
-        start_at = 0
-        while True:
-            resp = client.get(
-                "/rest/api/3/search",
-                params={
-                    "jql": f'project = "{project_key}"',
-                    "fields": "labels",
-                    "startAt": start_at,
-                    "maxResults": 100,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            issues = data.get("issues", [])
-            for issue in issues:
-                labels.update(issue.get("fields", {}).get("labels") or [])
-            start_at += len(issues)
-            if not issues or start_at >= data.get("total", 0):
-                break
+        for issue in issues:
+            labels.update(issue.get("fields", {}).get("labels") or [])
     return sorted(labels)
 
 
@@ -111,20 +118,7 @@ def fetch_worklogs_for_component(component: str, since: str) -> list[dict]:
     jql = f'(component = "{component}" OR labels = "{component}") AND worklogDate >= "{since}"'
 
     with _client() as client:
-        issue_keys: list[str] = []
-        start_at = 0
-        while True:
-            resp = client.get(
-                "/rest/api/3/search",
-                params={"jql": jql, "fields": "key", "startAt": start_at, "maxResults": 100},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            issues = data.get("issues", [])
-            issue_keys.extend(issue["key"] for issue in issues)
-            start_at += len(issues)
-            if not issues or start_at >= data.get("total", 0):
-                break
+        issue_keys = [issue["key"] for issue in _search_issues(client, jql, "key")]
 
         worklogs: list[dict] = []
         for issue_key in issue_keys:

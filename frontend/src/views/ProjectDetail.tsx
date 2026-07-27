@@ -109,6 +109,27 @@ export default function ProjectDetail() {
     load();
   };
 
+  const handleProjectFieldChange = async (
+    field: "name" | "kunde" | "start_monat" | "anzahl_monate",
+    raw: string,
+  ) => {
+    if (!project) return;
+    if (field === "anzahl_monate") {
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 1) return;
+      await api.updateProject(project.id, { anzahl_monate: value });
+    } else if (field === "kunde") {
+      await api.updateProject(project.id, { kunde: raw.trim() || null });
+    } else if (field === "start_monat") {
+      if (!/^\d{2}\.\d{4}$/.test(raw)) return;
+      await api.updateProject(project.id, { start_monat: raw });
+    } else {
+      if (!raw.trim()) return;
+      await api.updateProject(project.id, { name: raw.trim() });
+    }
+    load();
+  };
+
   const handleAddSubproject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!project) return;
@@ -134,6 +155,43 @@ export default function ProjectDetail() {
         <a className="btn" href={api.exportPptxUrl(project.id)}>
           Als PPTX exportieren
         </a>
+      </div>
+
+      <div className="card" style={{ marginBottom: "1.25rem" }}>
+        <div className="field-row" style={{ marginTop: 0 }}>
+          <label>
+            Projektname
+            <input key={project.name} defaultValue={project.name} onBlur={(e) => handleProjectFieldChange("name", e.target.value)} />
+          </label>
+          <label>
+            Kunde
+            <input
+              key={project.kunde ?? ""}
+              defaultValue={project.kunde ?? ""}
+              onBlur={(e) => handleProjectFieldChange("kunde", e.target.value)}
+            />
+          </label>
+          <label>
+            Startmonat (MM.YYYY)
+            <input
+              key={project.start_monat}
+              defaultValue={project.start_monat}
+              pattern="\d{2}\.\d{4}"
+              onBlur={(e) => handleProjectFieldChange("start_monat", e.target.value)}
+            />
+          </label>
+          <label>
+            Anzahl Monate
+            <input
+              key={project.anzahl_monate}
+              type="number"
+              min={1}
+              max={24}
+              defaultValue={project.anzahl_monate}
+              onBlur={(e) => handleProjectFieldChange("anzahl_monate", e.target.value)}
+            />
+          </label>
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: "1.25rem" }}>

@@ -77,7 +77,7 @@ def fetch_worklogs_for_issues(issues: list[dict], since: str) -> list[dict]:
         for start in range(0, len(issue_ids), ISSUE_BATCH_SIZE):
             batch = issue_ids[start : start + ISSUE_BATCH_SIZE]
             raw.extend(
-                _paginated_get(client, "/worklogs", {"issue": batch, "from": since, "to": today, "limit": 1000})
+                _paginated_get(client, "/worklogs", {"issueId": batch, "from": since, "to": today, "limit": 1000})
             )
 
     worklogs: list[dict] = []

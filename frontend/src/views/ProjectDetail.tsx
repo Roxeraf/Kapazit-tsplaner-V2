@@ -11,6 +11,8 @@ import {
 } from "../types";
 
 const PHASE_CODES: PhaseCode[] = ["p", "k", "t", "s", "g", "?"];
+const ROW_HEIGHT = 38;
+const BAR_HEIGHT = 20;
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -456,8 +458,8 @@ function PhaseRows({
   return (
     <>
       {PHASE_CODES.map((code) => (
-        <tr key={code}>
-          <td className="label">
+        <tr key={code} style={{ height: ROW_HEIGHT }}>
+          <td className="label" style={{ height: ROW_HEIGHT, padding: "0 0.4rem" }}>
             <span className="legend-swatch" style={{ background: PHASE_COLORS[code], marginRight: "0.4rem" }} />
             {PHASE_LABELS[code]}
           </td>
@@ -466,7 +468,7 @@ function PhaseRows({
             const prevActive = i > 0 && isActive(code, monate[i - 1]);
             const nextActive = i < monate.length - 1 && isActive(code, monate[i + 1]);
             return (
-              <td key={m} style={{ padding: 0, border: "none", borderBottom: "1px solid var(--border)" }}>
+              <td key={m} style={{ height: ROW_HEIGHT, padding: 0, border: "none", borderBottom: "1px solid var(--border)" }}>
                 <button
                   type="button"
                   onMouseDown={(e) => {
@@ -478,8 +480,9 @@ function PhaseRows({
                   style={{
                     display: "flex",
                     alignItems: "center",
+                    justifyContent: "stretch",
                     width: "100%",
-                    height: "1.6rem",
+                    height: ROW_HEIGHT,
                     border: "none",
                     background: "transparent",
                     padding: 0,
@@ -491,7 +494,7 @@ function PhaseRows({
                     style={{
                       display: "block",
                       width: "100%",
-                      height: active ? "1.1rem" : "2px",
+                      height: active ? BAR_HEIGHT : 2,
                       background: active ? PHASE_COLORS[code] : "var(--border)",
                       borderTopLeftRadius: active && !prevActive ? "5px" : 0,
                       borderBottomLeftRadius: active && !prevActive ? "5px" : 0,

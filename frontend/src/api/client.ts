@@ -1,4 +1,6 @@
 import type {
+  ForecastSummary,
+  GapAnalysis,
   JiraAccountMatch,
   JiraComponent,
   JiraProject,
@@ -138,4 +140,10 @@ export const api = {
   jiraListComponents: (key: string) =>
     request<JiraComponent[]>(`/jira/projects/${encodeURIComponent(key)}/components`),
   jiraListLabels: (key: string) => request<string[]>(`/jira/projects/${encodeURIComponent(key)}/labels`),
+
+  // Gap-Analyse
+  getGap: (teamId?: number) =>
+    request<GapAnalysis[]>(`/gap${teamId ? `?team_id=${teamId}` : ""}`),
+  getForecast: (teamId?: number) =>
+    request<ForecastSummary[]>(`/forecast${teamId ? `?team_id=${teamId}` : ""}`),
 };

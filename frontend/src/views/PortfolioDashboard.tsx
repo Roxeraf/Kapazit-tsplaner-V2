@@ -168,7 +168,7 @@ export default function PortfolioDashboard() {
                   />
                 )}
               </div>
-              {p.kunde && <p className="kunde">{p.kunde}</p>}
+              <p className="kunde">{p.kunde || " "}</p>
               <p className="zeitraum">
                 {p.monate[0]} – {p.monate[p.monate.length - 1]}
               </p>

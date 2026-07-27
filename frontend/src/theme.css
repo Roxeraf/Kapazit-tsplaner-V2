@@ -97,6 +97,7 @@ a {
 
 .project-card-wrapper {
   position: relative;
+  height: 100%;
   border-radius: 8px;
   cursor: grab;
 }
@@ -106,7 +107,10 @@ a {
 }
 
 .project-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
   text-decoration: none;
   color: inherit;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
@@ -155,11 +159,14 @@ a {
   color: var(--text-muted);
   font-size: 0.85rem;
   margin: 0 0 0.5rem;
+  min-height: 1.2em;
 }
 
 .project-card .zeitraum {
   font-size: 0.8rem;
   color: var(--text-muted);
+  margin-top: auto;
+  padding-top: 0.5rem;
 }
 
 .btn {

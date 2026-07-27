@@ -466,7 +466,7 @@ function PhaseRows({
             const prevActive = i > 0 && isActive(code, monate[i - 1]);
             const nextActive = i < monate.length - 1 && isActive(code, monate[i + 1]);
             return (
-              <td key={m} style={{ padding: 0 }}>
+              <td key={m} style={{ padding: 0, border: "none", borderBottom: "1px solid var(--border)" }}>
                 <button
                   type="button"
                   onMouseDown={(e) => {

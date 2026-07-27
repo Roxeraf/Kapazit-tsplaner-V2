@@ -29,10 +29,15 @@ def _build_config(projects: list[models.Project], monate: list[str]) -> dict:
         "projekte": [
             {
                 "name": p.name,
+                # Grundplanung direkt am Projekt — PLX_generate_pptx.js nutzt das als Fallback,
+                # wenn keines der Teilprojekte befüllte Phasen/FTE hat (z.B. Projekte ohne
+                # Teilprojekte, siehe CONCEPT.md Abschnitt 3: Teilprojekte sind optional).
+                "phasen": _phasen_dict(p.gantt_phases),
+                "fte": {f.monat: f.wert_soll for f in p.fte_plan},
                 "teilprojekte": [
                     {
                         "name": sp.name,
-                        "phasen": _phasen_dict(sp),
+                        "phasen": _phasen_dict(sp.gantt_phases),
                         "fte": {f.monat: f.wert_soll for f in sp.fte_plan},
                     }
                     for sp in sorted(p.subprojects, key=lambda s: s.reihenfolge)
@@ -43,9 +48,9 @@ def _build_config(projects: list[models.Project], monate: list[str]) -> dict:
     }
 
 
-def _phasen_dict(sp: models.Subproject) -> dict[str, str]:
+def _phasen_dict(gantt_phases) -> dict[str, str]:
     grouped: dict[str, list[str]] = {}
-    for gp in sp.gantt_phases:
+    for gp in gantt_phases:
         grouped.setdefault(gp.monat, []).append(gp.phase_code)
     # PLX_generate_pptx.js akzeptiert sowohl einen String als auch eine Liste je Monat.
     return {monat: (codes if len(codes) > 1 else codes[0]) for monat, codes in grouped.items()}

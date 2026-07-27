@@ -55,6 +55,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name, reihenfolge }),
     }),
+  setProjectPhasen: (projectId: number, monat: string, codes: string[]) =>
+    request<ProjectDetail>(`/projects/${projectId}/phasen`, {
+      method: "PUT",
+      body: JSON.stringify({ monat, codes }),
+    }),
+  setProjectFte: (projectId: number, monat: string, wert_soll: number) =>
+    request<ProjectDetail>(`/projects/${projectId}/fte`, {
+      method: "PUT",
+      body: JSON.stringify({ monat, wert_soll }),
+    }),
   setPhasen: (subprojectId: number, monat: string, codes: string[]) =>
     request(`/projects/subprojects/${subprojectId}/phasen`, {
       method: "PUT",

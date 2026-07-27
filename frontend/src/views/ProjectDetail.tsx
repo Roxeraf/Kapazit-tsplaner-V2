@@ -69,6 +69,23 @@ export default function ProjectDetail() {
     load();
   };
 
+  const handleProjectPhaseChange = async (monat: string, raw: string) => {
+    if (!project) return;
+    const codes = raw
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean) as PhaseCode[];
+    await api.setProjectPhasen(project.id, monat, codes);
+    load();
+  };
+
+  const handleProjectFteChange = async (monat: string, raw: string) => {
+    if (!project) return;
+    const value = Number(raw);
+    await api.setProjectFte(project.id, monat, Number.isFinite(value) ? value : 0);
+    load();
+  };
+
   const handleJiraComponentChange = async (raw: string) => {
     if (!project) return;
     await api.updateProject(project.id, { jira_component: raw.trim() || null });
@@ -152,28 +169,6 @@ export default function ProjectDetail() {
             )}
           </div>
         )}
-        {Object.keys(project.ist).length > 0 && (
-          <table className="planner" style={{ marginTop: "0.75rem" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left" }}>FTE (Ist, Jira)</th>
-                {monate.map((m) => (
-                  <th key={m}>{m}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="label">Projekt gesamt</td>
-                {monate.map((m) => (
-                  <td key={m} style={{ color: "var(--text-muted)" }}>
-                    {project.ist[m] !== undefined ? project.ist[m].toFixed(2) : "–"}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        )}
       </div>
 
       <div className="legend-row">
@@ -185,6 +180,66 @@ export default function ProjectDetail() {
         ))}
         <span className="legend-chip">Mehrere Phasen im selben Monat: kommagetrennt eintragen, z. B. "k,t"</span>
       </div>
+
+      <div className="card" style={{ marginBottom: "1.25rem", overflowX: "auto" }}>
+        <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
+          <h3 style={{ color: "var(--navy)", margin: 0 }}>Projekt gesamt</h3>
+        </div>
+        <table className="planner">
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left" }}>Gantt-Phasen</th>
+              {monate.map((m) => (
+                <th key={m}>{m}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="label">Phasencode(s)</td>
+              {monate.map((m) => (
+                <td key={m}>
+                  <input
+                    className="phase-input"
+                    defaultValue={(project.phasen[m] ?? []).join(",")}
+                    onBlur={(e) => handleProjectPhaseChange(m, e.target.value)}
+                  />
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="label">FTE (Soll)</td>
+              {monate.map((m) => (
+                <td key={m}>
+                  <input
+                    className="fte-input"
+                    type="number"
+                    step="0.1"
+                    defaultValue={project.fte[m] ?? ""}
+                    onBlur={(e) => handleProjectFteChange(m, e.target.value)}
+                  />
+                </td>
+              ))}
+            </tr>
+            {Object.keys(project.ist).length > 0 && (
+              <tr>
+                <td className="label">FTE (Ist, Jira)</td>
+                {monate.map((m) => (
+                  <td key={m} style={{ color: "var(--text-muted)" }}>
+                    {project.ist[m] !== undefined ? project.ist[m].toFixed(2) : "–"}
+                  </td>
+                ))}
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {project.subprojects.length > 0 && (
+        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          Teilprojekte (optionale Feinplanung zusätzlich zur Grundplanung oben):
+        </p>
+      )}
 
       {project.subprojects.map((sp) => (
         <div key={sp.id} className="card" style={{ marginBottom: "1.25rem", overflowX: "auto" }}>

@@ -63,6 +63,8 @@ class SubprojectListItem(BaseModel):
 
 class ProjectDetail(ProjectSummary):
     jira_component: str | None
+    phasen: dict[str, list[str]]  # monat -> Phasencodes (Grundplanung direkt am Projekt)
+    fte: dict[str, float]  # monat -> Soll-FTE (Grundplanung direkt am Projekt)
     ist: dict[str, float]  # monat -> Ist-FTE aus Jira-Worklogs (siehe CONCEPT.md Abschnitt 4)
     subprojects: list[SubprojectDetail]
 

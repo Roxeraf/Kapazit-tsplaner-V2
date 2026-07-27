@@ -8,16 +8,20 @@ from ..database import get_db
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-def _subproject_detail(sp: models.Subproject) -> schemas.SubprojectDetail:
+def _phasen_dict(gantt_phases) -> dict[str, list[str]]:
     phasen: dict[str, list[str]] = {}
-    for gp in sp.gantt_phases:
+    for gp in gantt_phases:
         phasen.setdefault(gp.monat, []).append(gp.phase_code)
+    return phasen
+
+
+def _subproject_detail(sp: models.Subproject) -> schemas.SubprojectDetail:
     fte = {f.monat: f.wert_soll for f in sp.fte_plan}
     return schemas.SubprojectDetail(
         id=sp.id,
         name=sp.name,
         reihenfolge=sp.reihenfolge,
-        phasen=phasen,
+        phasen=_phasen_dict(sp.gantt_phases),
         fte=fte,
     )
 
@@ -31,6 +35,8 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         anzahl_monate=p.anzahl_monate,
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
         jira_component=p.jira_component,
+        phasen=_phasen_dict(p.gantt_phases),
+        fte={f.monat: f.wert_soll for f in p.fte_plan},
         ist=jira_sync.berechne_ist_fte(db, p),
         subprojects=[_subproject_detail(sp) for sp in p.subprojects],
     )
@@ -96,6 +102,44 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     project = _get_project_or_404(db, project_id)
     db.delete(project)
     db.commit()
+
+
+@router.put("/{project_id}/phasen", response_model=schemas.ProjectDetail)
+def set_project_phasen(project_id: int, payload: schemas.PhasenUpdate, db: Session = Depends(get_db)):
+    project = _get_project_or_404(db, project_id)
+
+    invalid = [c for c in payload.codes if c not in PHASE_CODES]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Ungültige Phasencodes: {invalid}")
+
+    db.query(models.ProjectGanttPhase).filter(
+        models.ProjectGanttPhase.project_id == project_id,
+        models.ProjectGanttPhase.monat == payload.monat,
+    ).delete()
+    for code in dict.fromkeys(payload.codes):  # dedupe, Reihenfolge erhalten
+        db.add(models.ProjectGanttPhase(project_id=project_id, monat=payload.monat, phase_code=code))
+    db.commit()
+    db.refresh(project)
+    return _project_detail(db, project)
+
+
+@router.put("/{project_id}/fte", response_model=schemas.ProjectDetail)
+def set_project_fte(project_id: int, payload: schemas.FteUpdate, db: Session = Depends(get_db)):
+    project = _get_project_or_404(db, project_id)
+
+    entry = (
+        db.query(models.ProjectFtePlan)
+        .filter(models.ProjectFtePlan.project_id == project_id, models.ProjectFtePlan.monat == payload.monat)
+        .first()
+    )
+    if entry is None:
+        entry = models.ProjectFtePlan(project_id=project_id, monat=payload.monat, wert_soll=payload.wert_soll)
+        db.add(entry)
+    else:
+        entry.wert_soll = payload.wert_soll
+    db.commit()
+    db.refresh(project)
+    return _project_detail(db, project)
 
 
 @router.get("/subprojects/all", response_model=list[schemas.SubprojectListItem])

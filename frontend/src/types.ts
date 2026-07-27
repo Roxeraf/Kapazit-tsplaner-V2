@@ -44,6 +44,8 @@ export interface SubprojectListItem {
 
 export interface ProjectDetail extends ProjectSummary {
   jira_component: string | null;
+  phasen: Record<string, PhaseCode[]>;
+  fte: Record<string, number>;
   ist: Record<string, number>;
   subprojects: SubprojectDetail[];
 }

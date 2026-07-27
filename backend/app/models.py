@@ -30,6 +30,40 @@ class Project(Base):
     subprojects: Mapped[list["Subproject"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Subproject.reihenfolge"
     )
+    gantt_phases: Mapped[list["ProjectGanttPhase"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    fte_plan: Mapped[list["ProjectFtePlan"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
+
+class ProjectGanttPhase(Base):
+    """Gantt-Phasen direkt am Projekt (Grundplanung; Teilprojekte sind optionale Feinplanung)."""
+
+    __tablename__ = "project_gantt_phases"
+    __table_args__ = (UniqueConstraint("project_id", "monat", "phase_code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    monat: Mapped[str] = mapped_column(String(10))
+    phase_code: Mapped[str] = mapped_column(String(1))
+
+    project: Mapped["Project"] = relationship(back_populates="gantt_phases")
+
+
+class ProjectFtePlan(Base):
+    """FTE-Soll direkt am Projekt (Grundplanung; Teilprojekte sind optionale Feinplanung)."""
+
+    __tablename__ = "project_fte_plan"
+    __table_args__ = (UniqueConstraint("project_id", "monat"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    monat: Mapped[str] = mapped_column(String(10))
+    wert_soll: Mapped[float] = mapped_column(Float, default=0)
+
+    project: Mapped["Project"] = relationship(back_populates="fte_plan")
 
 
 class Subproject(Base):

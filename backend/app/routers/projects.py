@@ -26,6 +26,23 @@ def _subproject_detail(sp: models.Subproject) -> schemas.SubprojectDetail:
     )
 
 
+def _project_fte(p: models.Project) -> dict[str, float]:
+    """FTE-Soll auf Projekt-Ebene.
+
+    Hat das Projekt Teilprojekte (Feinplanung), ist die Projekt-Zeile die Summe daraus statt
+    eines eigenen manuellen Werts — sonst könnten Projekt- und Teilprojekt-Ebene auseinanderlaufen.
+    Ohne Teilprojekte bleibt der manuell auf Projekt-Ebene eingetragene Wert (project_fte_plan)
+    maßgeblich (siehe PUT /projects/{id}/fte).
+    """
+    if p.subprojects:
+        summe: dict[str, float] = {}
+        for sp in p.subprojects:
+            for f in sp.fte_plan:
+                summe[f.monat] = summe.get(f.monat, 0) + f.wert_soll
+        return {monat: round(wert, 2) for monat, wert in summe.items()}
+    return {f.monat: f.wert_soll for f in p.fte_plan}
+
+
 def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
     return schemas.ProjectDetail(
         id=p.id,
@@ -37,7 +54,8 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         jira_component=p.jira_component,
         jira_project_key=p.jira_project_key,
         phasen=_phasen_dict(p.gantt_phases),
-        fte={f.monat: f.wert_soll for f in p.fte_plan},
+        fte=_project_fte(p),
+        fte_aus_teilprojekten=bool(p.subprojects),
         ist=jira_sync.berechne_ist_fte(db, p),
         subprojects=[_subproject_detail(sp) for sp in p.subprojects],
     )

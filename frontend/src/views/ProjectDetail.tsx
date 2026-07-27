@@ -71,11 +71,7 @@ export default function ProjectDetail() {
   const linkedJiraProjectName =
     relevantJiraProjects.find((p) => p.key === project?.jira_project_key)?.name ?? project?.jira_project_key;
 
-  const handlePhaseChange = async (subprojectId: number, monat: string, raw: string) => {
-    const codes = raw
-      .split(",")
-      .map((c) => c.trim())
-      .filter(Boolean) as PhaseCode[];
+  const handlePhaseChange = async (subprojectId: number, monat: string, codes: PhaseCode[]) => {
     await api.setPhasen(subprojectId, monat, codes);
     load();
   };
@@ -86,12 +82,8 @@ export default function ProjectDetail() {
     load();
   };
 
-  const handleProjectPhaseChange = async (monat: string, raw: string) => {
+  const handleProjectPhaseChange = async (monat: string, codes: PhaseCode[]) => {
     if (!project) return;
-    const codes = raw
-      .split(",")
-      .map((c) => c.trim())
-      .filter(Boolean) as PhaseCode[];
     await api.setProjectPhasen(project.id, monat, codes);
     load();
   };
@@ -287,13 +279,18 @@ export default function ProjectDetail() {
             {code} = {PHASE_LABELS[code]}
           </span>
         ))}
-        <span className="legend-chip">Mehrere Phasen im selben Monat: kommagetrennt eintragen, z. B. "k,t"</span>
+        <span className="legend-chip">Mehrere Phasen im selben Monat: einfach mehrere Buttons anklicken</span>
       </div>
 
       <div className="card" style={{ marginBottom: "1.25rem", overflowX: "auto" }}>
         <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
           <h3 style={{ color: "var(--navy)", margin: 0 }}>Projekt gesamt</h3>
         </div>
+        {project.fte_aus_teilprojekten && (
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
+            FTE (Soll) ist hier die Summe aus den Teilprojekten unten — dort eintragen, nicht hier.
+          </p>
+        )}
         <table className="planner">
           <thead>
             <tr>
@@ -308,27 +305,29 @@ export default function ProjectDetail() {
               <td className="label">Phasencode(s)</td>
               {monate.map((m) => (
                 <td key={m}>
-                  <input
-                    className="phase-input"
-                    defaultValue={(project.phasen[m] ?? []).join(",")}
-                    onBlur={(e) => handleProjectPhaseChange(m, e.target.value)}
-                  />
+                  <PhaseToggleCell active={project.phasen[m] ?? []} onChange={(codes) => handleProjectPhaseChange(m, codes)} />
                 </td>
               ))}
             </tr>
             <tr>
-              <td className="label">FTE (Soll)</td>
-              {monate.map((m) => (
-                <td key={m}>
-                  <input
-                    className="fte-input"
-                    type="number"
-                    step="0.1"
-                    defaultValue={project.fte[m] ?? ""}
-                    onBlur={(e) => handleProjectFteChange(m, e.target.value)}
-                  />
-                </td>
-              ))}
+              <td className="label">FTE (Soll){project.fte_aus_teilprojekten && " (Σ Teilprojekte)"}</td>
+              {monate.map((m) =>
+                project.fte_aus_teilprojekten ? (
+                  <td key={m} style={{ color: "var(--text-muted)" }}>
+                    {project.fte[m] !== undefined ? project.fte[m].toFixed(2) : "–"}
+                  </td>
+                ) : (
+                  <td key={m}>
+                    <input
+                      className="fte-input"
+                      type="number"
+                      step="0.1"
+                      defaultValue={project.fte[m] ?? ""}
+                      onBlur={(e) => handleProjectFteChange(m, e.target.value)}
+                    />
+                  </td>
+                ),
+              )}
             </tr>
             {Object.keys(project.ist).length > 0 && (
               <tr>
@@ -369,11 +368,7 @@ export default function ProjectDetail() {
                 <td className="label">Phasencode(s)</td>
                 {monate.map((m) => (
                   <td key={m}>
-                    <input
-                      className="phase-input"
-                      defaultValue={(sp.phasen[m] ?? []).join(",")}
-                      onBlur={(e) => handlePhaseChange(sp.id, m, e.target.value)}
-                    />
+                    <PhaseToggleCell active={sp.phasen[m] ?? []} onChange={(codes) => handlePhaseChange(sp.id, m, codes)} />
                   </td>
                 ))}
               </tr>
@@ -412,6 +407,41 @@ export default function ProjectDetail() {
           Teilprojekt hinzufügen
         </button>
       </form>
+    </div>
+  );
+}
+
+function PhaseToggleCell({ active, onChange }: { active: PhaseCode[]; onChange: (codes: PhaseCode[]) => void }) {
+  const toggle = (code: PhaseCode) => {
+    onChange(active.includes(code) ? active.filter((c) => c !== code) : [...active, code]);
+  };
+  return (
+    <div style={{ display: "flex", gap: "2px", flexWrap: "wrap", justifyContent: "center" }}>
+      {PHASE_CODES.map((code) => {
+        const isActive = active.includes(code);
+        return (
+          <button
+            key={code}
+            type="button"
+            title={PHASE_LABELS[code]}
+            onClick={() => toggle(code)}
+            style={{
+              width: "1.5rem",
+              height: "1.5rem",
+              fontSize: "0.7rem",
+              lineHeight: 1,
+              borderRadius: "3px",
+              border: `1px solid ${isActive ? PHASE_COLORS[code] : "var(--border)"}`,
+              background: isActive ? PHASE_COLORS[code] : "transparent",
+              color: isActive ? "white" : "var(--text-muted)",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            {code}
+          </button>
+        );
+      })}
     </div>
   );
 }

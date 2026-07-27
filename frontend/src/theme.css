@@ -1,0 +1,251 @@
+:root {
+  --navy: #002f5e;
+  --blau: #007cc1;
+  --rot: #b30f0b;
+  --bg: #f4f7fb;
+  --card-bg: #ffffff;
+  --border: #dbe4ef;
+  --text: #1c2b3a;
+  --text-muted: #5c7089;
+
+  color-scheme: light;
+  font-family: "Calibri", "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background-color: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+a {
+  color: var(--blau);
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  background: var(--navy);
+  color: white;
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+.app-nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.app-nav a {
+  color: #cfe0f3;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.app-nav a.active,
+.app-nav a:hover {
+  color: white;
+  font-weight: 600;
+}
+
+.app-main {
+  flex: 1;
+  padding: 1.5rem;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.project-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.project-card:hover {
+  box-shadow: 0 4px 14px rgba(0, 47, 94, 0.12);
+  transform: translateY(-2px);
+}
+
+.project-card h3 {
+  margin: 0 0 0.35rem;
+  color: var(--navy);
+}
+
+.project-card .kunde {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+}
+
+.project-card .zeitraum {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.btn {
+  background: var(--blau);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--navy);
+}
+
+.btn.secondary {
+  background: transparent;
+  color: var(--blau);
+  border: 1px solid var(--blau);
+}
+
+.btn.secondary:hover {
+  background: #eaf3fb;
+}
+
+table.planner {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.82rem;
+}
+
+table.planner th,
+table.planner td {
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.4rem;
+  text-align: center;
+  min-width: 44px;
+}
+
+table.planner th {
+  background: var(--navy);
+  color: white;
+  font-weight: 600;
+}
+
+table.planner td.label {
+  text-align: left;
+  font-weight: 600;
+  color: var(--navy);
+  background: #eef3fa;
+  min-width: 140px;
+}
+
+table.planner input.phase-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-size: 0.82rem;
+}
+
+table.planner input.fte-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.legend-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 1.25rem;
+}
+
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.section-title {
+  color: var(--navy);
+  margin: 1.5rem 0 0.5rem;
+}
+
+.stub-view {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  margin-top: 1rem;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.field-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.field-row label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  gap: 0.25rem;
+}
+
+.field-row input {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}

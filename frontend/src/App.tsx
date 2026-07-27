@@ -9,7 +9,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <h1>plx.crew · BUILD · Kapazitätsplaner</h1>
+        <h1>plx.Kapazitätsplaner TEAM GOAL</h1>
         <nav className="app-nav">
           <NavLink to="/" end>
             Portfolio

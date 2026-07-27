@@ -140,12 +140,22 @@ export default function ProjectDetail() {
         <label style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", gap: "0.4rem", alignItems: "center" }}>
           Jira-Komponente/Label (für Ist-FTE des gesamten Projekts)
           <input
+            key={project.jira_component ?? ""}
             style={{ padding: "0.3rem 0.5rem", border: "1px solid var(--border)", borderRadius: "4px" }}
             defaultValue={project.jira_component ?? ""}
             placeholder="z. B. ETE"
             onBlur={(e) => handleJiraComponentChange(e.target.value)}
           />
         </label>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
+          {project.jira_component ? (
+            <>
+              Aktuell gespeichert: <strong>{project.jira_component}</strong>
+            </>
+          ) : (
+            "Noch nichts gespeichert — ohne Wert bleibt die Ist-FTE-Berechnung für dieses Projekt leer."
+          )}
+        </p>
         {jiraConfigured && (
           <div className="field-row" style={{ marginTop: "0.5rem" }}>
             {project.jira_project_key ? (
@@ -176,7 +186,7 @@ export default function ProjectDetail() {
               <label>
                 Komponente/Label
                 <select
-                  defaultValue=""
+                  value={project.jira_component ?? ""}
                   onChange={(e) => {
                     if (e.target.value) handleJiraComponentChange(e.target.value);
                   }}

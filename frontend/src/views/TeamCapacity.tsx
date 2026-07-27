@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   JiraAccountMatch,
@@ -134,28 +135,40 @@ export default function TeamCapacity() {
       {error && <p style={{ color: "var(--rot)" }}>{error}</p>}
 
       {syncResult && (
-        <div className="card" style={{ marginTop: "1rem" }}>
-          <strong>Sync-Ergebnis</strong>
+        <div className="card" style={{ marginTop: "1rem", borderColor: "var(--blau)" }}>
+          <strong>Sync-Ergebnis ({new Date().toLocaleTimeString()})</strong>
           {syncResult.ergebnisse.length === 0 && (
             <p style={{ color: "var(--text-muted)" }}>
-              Keine Projekte mit gesetzter Jira-Komponente gefunden (siehe Projekt-Detail).
+              Keine Projekte mit gesetzter Jira-Komponente gefunden (im Projekt-Detail eintragen).
             </p>
           )}
           <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.2rem" }}>
             {syncResult.ergebnisse.map((r) => (
               <li key={r.project_id}>
-                {r.project_name} ({r.jira_component}):{" "}
+                <Link to={`/projekte/${r.project_id}`}>{r.project_name}</Link> ({r.jira_component}):{" "}
                 {r.error ? (
                   <span style={{ color: "var(--rot)" }}>{r.error}</span>
                 ) : (
                   <>
                     {r.worklogs_synced} Worklogs synchronisiert
                     {r.unzugeordnete_buchungen > 0 && `, ${r.unzugeordnete_buchungen} ohne bekannten MA`}
+                    {r.worklogs_synced === 0 && r.unzugeordnete_buchungen === 0 && (
+                      <span style={{ color: "var(--text-muted)" }}>
+                        {" "}
+                        — keine gebuchten Zeiten zu dieser Component/diesem Label in Jira gefunden
+                      </span>
+                    )}
                   </>
                 )}
               </li>
             ))}
           </ul>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "0.5rem 0 0" }}>
+            Die synchronisierten Ist-FTE-Werte siehst du danach im Projekt-Detail (Zeile "FTE (Ist,
+            Jira)"). "Ohne bekannten MA" heißt: es wurde Zeit gebucht, aber von jemandem ohne
+            hinterlegte Jira-Account-ID unten in der Teammitglieder-Liste — deshalb kann die Buchung
+            keinem Wochenstunden-Wert zugeordnet werden und fließt nicht in die Ist-FTE ein.
+          </p>
         </div>
       )}
 

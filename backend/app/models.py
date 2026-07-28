@@ -223,3 +223,44 @@ class GapSnapshot(Base):
     gap: Mapped[float | None] = mapped_column(Float, nullable=True)
     hochrechnung: Mapped[float | None] = mapped_column(Float, nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(30))
+
+
+class Comment(Base):
+    """Kommentar an einer Projekt-/Teilprojekt-Phase(+Monat) oder allgemeine Notiz.
+
+    subproject_id gesetzt = Kommentar gehört zu einem Teilprojekt statt zum Projekt selbst.
+    monat/phase_code gesetzt = an eine konkrete Gantt-Zelle gebunden; sonst allgemeine Notiz.
+    """
+
+    __tablename__ = "comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    subproject_id: Mapped[int | None] = mapped_column(ForeignKey("subprojects.id"), nullable=True)
+    monat: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    phase_code: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    text: Mapped[str] = mapped_column(String(2000))
+    erstellt_am: Mapped[str] = mapped_column(String(30))
+
+
+class PlanHistory(Base):
+    """Automatisches Änderungsprotokoll: Alt-/Neu-Wert je tatsächlich geänderter Zelle/Feld.
+
+    Wird beim Speichern in den betroffenen PUT-Endpunkten (siehe routers/projects.py,
+    _log_change) geschrieben, sobald sich ein Wert wirklich ändert. Der Alt-Wert des
+    ältesten Eintrags je (project_id/subproject_id, bereich, monat, feld) gilt als
+    Ursprungsplanung.
+    """
+
+    __tablename__ = "plan_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    subproject_id: Mapped[int | None] = mapped_column(ForeignKey("subprojects.id"), nullable=True)
+    bereich: Mapped[str] = mapped_column(String(20))  # "phase" | "fte" | "stammdaten"
+    monat: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    feld: Mapped[str] = mapped_column(String(50))  # z.B. Phasencode "p" oder "start_monat"
+    alter_wert: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    neuer_wert: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    geaendert_am: Mapped[str] = mapped_column(String(30))
+    kommentar_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id"), nullable=True)

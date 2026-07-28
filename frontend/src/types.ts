@@ -181,3 +181,25 @@ export interface ForecastSummary {
   gap_pct: number | null;
   status: GapStatus;
 }
+
+export interface Comment {
+  id: number;
+  project_id: number;
+  subproject_id: number | null;
+  monat: string | null;
+  phase_code: PhaseCode | null;
+  text: string;
+  erstellt_am: string;
+}
+
+export interface PlanHistoryEntry {
+  id: number;
+  subproject_id: number | null;
+  bereich: "phase" | "fte" | "stammdaten";
+  monat: string | null;
+  feld: string;
+  alter_wert: string | null;
+  neuer_wert: string | null;
+  geaendert_am: string;
+  kommentar: Comment | null;
+}

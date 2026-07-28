@@ -308,6 +308,11 @@ export default function ProjectDetail() {
     refreshComments();
   };
 
+  const handleDeleteComment = async (commentId: number) => {
+    await api.deleteComment(commentId);
+    refreshComments();
+  };
+
   const handleJiraComponentChange = async (raw: string) => {
     if (!draft || !confirmDiscardIfDirty()) return;
     await api.updateProject(draft.id, { jira_component: raw.trim() || null });
@@ -550,6 +555,7 @@ export default function ProjectDetail() {
               readOnly={draft.aus_teilprojekten}
               comments={cellComments(null)}
               onAddComment={(code, monat, text) => handleAddCellComment(null, code, monat, text)}
+              onDeleteComment={handleDeleteComment}
             />
             <tr>
               <td className="label">FTE (Soll){draft.aus_teilprojekten && " (Σ Teilprojekte)"}</td>
@@ -586,7 +592,7 @@ export default function ProjectDetail() {
 
         <details style={{ marginTop: "0.75rem" }}>
           <summary style={{ cursor: "pointer", color: "var(--navy)" }}>Notizen</summary>
-          <NotesSection notes={generalComments(null)} onAdd={(text) => handleAddNote(null, text)} />
+          <NotesSection notes={generalComments(null)} onAdd={(text) => handleAddNote(null, text)} onDelete={handleDeleteComment} />
         </details>
         <ProjectHistorySection projectId={draft.id} />
       </div>
@@ -674,6 +680,7 @@ export default function ProjectDetail() {
                 onCommit={(code, changes) => commitSubprojectPhaseDrag(sp.id, code, changes)}
                 comments={cellComments(sp.id)}
                 onAddComment={(code, monat, text) => handleAddCellComment(sp.id, code, monat, text)}
+                onDeleteComment={handleDeleteComment}
               />
               <tr>
                 <td className="label">FTE (Soll)</td>
@@ -694,7 +701,7 @@ export default function ProjectDetail() {
 
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer", color: "var(--navy)" }}>Notizen</summary>
-            <NotesSection notes={generalComments(sp.id)} onAdd={(text) => handleAddNote(sp.id, text)} />
+            <NotesSection notes={generalComments(sp.id)} onAdd={(text) => handleAddNote(sp.id, text)} onDelete={handleDeleteComment} />
           </details>
           <SubprojectHistorySection subprojectId={sp.id} />
         </div>
@@ -782,6 +789,7 @@ function PhaseRows({
   readOnly = false,
   comments,
   onAddComment,
+  onDeleteComment,
 }: {
   phasen: Record<string, PhaseCode[]>;
   monate: string[];
@@ -789,12 +797,14 @@ function PhaseRows({
   readOnly?: boolean;
   comments: Comment[];
   onAddComment: (code: PhaseCode, monat: string, text: string) => Promise<void>;
+  onDeleteComment: (id: number) => Promise<void>;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const [commentTarget, setCommentTarget] = useState<{ code: PhaseCode; monat: string } | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentSaving, setCommentSaving] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
+  const [commentToDelete, setCommentToDelete] = useState<Comment | null>(null);
 
   // Drag endet, sobald die Maustaste irgendwo losgelassen wird (auch außerhalb der Tabelle).
   useEffect(() => {
@@ -845,6 +855,18 @@ function PhaseRows({
       setCommentError(String(e));
     } finally {
       setCommentSaving(false);
+    }
+  };
+
+  const handleDeleteComment = async () => {
+    if (!commentToDelete) return;
+    setCommentError(null);
+    try {
+      await onDeleteComment(commentToDelete.id);
+      setCommentToDelete(null);
+    } catch (e) {
+      setCommentError(String(e));
+      setCommentToDelete(null);
     }
   };
 
@@ -908,19 +930,40 @@ function PhaseRows({
                   />
                 </button>
                 {hasComment && (
-                  <span
-                    aria-hidden="true"
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openCommentDialog(code, m);
+                    }}
+                    title={`Kommentar ansehen: „${commentsFor(code, m)[commentsFor(code, m).length - 1].text}“`}
+                    aria-label={`Kommentar zu ${PHASE_LABELS[code]} ${m} ansehen`}
                     style={{
                       position: "absolute",
-                      top: 2,
-                      right: 2,
-                      width: 6,
-                      height: 6,
-                      borderRadius: "50%",
-                      background: "var(--rot)",
-                      pointerEvents: "none",
+                      top: 0,
+                      right: 0,
+                      width: 18,
+                      height: 18,
+                      padding: 0,
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
                     }}
-                  />
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        right: 0,
+                        width: 0,
+                        height: 0,
+                        borderStyle: "solid",
+                        borderWidth: "0 9px 9px 0",
+                        borderColor: "transparent var(--rot) transparent transparent",
+                      }}
+                    />
+                  </button>
                 )}
               </td>
             );
@@ -952,8 +995,26 @@ function PhaseRows({
                 ) : (
                   <ul style={{ listStyle: "none", padding: 0, margin: "0 0 0.75rem" }}>
                     {commentsFor(commentTarget.code, commentTarget.monat).map((c) => (
-                      <li key={c.id} style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border)" }}>
-                        {c.text}
+                      <li
+                        key={c.id}
+                        style={{
+                          padding: "0.35rem 0",
+                          borderBottom: "1px solid var(--border)",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        <span>{c.text}</span>
+                        <button
+                          type="button"
+                          onClick={() => setCommentToDelete(c)}
+                          title="Kommentar löschen"
+                          style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
+                        >
+                          ×
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -981,6 +1042,14 @@ function PhaseRows({
           </td>
         </tr>
       )}
+
+      <ConfirmDialog
+        open={commentToDelete !== null}
+        title="Kommentar löschen"
+        message={`Kommentar "${commentToDelete?.text}" wirklich löschen?`}
+        onConfirm={handleDeleteComment}
+        onCancel={() => setCommentToDelete(null)}
+      />
     </>
   );
 }

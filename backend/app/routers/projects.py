@@ -133,6 +133,13 @@ def _get_subproject_or_404(db: Session, subproject_id: int) -> models.Subproject
     return sp
 
 
+def _get_comment_or_404(db: Session, comment_id: int) -> models.Comment:
+    comment = db.get(models.Comment, comment_id)
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Kommentar nicht gefunden")
+    return comment
+
+
 @router.get("", response_model=list[schemas.ProjectSummary])
 def list_projects(db: Session = Depends(get_db)):
     projects = db.query(models.Project).order_by(models.Project.reihenfolge, models.Project.id).all()
@@ -477,6 +484,19 @@ def list_comments(project_id: int, db: Session = Depends(get_db)):
         .order_by(models.Comment.erstellt_am.desc())
         .all()
     )
+
+
+@router.delete("/comments/{comment_id}", status_code=204)
+def delete_comment(comment_id: int, db: Session = Depends(get_db)):
+    comment = _get_comment_or_404(db, comment_id)
+
+    # PlanHistory verweist optional auf einen Kommentar als Begründung - beim Löschen nur die
+    # Verknüpfung entfernen, die Historie selbst bleibt erhalten (kein Cascade-Delete).
+    db.query(models.PlanHistory).filter(models.PlanHistory.kommentar_id == comment_id).update(
+        {"kommentar_id": None}
+    )
+    db.delete(comment)
+    db.commit()
 
 
 def _history_out(db: Session, entry: models.PlanHistory) -> schemas.PlanHistoryOut:

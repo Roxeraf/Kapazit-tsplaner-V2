@@ -161,6 +161,7 @@ export const api = {
     payload: { subproject_id?: number | null; monat?: string | null; phase_code?: string | null; text: string },
   ) => request<Comment>(`/projects/${projectId}/comments`, { method: "POST", body: JSON.stringify(payload) }),
   listComments: (projectId: number) => request<Comment[]>(`/projects/${projectId}/comments`),
+  deleteComment: (commentId: number) => request<void>(`/projects/comments/${commentId}`, { method: "DELETE" }),
   getProjectHistory: (projectId: number) => request<PlanHistoryEntry[]>(`/projects/${projectId}/history`),
   getSubprojectHistory: (subprojectId: number) =>
     request<PlanHistoryEntry[]>(`/projects/subprojects/${subprojectId}/history`),

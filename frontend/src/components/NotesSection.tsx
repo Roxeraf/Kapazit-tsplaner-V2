@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Comment } from "../types";
+import ConfirmDialog from "./ConfirmDialog";
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
@@ -7,10 +8,19 @@ function formatTimestamp(iso: string): string {
   return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-export default function NotesSection({ notes, onAdd }: { notes: Comment[]; onAdd: (text: string) => Promise<void> }) {
+export default function NotesSection({
+  notes,
+  onAdd,
+  onDelete,
+}: {
+  notes: Comment[];
+  onAdd: (text: string) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [noteToDelete, setNoteToDelete] = useState<Comment | null>(null);
 
   const handleAdd = async () => {
     if (!text.trim()) return;
@@ -26,6 +36,18 @@ export default function NotesSection({ notes, onAdd }: { notes: Comment[]; onAdd
     }
   };
 
+  const handleDelete = async () => {
+    if (!noteToDelete) return;
+    setError(null);
+    try {
+      await onDelete(noteToDelete.id);
+      setNoteToDelete(null);
+    } catch (e) {
+      setError(String(e));
+      setNoteToDelete(null);
+    }
+  };
+
   return (
     <div>
       {notes.length === 0 ? (
@@ -33,9 +55,29 @@ export default function NotesSection({ notes, onAdd }: { notes: Comment[]; onAdd
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: "0 0 0.5rem", fontSize: "0.85rem" }}>
           {notes.map((n) => (
-            <li key={n.id} style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border)" }}>
-              <div>{n.text}</div>
-              <div style={{ color: "var(--text-muted)" }}>{formatTimestamp(n.erstellt_am)}</div>
+            <li
+              key={n.id}
+              style={{
+                padding: "0.35rem 0",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "0.5rem",
+              }}
+            >
+              <div>
+                <div>{n.text}</div>
+                <div style={{ color: "var(--text-muted)" }}>{formatTimestamp(n.erstellt_am)}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNoteToDelete(n)}
+                title="Notiz löschen"
+                style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
+              >
+                ×
+              </button>
             </li>
           ))}
         </ul>
@@ -54,6 +96,13 @@ export default function NotesSection({ notes, onAdd }: { notes: Comment[]; onAdd
         </button>
       </div>
       {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem", margin: "0.35rem 0 0" }}>{error}</p>}
+      <ConfirmDialog
+        open={noteToDelete !== null}
+        title="Notiz löschen"
+        message={`Notiz "${noteToDelete?.text}" wirklich löschen?`}
+        onConfirm={handleDelete}
+        onCancel={() => setNoteToDelete(null)}
+      />
     </div>
   );
 }

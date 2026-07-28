@@ -4,6 +4,10 @@ from pydantic import BaseModel, ConfigDict
 
 JiraProjectStatus = Literal["aktiv", "on_hold", "beendet"]
 
+# Lifecycle-Status eines Kapa-Projekts (unabhängig von JiraProjectStatus, das nur den
+# Jira-Katalog-Eintrag betrifft, siehe models.JiraProjectCatalog).
+ProjectStatus = Literal["aktiv", "on_hold", "abgeschlossen", "archiviert"]
+
 
 class ProjectCreate(BaseModel):
     name: str
@@ -19,6 +23,9 @@ class ProjectUpdate(BaseModel):
     start_monat: str | None = None
     anzahl_monate: int | None = None
     jira_component: str | None = None
+    status: ProjectStatus | None = None
+    # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht am Projekt persistiert.
+    kommentar_id: int | None = None
 
 
 class ProjectSummary(BaseModel):
@@ -29,7 +36,13 @@ class ProjectSummary(BaseModel):
     kunde: str | None
     start_monat: str
     anzahl_monate: int
+    reihenfolge: int
+    status: ProjectStatus
     monate: list[str]
+
+
+class ProjectReorder(BaseModel):
+    project_ids: list[int]
 
 
 class SubprojectCreate(BaseModel):
@@ -84,11 +97,51 @@ class ProjectDetail(ProjectSummary):
 class PhasenUpdate(BaseModel):
     monat: str
     codes: list[str]  # z.B. ["p"] oder ["k", "t"]; leer = Zelle löschen
+    # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht persistiert.
+    kommentar_id: int | None = None
 
 
 class FteUpdate(BaseModel):
     monat: str
     wert_soll: float
+    # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht persistiert.
+    kommentar_id: int | None = None
+
+
+# ---------------------------------------------------------------------------
+# Kommentare & Änderungshistorie (Speichern-Button/Entwurfsmodus)
+# ---------------------------------------------------------------------------
+
+
+class CommentCreate(BaseModel):
+    subproject_id: int | None = None
+    monat: str | None = None
+    phase_code: str | None = None
+    text: str
+
+
+class CommentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    subproject_id: int | None
+    monat: str | None
+    phase_code: str | None
+    text: str
+    erstellt_am: str
+
+
+class PlanHistoryOut(BaseModel):
+    id: int
+    subproject_id: int | None
+    bereich: str
+    monat: str | None
+    feld: str
+    alter_wert: str | None
+    neuer_wert: str | None
+    geaendert_am: str
+    kommentar: CommentOut | None = None
 
 
 # ---------------------------------------------------------------------------

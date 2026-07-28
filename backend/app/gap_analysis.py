@@ -84,8 +84,16 @@ def project_gap(db: Session, project: models.Project) -> dict:
 
 
 def projekte_fuer_team(db: Session, team_id: int | None) -> list[models.Project]:
-    """Projekte, optional gefiltert auf solche mit mind. einer Zuordnung aus dem Team."""
-    query = db.query(models.Project).order_by(models.Project.id)
+    """Projekte, optional gefiltert auf solche mit mind. einer Zuordnung aus dem Team.
+
+    on_hold/archivierte Projekte sind aus der aktiven Kapazitätsplanung ausgeblendet.
+    Abgeschlossene Projekte bleiben sichtbar (Tracking-Anforderung).
+    """
+    query = (
+        db.query(models.Project)
+        .filter(models.Project.status.notin_(["on_hold", "archiviert"]))
+        .order_by(models.Project.id)
+    )
     if team_id is not None:
         query = (
             query.join(models.Project.assignments)

@@ -95,8 +95,26 @@ a {
   margin-top: 1rem;
 }
 
+.project-card-wrapper {
+  position: relative;
+  height: 100%;
+  border-radius: 8px;
+  cursor: grab;
+}
+
+.project-card-wrapper:active {
+  cursor: grabbing;
+}
+
+.project-card-wrapper--muted .project-card {
+  opacity: 0.6;
+}
+
 .project-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
   text-decoration: none;
   color: inherit;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
@@ -105,6 +123,80 @@ a {
 .project-card:hover {
   box-shadow: 0 4px 14px rgba(0, 47, 94, 0.12);
   transform: translateY(-2px);
+}
+
+.project-card-delete {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.project-card-wrapper:hover .project-card-delete {
+  opacity: 1;
+}
+
+.project-card-delete:hover {
+  background: var(--rot);
+  color: white;
+}
+
+.project-status-select {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  max-width: 45%;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.project-card-wrapper:hover .project-status-select {
+  opacity: 1;
+}
+
+.project-status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.project-status-badge--on_hold {
+  color: var(--grau);
+  background: #eef1f4;
+}
+
+.project-status-badge--abgeschlossen {
+  color: var(--gruen);
+  background: #e5f4ec;
+}
+
+.project-status-badge--archiviert {
+  color: var(--grau);
+  background: #eef1f4;
 }
 
 .project-card h3 {
@@ -116,11 +208,14 @@ a {
   color: var(--text-muted);
   font-size: 0.85rem;
   margin: 0 0 0.5rem;
+  min-height: 1.2em;
 }
 
 .project-card .zeitraum {
   font-size: 0.8rem;
   color: var(--text-muted);
+  margin-top: auto;
+  padding-top: 0.5rem;
 }
 
 .btn {

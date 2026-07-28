@@ -18,12 +18,23 @@ export const PHASE_COLORS: Record<PhaseCode, string> = {
   "?": "#002F5E",
 };
 
+export type ProjectStatus = "aktiv" | "on_hold" | "abgeschlossen" | "archiviert";
+
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  aktiv: "Aktiv",
+  on_hold: "On Hold",
+  abgeschlossen: "Abgeschlossen",
+  archiviert: "Archiviert",
+};
+
 export interface ProjectSummary {
   id: number;
   name: string;
   kunde: string | null;
   start_monat: string;
   anzahl_monate: number;
+  reihenfolge: number;
+  status: ProjectStatus;
   monate: string[];
 }
 
@@ -169,4 +180,26 @@ export interface ForecastSummary {
   gap_gesamt: number;
   gap_pct: number | null;
   status: GapStatus;
+}
+
+export interface Comment {
+  id: number;
+  project_id: number;
+  subproject_id: number | null;
+  monat: string | null;
+  phase_code: PhaseCode | null;
+  text: string;
+  erstellt_am: string;
+}
+
+export interface PlanHistoryEntry {
+  id: number;
+  subproject_id: number | null;
+  bereich: "phase" | "fte" | "stammdaten";
+  monat: string | null;
+  feld: string;
+  alter_wert: string | null;
+  neuer_wert: string | null;
+  geaendert_am: string;
+  kommentar: Comment | null;
 }

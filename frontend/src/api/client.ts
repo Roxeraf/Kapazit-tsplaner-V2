@@ -1,4 +1,5 @@
 import type {
+  Comment,
   ForecastSummary,
   GapAnalysis,
   JiraAccountMatch,
@@ -7,7 +8,9 @@ import type {
   JiraProjectStatus,
   JiraStatus,
   JiraSyncResult,
+  PlanHistoryEntry,
   ProjectDetail,
+  ProjectStatus,
   ProjectSummary,
   SubprojectDetail,
   SubprojectListItem,
@@ -51,8 +54,13 @@ export const api = {
       start_monat: string;
       anzahl_monate: number;
       jira_component: string | null;
+      status: ProjectStatus;
+      kommentar_id: number | null;
     }>,
   ) => request<ProjectDetail>(`/projects/${projectId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteProject: (projectId: number) => request<void>(`/projects/${projectId}`, { method: "DELETE" }),
+  reorderProjects: (projectIds: number[]) =>
+    request<void>("/projects/reorder", { method: "PUT", body: JSON.stringify({ project_ids: projectIds }) }),
   createSubproject: (projectId: number, name: string, reihenfolge: number) =>
     request(`/projects/${projectId}/subprojects`, {
       method: "POST",
@@ -60,25 +68,25 @@ export const api = {
     }),
   deleteSubproject: (subprojectId: number) =>
     request<void>(`/projects/subprojects/${subprojectId}`, { method: "DELETE" }),
-  setProjectPhasen: (projectId: number, monat: string, codes: string[]) =>
+  setProjectPhasen: (projectId: number, monat: string, codes: string[], kommentar_id?: number | null) =>
     request<ProjectDetail>(`/projects/${projectId}/phasen`, {
       method: "PUT",
-      body: JSON.stringify({ monat, codes }),
+      body: JSON.stringify({ monat, codes, kommentar_id }),
     }),
-  setProjectFte: (projectId: number, monat: string, wert_soll: number) =>
+  setProjectFte: (projectId: number, monat: string, wert_soll: number, kommentar_id?: number | null) =>
     request<ProjectDetail>(`/projects/${projectId}/fte`, {
       method: "PUT",
-      body: JSON.stringify({ monat, wert_soll }),
+      body: JSON.stringify({ monat, wert_soll, kommentar_id }),
     }),
-  setPhasen: (subprojectId: number, monat: string, codes: string[]) =>
+  setPhasen: (subprojectId: number, monat: string, codes: string[], kommentar_id?: number | null) =>
     request(`/projects/subprojects/${subprojectId}/phasen`, {
       method: "PUT",
-      body: JSON.stringify({ monat, codes }),
+      body: JSON.stringify({ monat, codes, kommentar_id }),
     }),
-  setFte: (subprojectId: number, monat: string, wert_soll: number) =>
+  setFte: (subprojectId: number, monat: string, wert_soll: number, kommentar_id?: number | null) =>
     request(`/projects/subprojects/${subprojectId}/fte`, {
       method: "PUT",
-      body: JSON.stringify({ monat, wert_soll }),
+      body: JSON.stringify({ monat, wert_soll, kommentar_id }),
     }),
   updateSubproject: (subprojectId: number, payload: { name?: string; reihenfolge?: number }) =>
     request<SubprojectDetail>(`/projects/subprojects/${subprojectId}`, {
@@ -146,4 +154,15 @@ export const api = {
     request<GapAnalysis[]>(`/gap${teamId ? `?team_id=${teamId}` : ""}`),
   getForecast: (teamId?: number) =>
     request<ForecastSummary[]>(`/forecast${teamId ? `?team_id=${teamId}` : ""}`),
+
+  // Kommentare & Änderungshistorie
+  createComment: (
+    projectId: number,
+    payload: { subproject_id?: number | null; monat?: string | null; phase_code?: string | null; text: string },
+  ) => request<Comment>(`/projects/${projectId}/comments`, { method: "POST", body: JSON.stringify(payload) }),
+  listComments: (projectId: number) => request<Comment[]>(`/projects/${projectId}/comments`),
+  deleteComment: (commentId: number) => request<void>(`/projects/comments/${commentId}`, { method: "DELETE" }),
+  getProjectHistory: (projectId: number) => request<PlanHistoryEntry[]>(`/projects/${projectId}/history`),
+  getSubprojectHistory: (subprojectId: number) =>
+    request<PlanHistoryEntry[]>(`/projects/subprojects/${subprojectId}/history`),
 };

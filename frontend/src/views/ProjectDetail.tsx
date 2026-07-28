@@ -342,7 +342,6 @@ export default function ProjectDetail() {
     load();
   };
 
-  if (error) return <p style={{ color: "var(--rot)" }}>{error}</p>;
   if (!draft) return <p>Lade Projekt …</p>;
 
   const monate = draft.monate;
@@ -353,6 +352,24 @@ export default function ProjectDetail() {
 
   return (
     <div>
+      {error && (
+        <div
+          className="card"
+          style={{
+            marginBottom: "1rem",
+            borderColor: "var(--rot)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "1rem",
+          }}
+        >
+          <span style={{ color: "var(--rot)" }}>{error}</span>
+          <button type="button" className="btn secondary" onClick={() => setError(null)}>
+            Schließen
+          </button>
+        </div>
+      )}
       <div className="toolbar">
         <div>
           <button type="button" className="btn secondary" onClick={handleBack} style={{ marginBottom: "0.5rem" }}>
@@ -771,11 +788,13 @@ function PhaseRows({
   onCommit: (code: PhaseCode, changes: Record<string, boolean>) => void;
   readOnly?: boolean;
   comments: Comment[];
-  onAddComment: (code: PhaseCode, monat: string, text: string) => void;
+  onAddComment: (code: PhaseCode, monat: string, text: string) => Promise<void>;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const [commentTarget, setCommentTarget] = useState<{ code: PhaseCode; monat: string } | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
+  const [commentSaving, setCommentSaving] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
 
   // Drag endet, sobald die Maustaste irgendwo losgelassen wird (auch außerhalb der Tabelle).
   useEffect(() => {
@@ -808,11 +827,25 @@ function PhaseRows({
   const commentsFor = (code: PhaseCode, monat: string) =>
     comments.filter((c) => c.phase_code === code && c.monat === monat);
 
-  const handleSaveComment = () => {
-    if (!commentTarget || !commentDraft.trim()) return;
-    onAddComment(commentTarget.code, commentTarget.monat, commentDraft.trim());
+  const openCommentDialog = (code: PhaseCode, monat: string) => {
+    setCommentTarget({ code, monat });
     setCommentDraft("");
-    setCommentTarget(null);
+    setCommentError(null);
+  };
+
+  const handleSaveComment = async () => {
+    if (!commentTarget || !commentDraft.trim()) return;
+    setCommentSaving(true);
+    setCommentError(null);
+    try {
+      await onAddComment(commentTarget.code, commentTarget.monat, commentDraft.trim());
+      setCommentDraft("");
+      setCommentTarget(null);
+    } catch (e) {
+      setCommentError(String(e));
+    } finally {
+      setCommentSaving(false);
+    }
   };
 
   return (
@@ -836,11 +869,17 @@ function PhaseRows({
                 <button
                   type="button"
                   onMouseDown={(e) => {
+                    if (e.button !== 0) return;
                     e.preventDefault();
                     startDrag(code, m);
                   }}
                   onMouseEnter={() => enterDrag(code, m)}
-                  aria-label={`${PHASE_LABELS[code]} ${m} ${active ? "entfernen" : "setzen"}`}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    openCommentDialog(code, m);
+                  }}
+                  aria-label={`${PHASE_LABELS[code]} ${m} ${active ? "entfernen" : "setzen"} (Rechtsklick: Kommentar)`}
+                  title="Rechtsklick: Kommentar"
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -868,33 +907,21 @@ function PhaseRows({
                     }}
                   />
                 </button>
-                <button
-                  type="button"
-                  title="Kommentar"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCommentTarget({ code, monat: m });
-                    setCommentDraft("");
-                  }}
-                  style={{
-                    position: "absolute",
-                    top: 1,
-                    right: 1,
-                    width: 12,
-                    height: 12,
-                    lineHeight: "12px",
-                    fontSize: "9px",
-                    padding: 0,
-                    border: "none",
-                    borderRadius: "50%",
-                    background: hasComment ? "var(--rot)" : "transparent",
-                    color: hasComment ? "#fff" : "var(--text-muted)",
-                    opacity: hasComment ? 1 : 0.4,
-                    cursor: "pointer",
-                  }}
-                >
-                  💬
-                </button>
+                {hasComment && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      right: 2,
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "var(--rot)",
+                      pointerEvents: "none",
+                    }}
+                  />
+                )}
               </td>
             );
           })}
@@ -938,12 +965,15 @@ function PhaseRows({
                   rows={3}
                   style={{ width: "100%", resize: "vertical" }}
                 />
+                {commentError && (
+                  <p style={{ color: "var(--rot)", fontSize: "0.8rem", margin: "0.35rem 0 0" }}>{commentError}</p>
+                )}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.75rem" }}>
                   <button type="button" className="btn secondary" onClick={() => setCommentTarget(null)}>
                     Schließen
                   </button>
-                  <button type="button" className="btn" onClick={handleSaveComment}>
-                    Kommentar hinzufügen
+                  <button type="button" className="btn" disabled={commentSaving} onClick={handleSaveComment}>
+                    {commentSaving ? "Speichert …" : "Kommentar hinzufügen"}
                   </button>
                 </div>
               </div>

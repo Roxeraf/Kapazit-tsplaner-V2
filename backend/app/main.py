@@ -25,6 +25,23 @@ if "projects" in _inspector.get_table_names():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE projects ADD COLUMN status VARCHAR(20) DEFAULT 'aktiv'"))
 
+# erstellt_am/geaendert_am wurden zunächst mit VARCHAR(30) angelegt, datetime.isoformat() mit
+# Mikrosekunden + UTC-Offset kann aber bis zu 32 Zeichen lang werden (z.B.
+# "2026-07-28T10:05:52.407714+00:00") - unter Postgres (anders als SQLite, das Spaltenlängen
+# nicht durchsetzt) führte das zu "value too long for type character varying(30)". Nur unter
+# Postgres nötig: SQLite unterstützt kein ALTER COLUMN ... TYPE.
+if engine.dialect.name == "postgresql":
+    def _widen_if_needed(table: str, column: str, min_length: int) -> None:
+        if table not in _inspector.get_table_names():
+            return
+        col = next((c for c in _inspector.get_columns(table) if c["name"] == column), None)
+        if col is not None and getattr(col["type"], "length", None) is not None and col["type"].length < min_length:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE VARCHAR({min_length})"))
+
+    _widen_if_needed("comments", "erstellt_am", 40)
+    _widen_if_needed("plan_history", "geaendert_am", 40)
+
 app = FastAPI(
     title="Kapazitätsplaner API",
     description="Backend für den Kapazitätsplaner (BUILD-Kachel im plx.crew Portal). Siehe CONCEPT.md.",

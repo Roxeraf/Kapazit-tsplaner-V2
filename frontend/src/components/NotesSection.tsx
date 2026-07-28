@@ -10,13 +10,17 @@ function formatTimestamp(iso: string): string {
 export default function NotesSection({ notes, onAdd }: { notes: Comment[]; onAdd: (text: string) => Promise<void> }) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleAdd = async () => {
     if (!text.trim()) return;
     setSaving(true);
+    setError(null);
     try {
       await onAdd(text.trim());
       setText("");
+    } catch (e) {
+      setError(String(e));
     } finally {
       setSaving(false);
     }
@@ -49,6 +53,7 @@ export default function NotesSection({ notes, onAdd }: { notes: Comment[]; onAdd
           + Notiz hinzufügen
         </button>
       </div>
+      {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem", margin: "0.35rem 0 0" }}>{error}</p>}
     </div>
   );
 }

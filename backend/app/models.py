@@ -240,7 +240,9 @@ class Comment(Base):
     monat: Mapped[str | None] = mapped_column(String(10), nullable=True)
     phase_code: Mapped[str | None] = mapped_column(String(1), nullable=True)
     text: Mapped[str] = mapped_column(String(2000))
-    erstellt_am: Mapped[str] = mapped_column(String(30))
+    # 40 statt 30 Zeichen: datetime.isoformat() mit Mikrosekunden + UTC-Offset kann bis zu
+    # 32 Zeichen lang werden (z.B. "2026-07-28T10:05:52.407714+00:00").
+    erstellt_am: Mapped[str] = mapped_column(String(40))
 
 
 class PlanHistory(Base):
@@ -262,5 +264,7 @@ class PlanHistory(Base):
     feld: Mapped[str] = mapped_column(String(50))  # z.B. Phasencode "p" oder "start_monat"
     alter_wert: Mapped[str | None] = mapped_column(String(500), nullable=True)
     neuer_wert: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    geaendert_am: Mapped[str] = mapped_column(String(30))
+    # 40 statt 30 Zeichen: datetime.isoformat() mit Mikrosekunden + UTC-Offset kann bis zu
+    # 32 Zeichen lang werden (z.B. "2026-07-28T10:05:52.407714+00:00").
+    geaendert_am: Mapped[str] = mapped_column(String(40))
     kommentar_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id"), nullable=True)

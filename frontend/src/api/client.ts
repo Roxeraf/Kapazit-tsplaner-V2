@@ -203,6 +203,7 @@ export const api = {
   // Gap-Analyse
   getGap: (teamId?: number) =>
     request<GapAnalysis[]>(`/gap${teamId ? `?team_id=${teamId}` : ""}`),
+  getProjectGap: (projectId: number) => request<GapAnalysis>(`/gap/${projectId}`),
   getForecast: (teamId?: number) =>
     request<ForecastSummary[]>(`/forecast${teamId ? `?team_id=${teamId}` : ""}`),
 

@@ -2,6 +2,10 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import PortfolioDashboard from "./views/PortfolioDashboard";
 import TeamCapacity from "./views/TeamCapacity";
 import GapAnalysis from "./views/GapAnalysis";
+import Forecast from "./views/Forecast";
+import Utilization from "./views/Utilization";
+import Kpis from "./views/Kpis";
+import Reporting from "./views/Reporting";
 import JiraProjects from "./views/JiraProjects";
 import ProjectWorkspace from "./views/project/ProjectWorkspace";
 import ProjectOverviewTab from "./views/project/ProjectOverviewTab";
@@ -45,6 +49,18 @@ function AppShell() {
             <NavLink to="/team" onClick={guardedNavigate("/team")}>
               Kapazität
             </NavLink>
+            <NavLink to="/forecast" onClick={guardedNavigate("/forecast")}>
+              Forecast
+            </NavLink>
+            <NavLink to="/auslastung" onClick={guardedNavigate("/auslastung")}>
+              Auslastung
+            </NavLink>
+            <NavLink to="/kpis" onClick={guardedNavigate("/kpis")}>
+              KPIs
+            </NavLink>
+            <NavLink to="/reporting" onClick={guardedNavigate("/reporting")}>
+              Reporting
+            </NavLink>
           </div>
           <div className="app-nav-group app-nav-group--utility">
             <NavLink to="/jira-projekte" onClick={guardedNavigate("/jira-projekte")}>
@@ -69,6 +85,10 @@ function AppShell() {
           <Route path="/team" element={<TeamCapacity />} />
           <Route path="/jira-projekte" element={<JiraProjects />} />
           <Route path="/gap" element={<GapAnalysis />} />
+          <Route path="/forecast" element={<Forecast />} />
+          <Route path="/auslastung" element={<Utilization />} />
+          <Route path="/kpis" element={<Kpis />} />
+          <Route path="/reporting" element={<Reporting />} />
         </Routes>
       </main>
     </div>

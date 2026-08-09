@@ -13,7 +13,9 @@ import type {
   JiraProjectStatus,
   JiraStatus,
   JiraSyncResult,
+  KpiSummary,
   MeetingMinutes,
+  MemberUtilization,
   PlanHistoryEntry,
   ProjectDetail,
   ProjectStatus,
@@ -331,4 +333,8 @@ export const api = {
     }),
   deleteMeetingMinutes: (meetingId: number) =>
     request<void>(`/projects/meeting-minutes/${meetingId}`, { method: "DELETE" }),
+
+  // Controlling-Erweiterung: Auslastung & KPIs (siehe CONCEPT.md Abschnitt 6/9, Schritt 9)
+  getUtilization: () => request<MemberUtilization[]>("/team/utilization"),
+  getKpis: () => request<KpiSummary>("/kpis"),
 };

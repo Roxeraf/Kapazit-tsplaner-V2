@@ -296,6 +296,27 @@ export interface Risk {
   documents: Document[];
 }
 
+export interface MemberUtilization {
+  member_id: number;
+  member_name: string;
+  team_id: number | null;
+  team_name: string | null;
+  kapazitaet_fte: number;
+  zugeordnet_fte: number;
+  auslastung_pct: number | null;
+}
+
+export interface KpiSummary {
+  anzahl_projekte_aktiv: number;
+  anzahl_projekte_gruen: number;
+  anzahl_projekte_gelb: number;
+  anzahl_projekte_rot: number;
+  anzahl_projekte_grau: number;
+  durchschnittliche_auslastung_pct: number | null;
+  offene_risiken_gesamt: number;
+  offene_entscheidungen_gesamt: number;
+}
+
 export interface MeetingMinutes {
   id: number;
   project_id: number;

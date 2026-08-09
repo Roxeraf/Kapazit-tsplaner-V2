@@ -1,69 +1,38 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import type { JiraComponent, JiraProject } from "../../types";
+import type { JiraSyncResult } from "../../types";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
 export default function ProjectJiraTab() {
   const { project, reload } = useProjectWorkspace();
   const [error, setError] = useState<string | null>(null);
   const [jiraConfigured, setJiraConfigured] = useState(false);
-  const [relevantJiraProjects, setRelevantJiraProjects] = useState<JiraProject[]>([]);
-  const [pickerJiraProjectKey, setPickerJiraProjectKey] = useState("");
-  const [pickerComponents, setPickerComponents] = useState<JiraComponent[]>([]);
-  const [pickerLabels, setPickerLabels] = useState<string[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState<JiraSyncResult | null>(null);
 
   useEffect(() => {
     api
       .jiraStatus()
-      .then((status) => {
-        setJiraConfigured(status.configured);
-        if (!status.configured) return;
-        return api.jiraListProjects().then((all) => setRelevantJiraProjects(all.filter((p) => p.relevant)));
-      })
+      .then((status) => setJiraConfigured(status.configured))
       .catch(() => setJiraConfigured(false));
   }, []);
 
-  const handlePickerJiraProjectChange = async (key: string) => {
-    setPickerJiraProjectKey(key);
-    setPickerComponents([]);
-    setPickerLabels([]);
-    if (!key) return;
-    try {
-      const [components, labels] = await Promise.all([api.jiraListComponents(key), api.jiraListLabels(key)]);
-      setPickerComponents(components);
-      setPickerLabels(labels);
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  // Wenn das Projekt schon aus einem aktivierten Jira-Projekt entstanden ist (siehe
-  // "Jira-Projekte"-Seite), ist die Zuordnung bereits klar — nicht nochmal danach fragen,
-  // direkt die Components davon laden.
-  useEffect(() => {
-    if (project.jira_project_key && jiraConfigured && pickerJiraProjectKey !== project.jira_project_key) {
-      handlePickerJiraProjectChange(project.jira_project_key);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.jira_project_key, jiraConfigured]);
-
-  const linkedJiraProjectName =
-    relevantJiraProjects.find((p) => p.key === project.jira_project_key)?.name ?? project.jira_project_key;
-
-  const handleJiraComponentChange = async (raw: string) => {
-    await api.updateProject(project.id, { jira_component: raw.trim() || null });
-    reload();
-  };
-
   const handleSync = async () => {
+    setSyncing(true);
     setError(null);
     try {
-      await api.jiraSync(project.id);
+      const result = await api.jiraSync(project.id);
+      setLastSyncResult(result);
       reload();
     } catch (e) {
       setError(String(e));
+    } finally {
+      setSyncing(false);
     }
   };
+
+  const monateMitIst = Object.keys(project.ist);
 
   return (
     <div>
@@ -73,91 +42,55 @@ export default function ProjectJiraTab() {
           Jira-Integration ist nicht konfiguriert (siehe <code>JIRA_BASE_URL</code>/<code>JIRA_API_TOKEN</code> im Backend).
         </div>
       )}
-      <div className="card">
-        <label style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", gap: "0.4rem", alignItems: "center" }}>
-          Jira-Komponente/Label (für Ist-FTE des gesamten Projekts)
-          <input
-            key={project.jira_component ?? ""}
-            style={{ padding: "0.3rem 0.5rem", border: "1px solid var(--border)", borderRadius: "4px" }}
-            defaultValue={project.jira_component ?? ""}
-            placeholder="z. B. ETE"
-            onBlur={(e) => handleJiraComponentChange(e.target.value)}
-          />
-        </label>
-        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
-          {project.jira_component ? (
-            <>
-              Aktuell gespeichert: <strong>{project.jira_component}</strong>
-            </>
-          ) : (
-            "Noch nichts gespeichert — ohne Wert bleibt die Ist-FTE-Berechnung für dieses Projekt leer."
-          )}
+
+      <div className="card" style={{ marginBottom: "1.25rem" }}>
+        <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Verknüpfung</h3>
+        {project.jira_component ? (
+          <p style={{ margin: 0 }}>
+            Komponente/Label: <strong>{project.jira_component}</strong>
+            {project.jira_project_key && <> — Jira-Projekt: {project.jira_project_key}</>}
+          </p>
+        ) : (
+          <p style={{ color: "var(--text-muted)", margin: 0 }}>Noch keine Jira-Komponente/Label verknüpft.</p>
+        )}
+        <p style={{ fontSize: "0.85rem", margin: "0.5rem 0 0" }}>
+          Verknüpfung ändern: <Link to={`/projekte/${project.id}/einstellungen`}>Einstellungen</Link>
         </p>
-        {jiraConfigured && (
-          <div className="field-row" style={{ marginTop: "0.5rem" }}>
-            {project.jira_project_key ? (
-              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", alignSelf: "flex-end" }}>
-                Verknüpft mit Jira-Projekt: {linkedJiraProjectName} ({project.jira_project_key})
-              </span>
-            ) : (
-              <label>
-                Oder aus Jira-Projekt wählen
-                <select value={pickerJiraProjectKey} onChange={(e) => handlePickerJiraProjectChange(e.target.value)}>
-                  <option value="">
-                    {relevantJiraProjects.length === 0
-                      ? "— keine Jira-Projekte als 'wird geplant' markiert —"
-                      : "— Jira-Projekt wählen —"}
-                  </option>
-                  {relevantJiraProjects.map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {p.name} ({p.key})
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {pickerJiraProjectKey && (
-              <label>
-                Komponente/Label
-                <select
-                  value={project.jira_component ?? ""}
-                  onChange={(e) => {
-                    if (e.target.value) handleJiraComponentChange(e.target.value);
-                  }}
-                >
-                  <option value="">— wählen —</option>
-                  {pickerComponents.length > 0 && (
-                    <optgroup label="Components">
-                      {pickerComponents.map((c) => (
-                        <option key={`c-${c.id}`} value={c.name}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {pickerLabels.length > 0 && (
-                    <optgroup label="Labels">
-                      {pickerLabels.map((l) => (
-                        <option key={`l-${l}`} value={l}>
-                          {l}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {pickerComponents.length === 0 && pickerLabels.length === 0 && (
-                    <option value="" disabled>
-                      Keine Components oder Labels in diesem Jira-Projekt gefunden
-                    </option>
-                  )}
-                </select>
-              </label>
-            )}
-          </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Ist-FTE (aus Jira-Worklogs)</h3>
+        {monateMitIst.length === 0 ? (
+          <p style={{ color: "var(--text-muted)" }}>Noch keine Ist-Daten synchronisiert.</p>
+        ) : (
+          <table className="planner" style={{ marginBottom: "0.75rem" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>Monat</th>
+                {monateMitIst.map((m) => (
+                  <th key={m}>{m}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="label">Ist (FTE)</td>
+                {monateMitIst.map((m) => (
+                  <td key={m}>{project.ist[m].toFixed(2)}</td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
         )}
         {jiraConfigured && project.jira_component && (
-          <button type="button" className="btn secondary" style={{ marginTop: "0.75rem" }} onClick={handleSync}>
-            Jetzt synchronisieren
+          <button type="button" className="btn secondary" disabled={syncing} onClick={handleSync}>
+            {syncing ? "Synchronisiert …" : "Jetzt synchronisieren"}
           </button>
+        )}
+        {lastSyncResult && (
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+            Letzter Sync: {lastSyncResult.ergebnisse.reduce((sum, r) => sum + r.worklogs_synced, 0)} Worklogs übernommen.
+          </p>
         )}
       </div>
     </div>

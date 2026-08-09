@@ -24,6 +24,9 @@ if "projects" in _inspector.get_table_names():
     if "status" not in _columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE projects ADD COLUMN status VARCHAR(20) DEFAULT 'aktiv'"))
+    if "projektleiter" not in _columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN projektleiter VARCHAR(200)"))
 
 # erstellt_am/geaendert_am wurden zunächst mit VARCHAR(30) angelegt, datetime.isoformat() mit
 # Mikrosekunden + UTC-Offset kann aber bis zu 32 Zeichen lang werden (z.B.

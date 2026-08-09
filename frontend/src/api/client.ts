@@ -55,6 +55,7 @@ export const api = {
       anzahl_monate: number;
       jira_component: string | null;
       status: ProjectStatus;
+      projektleiter: string | null;
       kommentar_id: number | null;
     }>,
   ) => request<ProjectDetail>(`/projects/${projectId}`, { method: "PUT", body: JSON.stringify(payload) }),

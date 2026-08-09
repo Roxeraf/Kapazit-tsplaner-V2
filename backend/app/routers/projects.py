@@ -102,6 +102,7 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         anzahl_monate=p.anzahl_monate,
         reihenfolge=p.reihenfolge,
         status=p.status,
+        projektleiter=p.projektleiter,
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
         jira_component=p.jira_component,
         jira_project_key=p.jira_project_key,
@@ -152,6 +153,7 @@ def list_projects(db: Session = Depends(get_db)):
             anzahl_monate=p.anzahl_monate,
             reihenfolge=p.reihenfolge,
             status=p.status,
+            projektleiter=p.projektleiter,
             monate=berechne_monate(p.start_monat, p.anzahl_monate),
         )
         for p in projects

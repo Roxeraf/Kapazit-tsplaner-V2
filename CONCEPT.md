@@ -29,8 +29,15 @@ plx.crew Portal (crew-portal.pure-lox.com)
 └── BUILD → Kapazitätsplaner (neue Kachel)
        │
        ├── Frontend  (React, Portal-CI: Navy #002F5E / Blau #007CC1 / Rot #B30F0B)
-       │      Views: Portfolio-Dashboard · Projekt-Detail (Gantt+FTE) ·
-       │              Team-Kapazität · Gap-Analyse
+       │      Zwei-Ebenen-Navigation (siehe Abschnitt 6):
+       │      Ebene 1 Projektmanagement: Portfolio-Dashboard →
+       │              Projekt-Workspace (Übersicht·Planung·Kommunikation·
+       │              Dokumente·Historie·Jira·Einstellungen)
+       │      Ebene 2 Controlling: Gap-Analyse·Kapazität·Forecast·
+       │              Auslastung·KPIs·Reporting
+       │      Ebene 1/2 sind reine Navigations-Gruppierungen, keine
+       │      Zugriffskontrolle — es existiert kein Rollen-/Login-System
+       │      im Repo (siehe Abschnitt 7).
        │
        ├── Backend-API (FastAPI oder Node, analog bestehendem Stack)
        │      /projects  /subprojects  /fte-plan  /team  /gap  /forecast
@@ -110,12 +117,41 @@ Ergebnis pro Projekt: eine Zeile "Hochrechnung Jahresende/Projektende" — zeigt
 
 ## 6. UI/UX-Konzept (Views)
 
-| View | Inhalt | Entspricht |
+Stand v0.2: aus der ursprünglich flachen 4-View-Navigation (Portfolio-Dashboard /
+Projekt-Detail / Team-Kapazität / Gap-Analyse) ist mit wachsendem Funktionsumfang der
+Projekt-Detail-Seite (Notizen, Verlauf, Jira-Verknüpfung, Team-Zuordnung — alles auf
+einer Seite) eine Zwei-Ebenen-Struktur mit Projekt-Workspace geworden. Portfolio bleibt
+Einstiegspunkt; jedes Projekt ist ein eigener Workspace mit Tab-Leiste statt einer
+einzelnen, immer weiter wachsenden Detailseite.
+
+### Ebene 1 — Projektmanagement
+
+Portfolio-Dashboard (unverändert: alle Projekte als Kacheln, Mini-Gap-Indikator
+grün/gelb/rot/grau) → Klick auf ein Projekt öffnet dessen Workspace mit sieben Tabs:
+
+| Tab | Inhalt | Entspricht |
 |---|---|---|
-| **Portfolio-Dashboard** | Alle Projekte als Kacheln, je mit Mini-Gap-Indikator (grün/gelb/rot) | Gesamtuebersicht-Blatt |
-| **Projekt-Detail** | Gantt-Phasen + FTE-Tabelle, editierbar wie Excel | Projekt 01–12 Blätter |
-| **Team-Kapazität** | MA-Liste, Teams, Auslastung über alle zugeordneten Projekte | neu |
-| **Gap-Analyse** | Soll/Ist/Hochrechnung als Chart je Projekt, Filterung nach Team/Zeitraum | neu |
+| **Übersicht** | Projektname, Status, Ampel (= Gap-Status), Kunde, Projektleiter, Start/Ende, Auslastung, letzte Änderungen, letzte Notizen, offene Risiken/Entscheidungen | neu (Phase 5) |
+| **Planung** | Stammdaten, Gantt-Phasen + FTE-Tabelle (editierbar wie Excel), Team-Zuordnung, Teilprojekte | Projekt 01–12 Blätter |
+| **Kommunikation** | Diskussionen (= bisherige Notizen), Entscheidungen, Risiken, Meetingprotokolle, je mit Tags | Diskussionen: bestehend; Rest neu (Phase 4) |
+| **Dokumente** | Datei-Upload/-Liste je Projekt, Suche, Tags | neu (Phase 3) |
+| **Historie** | Automatisches Änderungsprotokoll (Audit), nur Werte-Änderungen — keine Kommentare/Dateien | bestehend (`PlanHistory`) |
+| **Jira** | Jira-Komponente/Label, Sync-Status, letzter Sync, offene Jira-Issues | bestehend, um offene Issues erweitert |
+| **Einstellungen** | Status-Lifecycle, Projektleiter, Jira-Verknüpfung bearbeiten | neu (Phase 2) |
+
+### Ebene 2 — Controlling
+
+| View | Inhalt | Basis |
+|---|---|---|
+| **Gap-Analyse** | Soll/Ist/Hochrechnung als Chart je Projekt, Filterung nach Team/Zeitraum | bestehend |
+| **Kapazität** | MA-Liste, Teams, Auslastung über alle zugeordneten Projekte (bisher "Team-Kapazität") | bestehend |
+| **Forecast** | Hochrechnung Jahresende/Projektende je Projekt | nur neue Sicht auf bestehenden `GET /forecast` |
+| **Auslastung** | Auslastungsgrad je Teammitglied/Team (zugeordnetes FTE / Kapazitäts-FTE) | neue Aggregation, bestehende Datenquellen |
+| **KPIs** | Portfolio-Kennzahlen: Projektstatus-Verteilung, Ø Auslastung, offene Risiken/Entscheidungen gesamt | neue Aggregation, teilweise abhängig von Kommunikation-Datenmodell |
+| **Reporting** | Export (MVP: clientseitiger CSV-Export der Gap/Forecast/KPI-Daten) | clientseitiger Export, kein neuer Endpoint; Portfolio-PPTX-Export ist spätere Ausbaustufe |
+
+`/jira-projekte` (Jira-Projekt-Katalog, "wird geplant"-Verwaltung) bleibt als eigene,
+projektübergreifende Verwaltungsseite außerhalb der zwei Ebenen bestehen.
 
 ---
 
@@ -142,6 +178,12 @@ Ergebnis pro Projekt: eine Zeile "Hochrechnung Jahresende/Projektende" — zeigt
 3. **Gap-Analyse + Hochrechnung:** Dashboard-View, Trendfortschreibung
 4. **Team-Kapazität:** MA-Stammdaten, teamübergreifende Auslastungssicht
 5. **Rollout & Excel-Migration:** historische Daten importieren, altes Tool ablösen
+6. **IA-Umbau:** Projekt-Workspace mit Tabs (Übersicht/Planung/Kommunikation/Dokumente/
+   Historie/Jira/Einstellungen) + Zwei-Ebenen-Navigation (Projektmanagement/Controlling),
+   Routing-Grundgerüst ohne neue Datenmodelle
+7. **Kommunikation-Datenmodell:** Entscheidungen/Risiken/Meetingprotokolle/Tags
+8. **Dokumente-Datenmodell:** Datei-Upload/-Storage je Projekt
+9. **Controlling-Erweiterung:** Auslastung/KPIs/Reporting
 
 ---
 
@@ -154,6 +196,11 @@ Ergebnis pro Projekt: eine Zeile "Hochrechnung Jahresende/Projektende" — zeigt
 - Datenhoheit Team-Kapazität: eigene Pflege im Tool oder Anbindung an Personal-/HR-Datenquelle? (aktuell: eigene Pflege im Tool, siehe Abschnitt 11)
 - Periodischer Jira-Sync-Job (Cron/Scheduler) statt manuellem Auslösen über die UI
 - Kein Alembic/Migrationstool im Repo — Schemaänderungen an bestehenden (nicht-SQLite-frischen) Datenbanken erfordern aktuell manuelle Anpassung
+- Ebene 1 (Projektmanagement) / Ebene 2 (Controlling) ist reine Navigations-Gruppierung, keine Zugriffskontrolle — es gibt kein Rollen-/Login-System im Repo (siehe Abschnitt 7); wird hier bewusst festgehalten, damit das nicht spätestens beim nächsten KI-Prompt fälschlich als vorhandene RBAC angenommen wird
+- Projektleiter (`projects.projektleiter`) ist bewusst ein Freitextfeld statt FK, da es kein Personen-/User-Verzeichnis im Repo gibt — spätere Ausbaustufe: FK auf ein Personen-Verzeichnis, sobald eines existiert
+- "Offene Aufgaben" auf dem Übersicht-Tab ist für die MVP bewusst ein Alias auf `offene Entscheidungen + offene Risiken` — es gibt (noch) kein eigenständiges Aufgaben-/Task-Modell
+- Milestones (Planung-Tab) sind bewusst kein eigenes Datenmodell, sondern der bestehende Gantt-Phasencode `?` (Meilenstein) — eine separate Milestone-Liste ist nicht geplant, solange der Phasencode ausreicht
+- Reporting-MVP ist bewusst ein clientseitiger CSV-Export ohne neuen Backend-Endpoint; ein Portfolio-weiter PPTX-Export (analog zum bestehenden Projekt-PPTX-Export) ist als spätere Ausbaustufe zurückgestellt, nicht Teil des IA-Umbaus
 
 ---
 
@@ -165,7 +212,8 @@ Dieses Repo enthält:
 2. **Schritt 2 (Jira-Ist-Integration):** Worklog-Sync (`POST /jira/sync`) und Ist-FTE-Anzeige je Projekt/Monat (`GET /projects/{id}` liefert `ist` auf Projekt-Ebene, neben `fte` je Teilprojekt).
 3. **Schritt 4 (Team-Kapazität):** MA-/Team-Stammdaten inkl. Jira-Account-Zuordnung und Zuordnung MA ↔ Projekt (`/team/*`), Voraussetzung für Schritt 2.
 4. **Schritt 3 (Gap-Analyse + Hochrechnung):** `GET /gap` (Soll/Ist/Gap je Monat und Projekt, optional `?team_id=`) und `GET /forecast` (Kurzform: eine Zeile "Hochrechnung Jahresende/Projektende" je Projekt). Hochrechnung nach Variante 1 (Trendfortschreibung, Durchschnitt der letzten 3 Ist-Monate, siehe `backend/app/gap_analysis.py`). Frontend-View **Gap-Analyse** zeigt Soll/Ist/Hochrechnung als Chart je Projekt mit Team-Filter; Portfolio-Dashboard zeigt den Mini-Gap-Indikator (grün/gelb/rot/grau) je Projektkachel.
+5. **Schritt 6 (IA-Umbau, Routing-Grundgerüst):** `/projekte/:id` ist jetzt ein Projekt-Workspace (`frontend/src/views/project/ProjectWorkspace.tsx`) mit nested Routes/Tab-Leiste statt einer einzelnen Detailseite. Die frühere `ProjectDetail.tsx` (1055 Zeilen) ist aufgeteilt in `ProjectPlanningTab` (Stammdaten/Gantt/FTE/Team-Zuordnung/Teilprojekte), `ProjectJiraTab` (Jira-Verknüpfung, unverändertes Verhalten), `ProjectHistoryTab` (Verlauf, audit-only), `ProjectCommunicationTab` (Diskussionen = bisherige Notizen; Entscheidungen/Risiken/Meetingprotokolle sind Platzhalter bis Schritt 7). `ProjectOverviewTab`, `ProjectDocumentsTab` sind Platzhalter (Schritt 5/8), `ProjectSettingsTab` deckt bisher nur den Status-Lifecycle ab (Rest folgt Schritt 2/Einstellungen-Tab-Ausbau). Top-Nav ist zweigeteilt (Projektmanagement/Controlling, `App.tsx`); `/jira-projekte` bleibt eigenständig.
 
 Details zu Aufbau und lokalem Betrieb siehe [`README.md`](README.md).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO und der Excel-Migrationslauf für Bestandsdaten. Siehe Abschnitt 10 für offene Entscheidungen.
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, sowie die Schritte 2/7/8/9 aus Abschnitt 9 (Einstellungen-Ausbau, Kommunikation-/Dokumente-Datenmodell, Controlling-Erweiterung). Siehe Abschnitt 10 für offene Entscheidungen.

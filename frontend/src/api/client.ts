@@ -1,5 +1,7 @@
 import type {
   Comment,
+  Decision,
+  DecisionStatus,
   Document,
   DocumentLink,
   EntityType,
@@ -11,10 +13,14 @@ import type {
   JiraProjectStatus,
   JiraStatus,
   JiraSyncResult,
+  MeetingMinutes,
   PlanHistoryEntry,
   ProjectDetail,
   ProjectStatus,
   ProjectSummary,
+  Risk,
+  RiskLevel,
+  RiskStatus,
   SubprojectDetail,
   SubprojectListItem,
   Tag,
@@ -249,4 +255,79 @@ export const api = {
     }),
   unlinkDocument: (linkId: number) => request<void>(`/document-links/${linkId}`, { method: "DELETE" }),
   listTags: (search?: string) => request<Tag[]>(`/tags${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+
+  // Kommunikation: Entscheidungen/Risiken/Meetingprotokolle (siehe CONCEPT.md Abschnitt 6a)
+  listDecisions: (projectId: number) => request<Decision[]>(`/projects/${projectId}/decisions`),
+  createDecision: (
+    projectId: number,
+    payload: {
+      titel: string;
+      beschreibung?: string | null;
+      status?: DecisionStatus;
+      entschieden_von?: string | null;
+      entschieden_am?: string | null;
+      tags?: string[];
+    },
+  ) => request<Decision>(`/projects/${projectId}/decisions`, { method: "POST", body: JSON.stringify(payload) }),
+  updateDecision: (
+    decisionId: number,
+    payload: Partial<{
+      titel: string;
+      beschreibung: string | null;
+      status: DecisionStatus;
+      entschieden_von: string | null;
+      entschieden_am: string | null;
+      tags: string[];
+    }>,
+  ) => request<Decision>(`/projects/decisions/${decisionId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteDecision: (decisionId: number) => request<void>(`/projects/decisions/${decisionId}`, { method: "DELETE" }),
+
+  listRisks: (projectId: number) => request<Risk[]>(`/projects/${projectId}/risks`),
+  createRisk: (
+    projectId: number,
+    payload: {
+      titel: string;
+      beschreibung?: string | null;
+      wahrscheinlichkeit?: RiskLevel;
+      auswirkung?: RiskLevel;
+      status?: RiskStatus;
+      owner?: string | null;
+      faellig_am?: string | null;
+      tags?: string[];
+    },
+  ) => request<Risk>(`/projects/${projectId}/risks`, { method: "POST", body: JSON.stringify(payload) }),
+  updateRisk: (
+    riskId: number,
+    payload: Partial<{
+      titel: string;
+      beschreibung: string | null;
+      wahrscheinlichkeit: RiskLevel;
+      auswirkung: RiskLevel;
+      status: RiskStatus;
+      owner: string | null;
+      faellig_am: string | null;
+      tags: string[];
+    }>,
+  ) => request<Risk>(`/projects/risks/${riskId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteRisk: (riskId: number) => request<void>(`/projects/risks/${riskId}`, { method: "DELETE" }),
+
+  listMeetingMinutes: (projectId: number) => request<MeetingMinutes[]>(`/projects/${projectId}/meeting-minutes`),
+  createMeetingMinutes: (
+    projectId: number,
+    payload: { titel: string; datum: string; teilnehmer?: string | null; text: string; tags?: string[] },
+  ) =>
+    request<MeetingMinutes>(`/projects/${projectId}/meeting-minutes`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateMeetingMinutes: (
+    meetingId: number,
+    payload: Partial<{ titel: string; datum: string; teilnehmer: string | null; text: string; tags: string[] }>,
+  ) =>
+    request<MeetingMinutes>(`/projects/meeting-minutes/${meetingId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteMeetingMinutes: (meetingId: number) =>
+    request<void>(`/projects/meeting-minutes/${meetingId}`, { method: "DELETE" }),
 };

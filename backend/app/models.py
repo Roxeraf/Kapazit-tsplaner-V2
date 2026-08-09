@@ -271,3 +271,121 @@ class PlanHistory(Base):
     # 32 Zeichen lang werden (z.B. "2026-07-28T10:05:52.407714+00:00").
     geaendert_am: Mapped[str] = mapped_column(String(40))
     kommentar_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id"), nullable=True)
+    # Gruppiert alle PlanHistory-Einträge eines Speichern-Klicks zu einer "Revision" für die
+    # Historie-Ansicht (siehe HistoryTimeline.tsx) — bewusst getrennt von kommentar_id, da
+    # kommentar_id die fachliche Begründung ist (optional) und batch_id rein technisch die
+    # Gruppierung, damit auch Saves ohne Begründungstext gruppierbar bleiben. Wird clientseitig
+    # pro Speichern-Klick per crypto.randomUUID() erzeugt (siehe ProjectPlanningTab.handleSave).
+    batch_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Zentrale Dokumentenablage, Tags & generische Verknüpfungen (siehe CONCEPT.md
+# Abschnitt 6a). Jede Datei, die irgendwo im Projekt hochgeladen wird, existiert
+# physisch und als Document-Datensatz genau einmal — andere Bereiche (Notizen,
+# Entscheidungen, Risiken, Meetingprotokolle) referenzieren sie nur über DocumentLink.
+# ---------------------------------------------------------------------------
+
+
+class Document(Base):
+    """Zentrale Dokumentenablage eines Projekts. Wird unabhängig vom Entstehungsort (direkt
+    im Dokumente-Tab oder als Anhang an eine Notiz/Entscheidung/Risiko/Meetingprotokoll)
+    über denselben Upload-Endpoint angelegt — siehe routers/documents.py."""
+
+    __tablename__ = "documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    dateiname: Mapped[str] = mapped_column(String(300))
+    speicherpfad: Mapped[str] = mapped_column(String(500))  # relativ zu DOCUMENTS_DIR
+    mimetype: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    groesse_bytes: Mapped[int] = mapped_column()
+    hochgeladen_von: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    hochgeladen_am: Mapped[str] = mapped_column(String(40))
+
+
+class DocumentLink(Base):
+    """Generische Verknüpfung Document <-> beliebige Entität (comment/decision/risk/
+    meeting_minutes, später erweiterbar um z.B. task/milestone/revision/jira_issue) —
+    entity_type/entity_id statt separater FK-Spalten je Entität, analog zu TagLink. Ein
+    Dokument kann von mehreren Entitäten referenziert werden, ohne dass die Datei oder der
+    Document-Datensatz dupliziert wird."""
+
+    __tablename__ = "document_links"
+    __table_args__ = (UniqueConstraint("document_id", "entity_type", "entity_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"))
+    entity_type: Mapped[str] = mapped_column(String(30))
+    entity_id: Mapped[int] = mapped_column()
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+
+
+class Tag(Base):
+    """Systemweit wiederverwendbares Tag (nicht projektgebunden)."""
+
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+
+
+class TagLink(Base):
+    """Verknüpfung Tag <-> beliebige Entität. Teilt sich das entity_type-Vokabular mit
+    DocumentLink, zusätzlich "document" (Dokumente sind selbst taggbar, aber nie Ziel
+    eines DocumentLink)."""
+
+    __tablename__ = "tag_links"
+    __table_args__ = (UniqueConstraint("tag_id", "entity_type", "entity_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"))
+    entity_type: Mapped[str] = mapped_column(String(30))
+    entity_id: Mapped[int] = mapped_column()
+
+
+class Decision(Base):
+    """Entscheidung im Projekt (Kommunikation-Tab)."""
+
+    __tablename__ = "decisions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    titel: Mapped[str] = mapped_column(String(200))
+    beschreibung: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/entschieden/verworfen
+    entschieden_von: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    entschieden_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+
+
+class Risk(Base):
+    """Risiko-Register-Eintrag (Kommunikation-Tab)."""
+
+    __tablename__ = "risks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    titel: Mapped[str] = mapped_column(String(200))
+    beschreibung: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    wahrscheinlichkeit: Mapped[str] = mapped_column(String(10), default="mittel")  # niedrig/mittel/hoch
+    auswirkung: Mapped[str] = mapped_column(String(10), default="mittel")  # niedrig/mittel/hoch
+    status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/in_bearbeitung/geschlossen
+    owner: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    faellig_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+    aktualisiert_am: Mapped[str] = mapped_column(String(40))
+
+
+class MeetingMinutes(Base):
+    """Meetingprotokoll (Kommunikation-Tab)."""
+
+    __tablename__ = "meeting_minutes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    titel: Mapped[str] = mapped_column(String(200))
+    datum: Mapped[str] = mapped_column(String(10))
+    teilnehmer: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Freitext, kommasepariert
+    text: Mapped[str] = mapped_column(String(5000))
+    erstellt_am: Mapped[str] = mapped_column(String(40))

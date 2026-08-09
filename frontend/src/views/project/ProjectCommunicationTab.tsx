@@ -28,8 +28,18 @@ export default function ProjectCommunicationTab() {
   const generalComments = (subprojectId: number | null) =>
     comments.filter((c) => c.subproject_id === subprojectId && c.monat === null && c.phase_code === null);
 
-  const handleAddNote = async (subprojectId: number | null, text: string) => {
-    await api.createComment(project.id, { subproject_id: subprojectId, text });
+  const handleAddNote = async (
+    subprojectId: number | null,
+    input: { text: string; tags: string[]; files: File[] },
+  ) => {
+    const comment = await api.createComment(project.id, {
+      subproject_id: subprojectId,
+      text: input.text,
+      tags: input.tags,
+    });
+    for (const file of input.files) {
+      await api.uploadDocument(project.id, file, { entityType: "comment", entityId: comment.id });
+    }
     refreshComments();
   };
 
@@ -58,14 +68,14 @@ export default function ProjectCommunicationTab() {
         <div>
           <div className="card" style={{ marginBottom: "1rem" }}>
             <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Projekt</h3>
-            <NotesSection notes={generalComments(null)} onAdd={(text) => handleAddNote(null, text)} onDelete={handleDeleteComment} />
+            <NotesSection notes={generalComments(null)} onAdd={(input) => handleAddNote(null, input)} onDelete={handleDeleteComment} />
           </div>
           {project.subprojects.map((sp) => (
             <div key={sp.id} className="card" style={{ marginBottom: "1rem" }}>
               <h3 style={{ color: "var(--navy)", marginTop: 0 }}>{sp.name}</h3>
               <NotesSection
                 notes={generalComments(sp.id)}
-                onAdd={(text) => handleAddNote(sp.id, text)}
+                onAdd={(input) => handleAddNote(sp.id, input)}
                 onDelete={handleDeleteComment}
               />
             </div>

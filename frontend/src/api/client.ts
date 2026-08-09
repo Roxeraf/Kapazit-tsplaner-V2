@@ -1,5 +1,8 @@
 import type {
   Comment,
+  Document,
+  DocumentLink,
+  EntityType,
   ForecastSummary,
   GapAnalysis,
   JiraAccountMatch,
@@ -14,6 +17,7 @@ import type {
   ProjectSummary,
   SubprojectDetail,
   SubprojectListItem,
+  Tag,
   Team,
   TeamMember,
   TeamWithMembers,
@@ -27,6 +31,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+  }
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  return res.json() as Promise<T>;
+}
+
+// Für multipart/form-data-Uploads: der generische request() setzt immer
+// Content-Type: application/json, das würde den vom Browser gesetzten
+// "multipart/form-data; boundary=..."-Header überschreiben.
+async function requestForm<T>(path: string, formData: FormData, method = "POST"): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method, body: formData });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`${res.status} ${res.statusText}: ${body}`);
@@ -159,11 +178,50 @@ export const api = {
   // Kommentare & Änderungshistorie
   createComment: (
     projectId: number,
-    payload: { subproject_id?: number | null; monat?: string | null; phase_code?: string | null; text: string },
+    payload: {
+      subproject_id?: number | null;
+      monat?: string | null;
+      phase_code?: string | null;
+      text: string;
+      tags?: string[];
+    },
   ) => request<Comment>(`/projects/${projectId}/comments`, { method: "POST", body: JSON.stringify(payload) }),
   listComments: (projectId: number) => request<Comment[]>(`/projects/${projectId}/comments`),
   deleteComment: (commentId: number) => request<void>(`/projects/comments/${commentId}`, { method: "DELETE" }),
   getProjectHistory: (projectId: number) => request<PlanHistoryEntry[]>(`/projects/${projectId}/history`),
   getSubprojectHistory: (subprojectId: number) =>
     request<PlanHistoryEntry[]>(`/projects/subprojects/${subprojectId}/history`),
+
+  // Zentrale Dokumentenablage & Tags (siehe CONCEPT.md Abschnitt 6a)
+  uploadDocument: (
+    projectId: number,
+    file: File,
+    options?: { entityType?: EntityType; entityId?: number; tags?: string[]; hochgeladenVon?: string },
+  ) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (options?.tags && options.tags.length > 0) form.append("tags", options.tags.join(","));
+    if (options?.entityType) form.append("entity_type", options.entityType);
+    if (options?.entityId !== undefined) form.append("entity_id", String(options.entityId));
+    if (options?.hochgeladenVon) form.append("hochgeladen_von", options.hochgeladenVon);
+    return requestForm<Document>(`/projects/${projectId}/documents`, form);
+  },
+  listDocuments: (projectId: number, params?: { search?: string; tag?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.set("search", params.search);
+    if (params?.tag) query.set("tag", params.tag);
+    const qs = query.toString();
+    return request<Document[]>(`/projects/${projectId}/documents${qs ? `?${qs}` : ""}`);
+  },
+  downloadDocumentUrl: (documentId: number) => `${API_BASE}/documents/${documentId}/download`,
+  updateDocument: (documentId: number, payload: { dateiname?: string; tags?: string[] }) =>
+    request<Document>(`/documents/${documentId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteDocument: (documentId: number) => request<void>(`/documents/${documentId}`, { method: "DELETE" }),
+  linkDocument: (documentId: number, entityType: EntityType, entityId: number) =>
+    request<DocumentLink>("/document-links", {
+      method: "POST",
+      body: JSON.stringify({ document_id: documentId, entity_type: entityType, entity_id: entityId }),
+    }),
+  unlinkDocument: (linkId: number) => request<void>(`/document-links/${linkId}`, { method: "DELETE" }),
+  listTags: (search?: string) => request<Tag[]>(`/tags${search ? `?search=${encodeURIComponent(search)}` : ""}`),
 };

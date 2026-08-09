@@ -12,6 +12,12 @@ from ..database import get_db
 
 router = APIRouter(prefix="/team", tags=["team"])
 
+# Referenz-Wochenstunden für "1.0 FTE" - TeamMember.wochenstunden default ist 40 (siehe
+# models.py), Assignment.fte ist bereits in FTE-Einheiten (nicht Prozent, siehe dortiger
+# Docstring). Für die Auslastungsberechnung wird die individuelle Kapazität eines
+# Teammitglieds daher als wochenstunden / VOLLZEIT_WOCHENSTUNDEN ausgedrückt.
+VOLLZEIT_WOCHENSTUNDEN = 40
+
 
 def _assignment_out(a: models.Assignment) -> schemas.AssignmentOut:
     return schemas.AssignmentOut(
@@ -161,3 +167,33 @@ def delete_assignment(assignment_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Zuordnung nicht gefunden")
     db.delete(assignment)
     db.commit()
+
+
+def compute_utilization(db: Session) -> list[schemas.MemberUtilizationOut]:
+    """Auslastungsgrad je Teammitglied: zugeordnetes FTE (Summe über alle Projekt-
+    Zuordnungen) im Verhältnis zur individuellen Kapazität (siehe VOLLZEIT_WOCHENSTUNDEN).
+    Reine Aggregation aus TeamMember/Assignment, keine neue Tabelle. Auch von
+    routers/kpis.py für die durchschnittliche Auslastung wiederverwendet."""
+    members = db.query(models.TeamMember).order_by(models.TeamMember.name).all()
+    result = []
+    for m in members:
+        kapazitaet_fte = round(m.wochenstunden / VOLLZEIT_WOCHENSTUNDEN, 2) if m.wochenstunden else 0.0
+        zugeordnet_fte = round(sum(a.fte for a in m.assignments), 2)
+        auslastung_pct = round(zugeordnet_fte / kapazitaet_fte * 100, 1) if kapazitaet_fte > 0 else None
+        result.append(
+            schemas.MemberUtilizationOut(
+                member_id=m.id,
+                member_name=m.name,
+                team_id=m.team_id,
+                team_name=m.team.name if m.team else None,
+                kapazitaet_fte=kapazitaet_fte,
+                zugeordnet_fte=zugeordnet_fte,
+                auslastung_pct=auslastung_pct,
+            )
+        )
+    return result
+
+
+@router.get("/utilization", response_model=list[schemas.MemberUtilizationOut])
+def get_utilization(db: Session = Depends(get_db)):
+    return compute_utilization(db)

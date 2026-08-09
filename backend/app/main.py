@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
 from .database import Base, engine
-from .routers import communication, documents, export, gap, jira, projects, team  # noqa: F401
+from .routers import communication, documents, export, gap, jira, kpis, projects, team  # noqa: F401
 
 Base.metadata.create_all(bind=engine)
 
@@ -71,6 +71,7 @@ app.include_router(jira.router)
 app.include_router(gap.router)
 app.include_router(documents.router)
 app.include_router(communication.router)
+app.include_router(kpis.router)
 
 
 @app.get("/health")

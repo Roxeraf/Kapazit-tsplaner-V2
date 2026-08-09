@@ -13,7 +13,9 @@ import type {
   JiraProjectStatus,
   JiraStatus,
   JiraSyncResult,
+  KpiSummary,
   MeetingMinutes,
+  MemberUtilization,
   PlanHistoryEntry,
   ProjectDetail,
   ProjectStatus,
@@ -203,6 +205,7 @@ export const api = {
   // Gap-Analyse
   getGap: (teamId?: number) =>
     request<GapAnalysis[]>(`/gap${teamId ? `?team_id=${teamId}` : ""}`),
+  getProjectGap: (projectId: number) => request<GapAnalysis>(`/gap/${projectId}`),
   getForecast: (teamId?: number) =>
     request<ForecastSummary[]>(`/forecast${teamId ? `?team_id=${teamId}` : ""}`),
 
@@ -330,4 +333,8 @@ export const api = {
     }),
   deleteMeetingMinutes: (meetingId: number) =>
     request<void>(`/projects/meeting-minutes/${meetingId}`, { method: "DELETE" }),
+
+  // Controlling-Erweiterung: Auslastung & KPIs (siehe CONCEPT.md Abschnitt 6/9, Schritt 9)
+  getUtilization: () => request<MemberUtilization[]>("/team/utilization"),
+  getKpis: () => request<KpiSummary>("/kpis"),
 };

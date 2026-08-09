@@ -375,6 +375,34 @@ class TeamWithMembers(TeamOut):
 
 
 # ---------------------------------------------------------------------------
+# Controlling-Erweiterung: Auslastung & KPIs (siehe CONCEPT.md Abschnitt 6/9, Schritt 9).
+# Reine Aggregation aus TeamMember/Assignment bzw. Gap-Analyse/Risk/Decision - keine
+# neuen Tabellen.
+# ---------------------------------------------------------------------------
+
+
+class MemberUtilizationOut(BaseModel):
+    member_id: int
+    member_name: str
+    team_id: int | None
+    team_name: str | None
+    kapazitaet_fte: float
+    zugeordnet_fte: float
+    auslastung_pct: float | None  # None = keine Kapazität hinterlegt (wochenstunden = 0)
+
+
+class KpiSummary(BaseModel):
+    anzahl_projekte_aktiv: int
+    anzahl_projekte_gruen: int
+    anzahl_projekte_gelb: int
+    anzahl_projekte_rot: int
+    anzahl_projekte_grau: int
+    durchschnittliche_auslastung_pct: float | None
+    offene_risiken_gesamt: int
+    offene_entscheidungen_gesamt: int
+
+
+# ---------------------------------------------------------------------------
 # Jira-Ist-Integration (siehe CONCEPT.md Abschnitt 4, Phase 2)
 # ---------------------------------------------------------------------------
 

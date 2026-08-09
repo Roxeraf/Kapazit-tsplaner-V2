@@ -191,6 +191,8 @@ export interface Comment {
   phase_code: PhaseCode | null;
   text: string;
   erstellt_am: string;
+  tags: string[];
+  documents: Document[];
 }
 
 export interface PlanHistoryEntry {
@@ -202,5 +204,106 @@ export interface PlanHistoryEntry {
   alter_wert: string | null;
   neuer_wert: string | null;
   geaendert_am: string;
+  batch_id: string | null;
   kommentar: Comment | null;
+}
+
+// entity_type-Vokabular, geteilt zwischen Tags und Document-Verknüpfungen (siehe
+// CONCEPT.md Abschnitt 6a). "document" nur für Tags relevant.
+export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "document";
+
+export interface DocumentUsage {
+  entity_type: string;
+  entity_id: number;
+  label: string;
+}
+
+export interface Document {
+  id: number;
+  project_id: number;
+  dateiname: string;
+  mimetype: string | null;
+  groesse_bytes: number;
+  hochgeladen_von: string | null;
+  hochgeladen_am: string;
+  tags: string[];
+  used_in: DocumentUsage[];
+}
+
+export interface DocumentLink {
+  id: number;
+  document_id: number;
+  entity_type: string;
+  entity_id: number;
+  erstellt_am: string;
+}
+
+export interface Tag {
+  id: number;
+  name: string;
+}
+
+export type DecisionStatus = "offen" | "entschieden" | "verworfen";
+
+export const DECISION_STATUS_LABELS: Record<DecisionStatus, string> = {
+  offen: "Offen",
+  entschieden: "Entschieden",
+  verworfen: "Verworfen",
+};
+
+export interface Decision {
+  id: number;
+  project_id: number;
+  titel: string;
+  beschreibung: string | null;
+  status: DecisionStatus;
+  entschieden_von: string | null;
+  entschieden_am: string | null;
+  erstellt_am: string;
+  tags: string[];
+  documents: Document[];
+}
+
+export type RiskLevel = "niedrig" | "mittel" | "hoch";
+
+export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {
+  niedrig: "Niedrig",
+  mittel: "Mittel",
+  hoch: "Hoch",
+};
+
+export type RiskStatus = "offen" | "in_bearbeitung" | "geschlossen";
+
+export const RISK_STATUS_LABELS: Record<RiskStatus, string> = {
+  offen: "Offen",
+  in_bearbeitung: "In Bearbeitung",
+  geschlossen: "Geschlossen",
+};
+
+export interface Risk {
+  id: number;
+  project_id: number;
+  titel: string;
+  beschreibung: string | null;
+  wahrscheinlichkeit: RiskLevel;
+  auswirkung: RiskLevel;
+  status: RiskStatus;
+  owner: string | null;
+  faellig_am: string | null;
+  erstellt_am: string;
+  aktualisiert_am: string;
+  tags: string[];
+  documents: Document[];
+}
+
+export interface MeetingMinutes {
+  id: number;
+  project_id: number;
+  titel: string;
+  datum: string;
+  teilnehmer: string | null;
+  text: string;
+  erstellt_am: string;
+  tags: string[];
+  documents: Document[];
 }

@@ -1,0 +1,274 @@
+"""Entscheidungen/Risiken/Meetingprotokolle (Kommunikation-Tab, siehe CONCEPT.md Abschnitt
+6a). GET /tags lebt in routers/documents.py, da es eng an entity_links.py gekoppelt ist,
+das auch die Dokument-Verknüpfungen verwaltet."""
+
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from .. import entity_links, models, schemas
+from ..database import get_db
+
+router = APIRouter(prefix="/projects", tags=["communication"])
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _decision_out(db: Session, d: models.Decision) -> schemas.DecisionOut:
+    return schemas.DecisionOut(
+        id=d.id,
+        project_id=d.project_id,
+        titel=d.titel,
+        beschreibung=d.beschreibung,
+        status=d.status,
+        entschieden_von=d.entschieden_von,
+        entschieden_am=d.entschieden_am,
+        erstellt_am=d.erstellt_am,
+        tags=entity_links.tags_for(db, "decision", d.id),
+        documents=entity_links.documents_for(db, "decision", d.id),
+    )
+
+
+def _risk_out(db: Session, r: models.Risk) -> schemas.RiskOut:
+    return schemas.RiskOut(
+        id=r.id,
+        project_id=r.project_id,
+        titel=r.titel,
+        beschreibung=r.beschreibung,
+        wahrscheinlichkeit=r.wahrscheinlichkeit,
+        auswirkung=r.auswirkung,
+        status=r.status,
+        owner=r.owner,
+        faellig_am=r.faellig_am,
+        erstellt_am=r.erstellt_am,
+        aktualisiert_am=r.aktualisiert_am,
+        tags=entity_links.tags_for(db, "risk", r.id),
+        documents=entity_links.documents_for(db, "risk", r.id),
+    )
+
+
+def _meeting_out(db: Session, m: models.MeetingMinutes) -> schemas.MeetingMinutesOut:
+    return schemas.MeetingMinutesOut(
+        id=m.id,
+        project_id=m.project_id,
+        titel=m.titel,
+        datum=m.datum,
+        teilnehmer=m.teilnehmer,
+        text=m.text,
+        erstellt_am=m.erstellt_am,
+        tags=entity_links.tags_for(db, "meeting_minutes", m.id),
+        documents=entity_links.documents_for(db, "meeting_minutes", m.id),
+    )
+
+
+def _get_project_or_404(db: Session, project_id: int) -> models.Project:
+    project = db.get(models.Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+    return project
+
+
+def _get_decision_or_404(db: Session, decision_id: int) -> models.Decision:
+    d = db.get(models.Decision, decision_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Entscheidung nicht gefunden")
+    return d
+
+
+def _get_risk_or_404(db: Session, risk_id: int) -> models.Risk:
+    r = db.get(models.Risk, risk_id)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Risiko nicht gefunden")
+    return r
+
+
+def _get_meeting_or_404(db: Session, meeting_id: int) -> models.MeetingMinutes:
+    m = db.get(models.MeetingMinutes, meeting_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="Meetingprotokoll nicht gefunden")
+    return m
+
+
+# ---------------------------------------------------------------------------
+# Entscheidungen
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/decisions", response_model=list[schemas.DecisionOut])
+def list_decisions(project_id: int, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    rows = (
+        db.query(models.Decision)
+        .filter(models.Decision.project_id == project_id)
+        .order_by(models.Decision.erstellt_am.desc())
+        .all()
+    )
+    return [_decision_out(db, d) for d in rows]
+
+
+@router.post("/{project_id}/decisions", response_model=schemas.DecisionOut, status_code=201)
+def create_decision(project_id: int, payload: schemas.DecisionCreate, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    decision = models.Decision(
+        project_id=project_id,
+        titel=payload.titel,
+        beschreibung=payload.beschreibung,
+        status=payload.status,
+        entschieden_von=payload.entschieden_von,
+        entschieden_am=payload.entschieden_am,
+        erstellt_am=_now(),
+    )
+    db.add(decision)
+    db.flush()
+    if payload.tags:
+        entity_links.sync_tags(db, "decision", decision.id, payload.tags)
+    db.commit()
+    db.refresh(decision)
+    return _decision_out(db, decision)
+
+
+@router.put("/decisions/{decision_id}", response_model=schemas.DecisionOut)
+def update_decision(decision_id: int, payload: schemas.DecisionUpdate, db: Session = Depends(get_db)):
+    decision = _get_decision_or_404(db, decision_id)
+    changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    for field, value in changes.items():
+        setattr(decision, field, value)
+    if payload.tags is not None:
+        entity_links.sync_tags(db, "decision", decision.id, payload.tags)
+    db.commit()
+    db.refresh(decision)
+    return _decision_out(db, decision)
+
+
+@router.delete("/decisions/{decision_id}", status_code=204)
+def delete_decision(decision_id: int, db: Session = Depends(get_db)):
+    decision = _get_decision_or_404(db, decision_id)
+    entity_links.delete_links_for_entity(db, "decision", decision_id)
+    db.delete(decision)
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Risiken
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/risks", response_model=list[schemas.RiskOut])
+def list_risks(project_id: int, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    rows = (
+        db.query(models.Risk)
+        .filter(models.Risk.project_id == project_id)
+        .order_by(models.Risk.erstellt_am.desc())
+        .all()
+    )
+    return [_risk_out(db, r) for r in rows]
+
+
+@router.post("/{project_id}/risks", response_model=schemas.RiskOut, status_code=201)
+def create_risk(project_id: int, payload: schemas.RiskCreate, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    now = _now()
+    risk = models.Risk(
+        project_id=project_id,
+        titel=payload.titel,
+        beschreibung=payload.beschreibung,
+        wahrscheinlichkeit=payload.wahrscheinlichkeit,
+        auswirkung=payload.auswirkung,
+        status=payload.status,
+        owner=payload.owner,
+        faellig_am=payload.faellig_am,
+        erstellt_am=now,
+        aktualisiert_am=now,
+    )
+    db.add(risk)
+    db.flush()
+    if payload.tags:
+        entity_links.sync_tags(db, "risk", risk.id, payload.tags)
+    db.commit()
+    db.refresh(risk)
+    return _risk_out(db, risk)
+
+
+@router.put("/risks/{risk_id}", response_model=schemas.RiskOut)
+def update_risk(risk_id: int, payload: schemas.RiskUpdate, db: Session = Depends(get_db)):
+    risk = _get_risk_or_404(db, risk_id)
+    changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    if changes:
+        for field, value in changes.items():
+            setattr(risk, field, value)
+        risk.aktualisiert_am = _now()
+    if payload.tags is not None:
+        entity_links.sync_tags(db, "risk", risk.id, payload.tags)
+    db.commit()
+    db.refresh(risk)
+    return _risk_out(db, risk)
+
+
+@router.delete("/risks/{risk_id}", status_code=204)
+def delete_risk(risk_id: int, db: Session = Depends(get_db)):
+    risk = _get_risk_or_404(db, risk_id)
+    entity_links.delete_links_for_entity(db, "risk", risk_id)
+    db.delete(risk)
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Meetingprotokolle
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/meeting-minutes", response_model=list[schemas.MeetingMinutesOut])
+def list_meeting_minutes(project_id: int, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    rows = (
+        db.query(models.MeetingMinutes)
+        .filter(models.MeetingMinutes.project_id == project_id)
+        .order_by(models.MeetingMinutes.datum.desc())
+        .all()
+    )
+    return [_meeting_out(db, m) for m in rows]
+
+
+@router.post("/{project_id}/meeting-minutes", response_model=schemas.MeetingMinutesOut, status_code=201)
+def create_meeting_minutes(project_id: int, payload: schemas.MeetingMinutesCreate, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    meeting = models.MeetingMinutes(
+        project_id=project_id,
+        titel=payload.titel,
+        datum=payload.datum,
+        teilnehmer=payload.teilnehmer,
+        text=payload.text,
+        erstellt_am=_now(),
+    )
+    db.add(meeting)
+    db.flush()
+    if payload.tags:
+        entity_links.sync_tags(db, "meeting_minutes", meeting.id, payload.tags)
+    db.commit()
+    db.refresh(meeting)
+    return _meeting_out(db, meeting)
+
+
+@router.put("/meeting-minutes/{meeting_id}", response_model=schemas.MeetingMinutesOut)
+def update_meeting_minutes(meeting_id: int, payload: schemas.MeetingMinutesUpdate, db: Session = Depends(get_db)):
+    meeting = _get_meeting_or_404(db, meeting_id)
+    changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    for field, value in changes.items():
+        setattr(meeting, field, value)
+    if payload.tags is not None:
+        entity_links.sync_tags(db, "meeting_minutes", meeting.id, payload.tags)
+    db.commit()
+    db.refresh(meeting)
+    return _meeting_out(db, meeting)
+
+
+@router.delete("/meeting-minutes/{meeting_id}", status_code=204)
+def delete_meeting_minutes(meeting_id: int, db: Session = Depends(get_db)):
+    meeting = _get_meeting_or_404(db, meeting_id)
+    entity_links.delete_links_for_entity(db, "meeting_minutes", meeting_id)
+    db.delete(meeting)
+    db.commit()

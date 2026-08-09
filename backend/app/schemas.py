@@ -28,6 +28,7 @@ class ProjectUpdate(BaseModel):
     projektleiter: str | None = None
     # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht am Projekt persistiert.
     kommentar_id: int | None = None
+    batch_id: str | None = None
 
 
 class ProjectSummary(BaseModel):
@@ -102,6 +103,7 @@ class PhasenUpdate(BaseModel):
     codes: list[str]  # z.B. ["p"] oder ["k", "t"]; leer = Zelle löschen
     # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht persistiert.
     kommentar_id: int | None = None
+    batch_id: str | None = None
 
 
 class FteUpdate(BaseModel):
@@ -109,6 +111,155 @@ class FteUpdate(BaseModel):
     wert_soll: float
     # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht persistiert.
     kommentar_id: int | None = None
+    batch_id: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Zentrale Dokumentenablage, Tags & Kommunikation (siehe CONCEPT.md Abschnitt 6a)
+# ---------------------------------------------------------------------------
+
+# entity_type-Vokabular, geteilt zwischen TagLink und DocumentLink. "document" nur für
+# TagLink relevant (Dokumente sind selbst taggbar, aber nie Ziel eines DocumentLink).
+EntityType = Literal["comment", "decision", "risk", "meeting_minutes", "document"]
+
+
+class DocumentUsageOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    label: str
+
+
+class DocumentOut(BaseModel):
+    id: int
+    project_id: int
+    dateiname: str
+    mimetype: str | None
+    groesse_bytes: int
+    hochgeladen_von: str | None
+    hochgeladen_am: str
+    tags: list[str] = []
+    used_in: list[DocumentUsageOut] = []
+
+
+class DocumentUpdate(BaseModel):
+    dateiname: str | None = None
+    tags: list[str] | None = None
+
+
+class DocumentLinkCreate(BaseModel):
+    document_id: int
+    entity_type: EntityType
+    entity_id: int
+
+
+class DocumentLinkOut(BaseModel):
+    id: int
+    document_id: int
+    entity_type: str
+    entity_id: int
+    erstellt_am: str
+
+
+class TagOut(BaseModel):
+    id: int
+    name: str
+
+
+class DecisionCreate(BaseModel):
+    titel: str
+    beschreibung: str | None = None
+    status: str = "offen"
+    entschieden_von: str | None = None
+    entschieden_am: str | None = None
+    tags: list[str] = []
+
+
+class DecisionUpdate(BaseModel):
+    titel: str | None = None
+    beschreibung: str | None = None
+    status: str | None = None
+    entschieden_von: str | None = None
+    entschieden_am: str | None = None
+    tags: list[str] | None = None
+
+
+class DecisionOut(BaseModel):
+    id: int
+    project_id: int
+    titel: str
+    beschreibung: str | None
+    status: str
+    entschieden_von: str | None
+    entschieden_am: str | None
+    erstellt_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+class RiskCreate(BaseModel):
+    titel: str
+    beschreibung: str | None = None
+    wahrscheinlichkeit: str = "mittel"
+    auswirkung: str = "mittel"
+    status: str = "offen"
+    owner: str | None = None
+    faellig_am: str | None = None
+    tags: list[str] = []
+
+
+class RiskUpdate(BaseModel):
+    titel: str | None = None
+    beschreibung: str | None = None
+    wahrscheinlichkeit: str | None = None
+    auswirkung: str | None = None
+    status: str | None = None
+    owner: str | None = None
+    faellig_am: str | None = None
+    tags: list[str] | None = None
+
+
+class RiskOut(BaseModel):
+    id: int
+    project_id: int
+    titel: str
+    beschreibung: str | None
+    wahrscheinlichkeit: str
+    auswirkung: str
+    status: str
+    owner: str | None
+    faellig_am: str | None
+    erstellt_am: str
+    aktualisiert_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+class MeetingMinutesCreate(BaseModel):
+    titel: str
+    datum: str
+    teilnehmer: str | None = None
+    text: str
+    tags: list[str] = []
+
+
+class MeetingMinutesUpdate(BaseModel):
+    titel: str | None = None
+    datum: str | None = None
+    teilnehmer: str | None = None
+    text: str | None = None
+    tags: list[str] | None = None
+
+
+class MeetingMinutesOut(BaseModel):
+    id: int
+    project_id: int
+    titel: str
+    datum: str
+    teilnehmer: str | None
+    text: str
+    erstellt_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +272,14 @@ class CommentCreate(BaseModel):
     monat: str | None = None
     phase_code: str | None = None
     text: str
+    # Nur für allgemeine Notizen relevant (monat/phase_code=None) - Zell-Kommentare bleiben
+    # reiner Text, siehe CONCEPT.md Abschnitt 6a.
+    tags: list[str] = []
+
+
+class CommentUpdate(BaseModel):
+    text: str | None = None
+    tags: list[str] | None = None
 
 
 class CommentOut(BaseModel):
@@ -133,6 +292,8 @@ class CommentOut(BaseModel):
     phase_code: str | None
     text: str
     erstellt_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
 
 
 class PlanHistoryOut(BaseModel):
@@ -144,6 +305,7 @@ class PlanHistoryOut(BaseModel):
     alter_wert: str | None
     neuer_wert: str | None
     geaendert_am: str
+    batch_id: str | None = None
     kommentar: CommentOut | None = None
 
 

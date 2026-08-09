@@ -184,6 +184,10 @@ export default function ProjectPlanningTab() {
         const comment = await api.createComment(saved.id, { text: saveReason.trim() });
         kommentarId = comment.id;
       }
+      // Gruppiert alle Änderungen dieses Speichern-Klicks zu einer "Revision" in der
+      // Historie-Ansicht (siehe HistoryTimeline.tsx) - unabhängig von kommentarId, das die
+      // optionale fachliche Begründung ist.
+      const batchId = crypto.randomUUID();
 
       const stammdaten: Partial<{ name: string; kunde: string | null; start_monat: string; anzahl_monate: number }> = {};
       if (draft.name !== saved.name) stammdaten.name = draft.name;
@@ -191,15 +195,15 @@ export default function ProjectPlanningTab() {
       if (draft.start_monat !== saved.start_monat) stammdaten.start_monat = draft.start_monat;
       if (draft.anzahl_monate !== saved.anzahl_monate) stammdaten.anzahl_monate = draft.anzahl_monate;
       if (Object.keys(stammdaten).length > 0) {
-        await api.updateProject(saved.id, { ...stammdaten, kommentar_id: kommentarId });
+        await api.updateProject(saved.id, { ...stammdaten, kommentar_id: kommentarId, batch_id: batchId });
       }
 
       if (!draft.aus_teilprojekten) {
         for (const change of diffPhasen(saved.phasen, draft.phasen, draft.monate)) {
-          await api.setProjectPhasen(saved.id, change.monat, change.codes, kommentarId);
+          await api.setProjectPhasen(saved.id, change.monat, change.codes, kommentarId, batchId);
         }
         for (const change of diffFte(saved.fte, draft.fte, draft.monate)) {
-          await api.setProjectFte(saved.id, change.monat, change.wert, kommentarId);
+          await api.setProjectFte(saved.id, change.monat, change.wert, kommentarId, batchId);
         }
       }
 
@@ -207,10 +211,10 @@ export default function ProjectPlanningTab() {
         const savedSp = saved.subprojects.find((s) => s.id === sp.id);
         if (!savedSp) continue;
         for (const change of diffPhasen(savedSp.phasen, sp.phasen, draft.monate)) {
-          await api.setPhasen(sp.id, change.monat, change.codes, kommentarId);
+          await api.setPhasen(sp.id, change.monat, change.codes, kommentarId, batchId);
         }
         for (const change of diffFte(savedSp.fte, sp.fte, draft.monate)) {
-          await api.setFte(sp.id, change.monat, change.wert, kommentarId);
+          await api.setFte(sp.id, change.monat, change.wert, kommentarId, batchId);
         }
       }
 

@@ -1,18 +1,18 @@
 import type { PlanHistoryEntry } from "../types";
 
-const BEREICH_LABELS: Record<PlanHistoryEntry["bereich"], string> = {
+export const BEREICH_LABELS: Record<PlanHistoryEntry["bereich"], string> = {
   phase: "Phase",
   fte: "FTE (Soll)",
   stammdaten: "Stammdaten",
 };
 
-function formatTimestamp(iso: string): string {
+export function formatTimestamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function describeEntry(entry: PlanHistoryEntry): string {
+export function describeEntry(entry: PlanHistoryEntry): string {
   if (entry.bereich === "phase") {
     const gesetzt = entry.neuer_wert === "aktiv";
     return `Phase "${entry.feld}"${entry.monat ? ` (${entry.monat})` : ""} ${gesetzt ? "gesetzt" : "entfernt"}`;

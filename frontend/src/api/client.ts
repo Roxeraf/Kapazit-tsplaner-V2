@@ -76,6 +76,7 @@ export const api = {
       status: ProjectStatus;
       projektleiter: string | null;
       kommentar_id: number | null;
+      batch_id: string | null;
     }>,
   ) => request<ProjectDetail>(`/projects/${projectId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteProject: (projectId: number) => request<void>(`/projects/${projectId}`, { method: "DELETE" }),
@@ -88,25 +89,49 @@ export const api = {
     }),
   deleteSubproject: (subprojectId: number) =>
     request<void>(`/projects/subprojects/${subprojectId}`, { method: "DELETE" }),
-  setProjectPhasen: (projectId: number, monat: string, codes: string[], kommentar_id?: number | null) =>
+  setProjectPhasen: (
+    projectId: number,
+    monat: string,
+    codes: string[],
+    kommentar_id?: number | null,
+    batch_id?: string | null,
+  ) =>
     request<ProjectDetail>(`/projects/${projectId}/phasen`, {
       method: "PUT",
-      body: JSON.stringify({ monat, codes, kommentar_id }),
+      body: JSON.stringify({ monat, codes, kommentar_id, batch_id }),
     }),
-  setProjectFte: (projectId: number, monat: string, wert_soll: number, kommentar_id?: number | null) =>
+  setProjectFte: (
+    projectId: number,
+    monat: string,
+    wert_soll: number,
+    kommentar_id?: number | null,
+    batch_id?: string | null,
+  ) =>
     request<ProjectDetail>(`/projects/${projectId}/fte`, {
       method: "PUT",
-      body: JSON.stringify({ monat, wert_soll, kommentar_id }),
+      body: JSON.stringify({ monat, wert_soll, kommentar_id, batch_id }),
     }),
-  setPhasen: (subprojectId: number, monat: string, codes: string[], kommentar_id?: number | null) =>
+  setPhasen: (
+    subprojectId: number,
+    monat: string,
+    codes: string[],
+    kommentar_id?: number | null,
+    batch_id?: string | null,
+  ) =>
     request(`/projects/subprojects/${subprojectId}/phasen`, {
       method: "PUT",
-      body: JSON.stringify({ monat, codes, kommentar_id }),
+      body: JSON.stringify({ monat, codes, kommentar_id, batch_id }),
     }),
-  setFte: (subprojectId: number, monat: string, wert_soll: number, kommentar_id?: number | null) =>
+  setFte: (
+    subprojectId: number,
+    monat: string,
+    wert_soll: number,
+    kommentar_id?: number | null,
+    batch_id?: string | null,
+  ) =>
     request(`/projects/subprojects/${subprojectId}/fte`, {
       method: "PUT",
-      body: JSON.stringify({ monat, wert_soll, kommentar_id }),
+      body: JSON.stringify({ monat, wert_soll, kommentar_id, batch_id }),
     }),
   updateSubproject: (subprojectId: number, payload: { name?: string; reihenfolge?: number }) =>
     request<SubprojectDetail>(`/projects/subprojects/${subprojectId}`, {

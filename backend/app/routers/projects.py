@@ -602,7 +602,8 @@ def _history_out(db: Session, entry: models.PlanHistory) -> schemas.PlanHistoryO
         alter_wert=entry.alter_wert,
         neuer_wert=entry.neuer_wert,
         geaendert_am=entry.geaendert_am,
-        kommentar=schemas.CommentOut.model_validate(kommentar) if kommentar is not None else None,
+        batch_id=entry.batch_id,
+        kommentar=_comment_out(db, kommentar) if kommentar is not None else None,
     )
 
 

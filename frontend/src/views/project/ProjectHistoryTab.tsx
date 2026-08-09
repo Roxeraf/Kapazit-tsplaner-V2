@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
-import HistoryPanel from "../../components/HistoryPanel";
 import type { PlanHistoryEntry } from "../../types";
+import HistoryTimeline from "./components/HistoryTimeline";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
 function SubprojectHistorySection({ subprojectId, name }: { subprojectId: number; name: string }) {
@@ -12,7 +12,7 @@ function SubprojectHistorySection({ subprojectId, name }: { subprojectId: number
   return (
     <div className="card" style={{ marginBottom: "1rem" }}>
       <h3 style={{ color: "var(--navy)", marginTop: 0 }}>{name}</h3>
-      <HistoryPanel entries={entries} />
+      <HistoryTimeline entries={entries} />
     </div>
   );
 }
@@ -26,10 +26,10 @@ export default function ProjectHistoryTab() {
   }, [project.id]);
 
   return (
-    <div>
+    <div style={{ maxHeight: "70vh", overflowY: "auto" }}>
       <div className="card" style={{ marginBottom: "1rem" }}>
         <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Projekt</h3>
-        <HistoryPanel entries={entries} />
+        <HistoryTimeline entries={entries} />
       </div>
       {project.subprojects.map((sp) => (
         <SubprojectHistorySection key={sp.id} subprojectId={sp.id} name={sp.name} />

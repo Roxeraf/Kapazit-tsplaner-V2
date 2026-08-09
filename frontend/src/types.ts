@@ -35,6 +35,7 @@ export interface ProjectSummary {
   anzahl_monate: number;
   reihenfolge: number;
   status: ProjectStatus;
+  projektleiter: string | null;
   monate: string[];
 }
 

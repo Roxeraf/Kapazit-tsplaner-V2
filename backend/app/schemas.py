@@ -15,6 +15,7 @@ class ProjectCreate(BaseModel):
     start_monat: str  # "MM.YYYY"
     anzahl_monate: int = 14
     jira_component: str | None = None
+    projektleiter: str | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -24,6 +25,7 @@ class ProjectUpdate(BaseModel):
     anzahl_monate: int | None = None
     jira_component: str | None = None
     status: ProjectStatus | None = None
+    projektleiter: str | None = None
     # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht am Projekt persistiert.
     kommentar_id: int | None = None
 
@@ -38,6 +40,7 @@ class ProjectSummary(BaseModel):
     anzahl_monate: int
     reihenfolge: int
     status: ProjectStatus
+    projektleiter: str | None
     monate: list[str]
 
 

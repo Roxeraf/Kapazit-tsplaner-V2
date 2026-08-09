@@ -30,6 +30,9 @@ class Project(Base):
     # Jira-Projekt-Key, falls dieses Kapa-Projekt aus dem Jira-Projekt-Katalog (Abschnitt 10 in
     # CONCEPT.md) automatisch angelegt wurde — verhindert Doppelanlage beim erneuten Aktivieren.
     jira_project_key: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)
+    # Projektleitung (freies Textfeld, wie `kunde` — kein FK, da es (noch) keinen
+    # User-/Personen-Verzeichnis-Baustein im Repo gibt, siehe CONCEPT.md Abschnitt 10).
+    projektleiter: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     subprojects: Mapped[list["Subproject"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Subproject.reihenfolge"

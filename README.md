@@ -4,12 +4,13 @@ Web-App-Ablösung des Excel/VBA-Kapazitätsplaners — Planungslogik 1:1 aus dem
 Excel-Tool übernommen (Gantt-Phasencodes, FTE-Raster), als Kachel im
 BUILD-Bereich des plx.crew Portals. Konzept und Architektur: [`CONCEPT.md`](CONCEPT.md).
 
-Dieses Repo enthält Projekt-/FTE-Planung als Web-Formular (inkl. Schulungsphase),
-PPTX-Export über das bestehende Node-Skript, die Jira-Ist-Integration
-(Worklog-Sync + Ist-FTE je Projekt), die Team-Kapazität (MA-/Team-Stammdaten,
-Zuordnung MA ↔ Projekt) sowie die Soll-Ist-Gap-Analyse mit Hochrechnung
-(Trendfortschreibung) je Projekt, inkl. Mini-Gap-Indikator im Portfolio-Dashboard
-— siehe `CONCEPT.md` Abschnitt 11.
+Jedes Projekt ist ein eigener Workspace mit sieben Tabs (Übersicht, Planung,
+Kommunikation, Dokumente, Historie, Jira, Einstellungen) statt einer einzelnen,
+wachsenden Detailseite; Portfolio-übergreifende Auswertungen (Gap-Analyse,
+Kapazität, Forecast, Auslastung, KPIs, Reporting) sind als eigene Controlling-Ebene
+in der Navigation gruppiert. Details zur vollständigen Views-/Datenmodell-Architektur
+— inkl. der zentralen Dokumentenablage mit Tags/Verknüpfungen (Abschnitt 6a) — siehe
+`CONCEPT.md` Abschnitt 6/6a, Umsetzungsstand in Abschnitt 11.
 
 ## Struktur
 
@@ -97,6 +98,15 @@ npm run dev
 | `GET /gap` | Soll/Ist/Gap je Monat und Projekt inkl. Hochrechnung (Trendfortschreibung), optional `?team_id=` |
 | `GET /gap/{project_id}` | Gap-Analyse für ein einzelnes Projekt |
 | `GET /forecast` | Hochrechnung Jahresende/Projektende je Projekt (Kurzform von `/gap`), optional `?team_id=` |
+| `GET /team/utilization` | Auslastungsgrad je Teammitglied (zugeordnetes FTE / Kapazitäts-FTE) |
+| `GET /kpis` | Portfolio-Kennzahlen (Projektstatus-Verteilung, Ø Auslastung, offene Risiken/Entscheidungen) |
+| `GET/POST /projects/{id}/comments` | Notizen/Diskussionen lesen/anlegen (inkl. Tags, Zell-Kommentare über `monat`/`phase_code`) |
+| `GET/POST /projects/{id}/decisions`, `/risks`, `/meeting-minutes` | Entscheidungen/Risiken/Meetingprotokolle je Projekt (Kommunikation-Tab) |
+| `POST /projects/{id}/documents` | Datei hochladen (multipart) — zentrale Ablage, optional direkt mit `entity_type`+`entity_id` verknüpft |
+| `GET /projects/{id}/documents`, `GET /documents/{id}/download` | Dokumente eines Projekts auflisten/herunterladen |
+| `POST/DELETE /document-links(/{id})` | Bestehendes Dokument mit einer weiteren Notiz/Entscheidung/Risiko/Meeting verknüpfen/entfernen |
+| `GET /tags` | Systemweite Tag-Autocomplete |
+| `GET /projects/{id}/history`, `/projects/subprojects/{id}/history` | Änderungshistorie, gruppiert nach Revision (`batch_id`) |
 
 ## Migration bestehender Excel-Daten
 

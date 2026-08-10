@@ -87,6 +87,7 @@ Direkt aus der Excel-Struktur abgeleitet, nur normalisiert:
 | `decisions` | id, project_id, titel, beschreibung, status, entschieden_von, entschieden_am, erstellt_am | neu (Kommunikation-Tab) |
 | `risks` | id, project_id, titel, beschreibung, wahrscheinlichkeit, auswirkung, status, owner, faellig_am, erstellt_am, aktualisiert_am | neu (Kommunikation-Tab) |
 | `meeting_minutes` | id, project_id, titel, datum, teilnehmer, text, erstellt_am | neu (Kommunikation-Tab) |
+| `tasks` | id, project_id, titel, beschreibung, status, zustaendig, faellig_am, erstellt_am, aktualisiert_am | neu (Kommunikation-Tab) — löst den früheren "offene Aufgaben"-Alias auf dem Übersicht-Tab ab |
 
 **Phasencodes und FTE-Heatmap-Schwellen** werden 1:1 aus dem Excel übernommen (siehe Referenzdokument), damit die Optik/Farblogik für alle Beteiligten vertraut bleibt. Ergänzt um den Phasencode `s` (Schulung), der im Excel-Tool noch nicht existierte, aber für die Rollout-Planung (Pflichtenheft → Konfiguration → Test → Schulung → GoLive) benötigt wird.
 
@@ -142,7 +143,7 @@ grün/gelb/rot/grau) → Klick auf ein Projekt öffnet dessen Workspace mit sieb
 |---|---|---|
 | **Übersicht** | Projektname, Status, Ampel (= Gap-Status aus `GET /gap/{id}`), Kunde, Projektleiter, Start/Ende, Auslastung (Hochrechnung/Soll in %), letzte Änderungen, letzte Notizen, offene Risiken/Entscheidungen ("offene Aufgaben") | neu (Schritt 8b) |
 | **Planung** | Stammdaten, Gantt-Phasen + FTE-Tabelle (editierbar wie Excel), Team-Zuordnung, Teilprojekte | Projekt 01–12 Blätter |
-| **Kommunikation** | Diskussionen (= bisherige Notizen, jetzt mit Tags + Dateianhängen), Entscheidungen, Risiken, Meetingprotokolle, je mit Tags + Anhängen | Diskussionen: bestehend + erweitert (Phase 3); Entscheidungen/Risiken/Meetings neu (Phase 4) |
+| **Kommunikation** | Diskussionen (= bisherige Notizen, jetzt mit Tags + Dateianhängen), Aufgaben, Entscheidungen, Risiken, Meetingprotokolle, je mit Tags + Anhängen | Diskussionen: bestehend + erweitert (Phase 3); Entscheidungen/Risiken/Meetings neu (Phase 4); Aufgaben neu (Schritt 10) |
 | **Dokumente** | **Zentrale Dokumentenablage des gesamten Projekts** — zeigt jede Datei, unabhängig davon ob sie hier direkt oder als Anhang in Kommunikation hochgeladen wurde, inkl. Suche/Tag-Filter/Typ-Filter und "Verwendet in"-Backlinks. Siehe Abschnitt 6a. | neu (Phase 3) |
 | **Historie** | Automatisches Änderungsprotokoll (Audit), nach Datum/Revision gruppiert, nur Werte-Änderungen — keine Kommentare/Dateien | bestehend (`PlanHistory`), Gruppierung neu (Phase 3b) |
 | **Jira** | Jira-Komponente/Label, Sync-Status, letzter Sync, offene Jira-Issues | bestehend, um offene Issues erweitert |
@@ -192,9 +193,9 @@ dass die Datei oder der Datensatz dupliziert wird.
 
 `entity_type` ist ein offenes String-Feld, aktuell genutzt: `comment` (= Notizen/
 Diskussionen — nur allgemeine, nicht die Gantt-Zell-Kommentare), `decision`, `risk`,
-`meeting_minutes`. `tags`/`tag_links` nutzen zusätzlich `document` (Dokumente sind selbst
-taggbar). Bewusst offen gehalten für spätere Erweiterung ohne Schema-Änderung, z. B. `task`,
-`milestone`, `revision`, `jira_issue`.
+`meeting_minutes`, `task` (Aufgaben, siehe unten). `tags`/`tag_links` nutzen zusätzlich
+`document` (Dokumente sind selbst taggbar). Bewusst offen gehalten für spätere Erweiterung
+ohne Schema-Änderung, z. B. `milestone`, `revision`, `jira_issue`.
 
 **Upload-Workflow** (z. B. eine Notiz mit zwei Anhängen):
 1. Notiz wird über `POST /projects/{id}/comments` gespeichert (liefert die `id`).
@@ -281,6 +282,9 @@ ist bewusst zurückgestellt, siehe Abschnitt 10.
 8b. **Übersicht-Tab:** Ampel/Auslastung/letzte Änderungen/letzte Notizen/offene Aufgaben
    als reine Aggregation bestehender Endpoints (setzt Schritt 2 + 8 voraus)
 9. **Controlling-Erweiterung:** Auslastung/KPIs/Reporting
+10. **Aufgaben-Datenmodell:** `Task` löst den MVP-Alias ("offene Aufgaben" = offene
+    Risiken + offene Entscheidungen) auf dem Übersicht-Tab ab; fünfter Sub-Bereich im
+    Kommunikation-Tab
 
 ---
 
@@ -295,7 +299,7 @@ ist bewusst zurückgestellt, siehe Abschnitt 10.
 - Kein Alembic/Migrationstool im Repo — Schemaänderungen an bestehenden (nicht-SQLite-frischen) Datenbanken erfordern aktuell manuelle Anpassung
 - Ebene 1 (Projektmanagement) / Ebene 2 (Controlling) ist reine Navigations-Gruppierung, keine Zugriffskontrolle — es gibt kein Rollen-/Login-System im Repo (siehe Abschnitt 7); wird hier bewusst festgehalten, damit das nicht spätestens beim nächsten KI-Prompt fälschlich als vorhandene RBAC angenommen wird
 - Projektleiter (`projects.projektleiter`) ist bewusst ein Freitextfeld statt FK, da es kein Personen-/User-Verzeichnis im Repo gibt — spätere Ausbaustufe: FK auf ein Personen-Verzeichnis, sobald eines existiert
-- "Offene Aufgaben" auf dem Übersicht-Tab ist für die MVP bewusst ein Alias auf `offene Entscheidungen + offene Risiken` — es gibt (noch) kein eigenständiges Aufgaben-/Task-Modell
+- ~~"Offene Aufgaben" auf dem Übersicht-Tab ist für die MVP bewusst ein Alias auf `offene Entscheidungen + offene Risiken` — es gibt (noch) kein eigenständiges Aufgaben-/Task-Modell~~ Umgesetzt (Schritt 10): echtes `tasks`-Modell, "Offene Aufgaben" zeigt jetzt echte offene Tasks zusätzlich zu Risiken/Entscheidungen (drei erkennbare Gruppen mit eigenem Icon). `zustaendig` ist bewusst Freitext (wie `Risk.owner`), kein FK auf `TeamMember` — konsistent zur Projektleiter-Entscheidung oben, da es kein Personen-/User-Verzeichnis für Zuweisungen gibt
 - Milestones (Planung-Tab) sind bewusst kein eigenes Datenmodell, sondern der bestehende Gantt-Phasencode `?` (Meilenstein) — eine separate Milestone-Liste ist nicht geplant, solange der Phasencode ausreicht
 - Reporting-MVP ist bewusst ein clientseitiger CSV-Export ohne neuen Backend-Endpoint; ein Portfolio-weiter PPTX-Export (analog zum bestehenden Projekt-PPTX-Export) ist als spätere Ausbaustufe zurückgestellt, nicht Teil des IA-Umbaus
 - Notiz-/Kommentar-Karten zeigen bewusst **keinen Autor** — es gibt kein Auth-/User-System im Repo, ein Freitext-"Autor"-Feld würde nur eine echte Anmeldung vortäuschen; nur Zeitstempel wird angezeigt, bis ein User-System existiert
@@ -322,7 +326,21 @@ Dieses Repo enthält:
 9. **Schritt 8 (Kommunikation: Entscheidungen/Risiken/Meetingprotokolle):** `decisions`/`risks`/`meeting_minutes`-Tabellen; CRUD unter `/projects/{id}/decisions`, `/projects/{id}/risks`, `/projects/{id}/meeting-minutes` (Update/Delete unter `/projects/decisions/{id}` etc., analog zum bestehenden `/projects/comments/{id}`-Muster) in `backend/app/routers/communication.py`, jede Out-Response inkl. `tags`+`documents` über `entity_links.py`. `ProjectCommunicationTab` hat jetzt vier echte Sub-Bereiche (`DecisionList`/`RiskList`/`MeetingMinutesList`/Diskussionen) mit gemeinsamer Suche (Volltext) und Tag-Filter-Leiste über alle Bereiche hinweg, Anzahl je Sub-Tab als Badge. Anhänge/Tags laufen über dieselbe Phase-7-Infrastruktur (`api.uploadDocument`/`TagInput`). Verifiziert per Playwright: Anlegen mit Tag+Anhang, Status-Änderung, Suche filtert nach Sub-Bereich, Tag-Filter wirkt bereichsübergreifend, Löschen eines Risikos lässt angehängtes Dokument im Dokumente-Tab bestehen.
 10. **Schritt 8b (Übersicht-Tab):** `ProjectOverviewTab` aggregiert ausschließlich bestehende Endpoints, kein neuer Backend-Endpoint (`GET /gap/{id}` für Ampel + Auslastung als Hochrechnung/Soll in %, `GET /projects/{id}/history` für "letzte Änderungen", `GET /projects/{id}/comments` für "letzte Notizen", `GET /projects/{id}/risks`+`/decisions` für "offene Aufgaben" — offene Risiken plus offene Entscheidungen, wie in Abschnitt 10 als MVP-Alias festgelegt). Neuer API-Client-Endpoint `getProjectGap`. Verifiziert per Playwright: Ampel/Projektleiter/offene Aufgaben (inkl. korrektem Ausschluss bereits entschiedener Einträge) werden korrekt angezeigt.
 11. **Schritt 9 (Controlling-Erweiterung: Forecast/Auslastung/KPIs/Reporting):** **Forecast** ist reines View-Reshuffle (`frontend/src/views/Forecast.tsx`, wrappt das bestehende `GET /forecast`). **Auslastung** ist eine neue Aggregation ohne neue Tabelle: `GET /team/utilization` (`backend/app/routers/team.py::compute_utilization`) berechnet je Teammitglied `kapazitaet_fte` (`wochenstunden / 40`, referenziert auf die bestehende Konvention aus `TeamMember`/`Assignment`) und `zugeordnet_fte` (Summe der `Assignment.fte`), daraus `auslastung_pct`. **KPIs** (`GET /kpis`, `backend/app/routers/kpis.py`) aggregiert Projektstatus-Verteilung (aus `gap_analysis.project_gap`), Ø Auslastung (wiederverwendet `compute_utilization`) sowie offene Risiken/Entscheidungen portfolioweit (dieselbe Zähllogik wie im Übersicht-Tab, jetzt über alle Projekte statt nur eines). **Reporting** (`frontend/src/views/Reporting.tsx`) ist MVP-mäßig ein rein clientseitiger CSV-Export (Blob/Object-URL) der Gap-/Forecast-/Auslastungs-/KPI-Daten, kein neuer Backend-Endpoint. Alle vier neuen Views sind unter `/forecast`, `/auslastung`, `/kpis`, `/reporting` in der Controlling-Nav-Gruppe verlinkt. Verifiziert per Playwright: Auslastungsberechnung stimmt (40 Wochenstunden = 1.0 FTE Kapazität, 0.6 FTE Zuordnung = 60 %), KPI-Zahlen konsistent zu Einzel-Endpoints, CSV-Download funktioniert.
+12. **Schritt 10 (Aufgaben-Datenmodell):** `tasks`-Tabelle (`id, project_id, titel,
+    beschreibung, status [offen/in_bearbeitung/erledigt], zustaendig, faellig_am,
+    erstellt_am, aktualisiert_am`), CRUD unter `/projects/{id}/tasks` und
+    `/projects/tasks/{id}` in `backend/app/routers/communication.py` (exakt das
+    `Risk`-Muster kopiert), `entity_type="task"` im `entity_links.py`-Vokabular aktiviert.
+    `ProjectCommunicationTab` hat jetzt einen fünften Sub-Bereich "Aufgaben"
+    (`TaskList.tsx`, Vorbild `RiskList.tsx`) mit Tags/Anhängen über dieselbe
+    Dokumentenablage-Infrastruktur. Löst den MVP-Alias aus Schritt 8b ab: der
+    Übersicht-Tab zeigt unter "Offene Aufgaben" jetzt drei erkennbare Gruppen (☑ Aufgabe,
+    ⚠ Risiko, ❓ Entscheidung) statt nur zwei; `KpiSummary` hat ein neues Feld
+    `offene_aufgaben_gesamt`, `Kpis.tsx` eine neue Kachel dafür. `delete_project` räumt
+    `Task`-Zeilen und ihre `TagLink`/`DocumentLink`-Verknüpfungen mit auf. Verifiziert per
+    Playwright: Aufgabe mit Tag+Anhang anlegen, Status ändern, Anzeige auf Übersicht-Tab
+    und in KPIs, keine Regressionen auf den bestehenden Tabs/Views.
 
 Details zu Aufbau und lokalem Betrieb siehe [`README.md`](README.md).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen umgesetzt — verbleibender Umbau ist der abschließende Doku-/Cleanup-Pass (siehe unten).
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) umgesetzt.

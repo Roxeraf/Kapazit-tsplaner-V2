@@ -26,6 +26,8 @@ import type {
   SubprojectDetail,
   SubprojectListItem,
   Tag,
+  Task,
+  TaskStatus,
   Team,
   TeamMember,
   TeamWithMembers,
@@ -333,6 +335,31 @@ export const api = {
     }),
   deleteMeetingMinutes: (meetingId: number) =>
     request<void>(`/projects/meeting-minutes/${meetingId}`, { method: "DELETE" }),
+
+  listTasks: (projectId: number) => request<Task[]>(`/projects/${projectId}/tasks`),
+  createTask: (
+    projectId: number,
+    payload: {
+      titel: string;
+      beschreibung?: string | null;
+      status?: TaskStatus;
+      zustaendig?: string | null;
+      faellig_am?: string | null;
+      tags?: string[];
+    },
+  ) => request<Task>(`/projects/${projectId}/tasks`, { method: "POST", body: JSON.stringify(payload) }),
+  updateTask: (
+    taskId: number,
+    payload: Partial<{
+      titel: string;
+      beschreibung: string | null;
+      status: TaskStatus;
+      zustaendig: string | null;
+      faellig_am: string | null;
+      tags: string[];
+    }>,
+  ) => request<Task>(`/projects/tasks/${taskId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteTask: (taskId: number) => request<void>(`/projects/tasks/${taskId}`, { method: "DELETE" }),
 
   // Controlling-Erweiterung: Auslastung & KPIs (siehe CONCEPT.md Abschnitt 6/9, Schritt 9)
   getUtilization: () => request<MemberUtilization[]>("/team/utilization"),

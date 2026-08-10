@@ -389,3 +389,23 @@ class MeetingMinutes(Base):
     teilnehmer: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Freitext, kommasepariert
     text: Mapped[str] = mapped_column(String(5000))
     erstellt_am: Mapped[str] = mapped_column(String(40))
+
+
+class Task(Base):
+    """Aufgabe im Projekt (Kommunikation-Tab). Löst den MVP-Alias 'offene Aufgaben =
+    offene Risiken + offene Entscheidungen' auf dem Übersicht-Tab ab, siehe CONCEPT.md
+    Abschnitt 10."""
+
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    titel: Mapped[str] = mapped_column(String(200))
+    beschreibung: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/in_bearbeitung/erledigt
+    # Freitext (wie Risk.owner) - kein FK auf TeamMember, da es kein Personen-/User-
+    # Verzeichnis für Zuweisungen im Repo gibt (siehe CONCEPT.md Abschnitt 10).
+    zustaendig: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    faellig_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+    aktualisiert_am: Mapped[str] = mapped_column(String(40))

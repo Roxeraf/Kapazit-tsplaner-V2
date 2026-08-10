@@ -64,6 +64,22 @@ def _meeting_out(db: Session, m: models.MeetingMinutes) -> schemas.MeetingMinute
     )
 
 
+def _task_out(db: Session, t: models.Task) -> schemas.TaskOut:
+    return schemas.TaskOut(
+        id=t.id,
+        project_id=t.project_id,
+        titel=t.titel,
+        beschreibung=t.beschreibung,
+        status=t.status,
+        zustaendig=t.zustaendig,
+        faellig_am=t.faellig_am,
+        erstellt_am=t.erstellt_am,
+        aktualisiert_am=t.aktualisiert_am,
+        tags=entity_links.tags_for(db, "task", t.id),
+        documents=entity_links.documents_for(db, "task", t.id),
+    )
+
+
 def _get_project_or_404(db: Session, project_id: int) -> models.Project:
     project = db.get(models.Project, project_id)
     if project is None:
@@ -90,6 +106,13 @@ def _get_meeting_or_404(db: Session, meeting_id: int) -> models.MeetingMinutes:
     if m is None:
         raise HTTPException(status_code=404, detail="Meetingprotokoll nicht gefunden")
     return m
+
+
+def _get_task_or_404(db: Session, task_id: int) -> models.Task:
+    t = db.get(models.Task, task_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
+    return t
 
 
 # ---------------------------------------------------------------------------
@@ -271,4 +294,67 @@ def delete_meeting_minutes(meeting_id: int, db: Session = Depends(get_db)):
     meeting = _get_meeting_or_404(db, meeting_id)
     entity_links.delete_links_for_entity(db, "meeting_minutes", meeting_id)
     db.delete(meeting)
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Aufgaben
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/tasks", response_model=list[schemas.TaskOut])
+def list_tasks(project_id: int, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    rows = (
+        db.query(models.Task)
+        .filter(models.Task.project_id == project_id)
+        .order_by(models.Task.erstellt_am.desc())
+        .all()
+    )
+    return [_task_out(db, t) for t in rows]
+
+
+@router.post("/{project_id}/tasks", response_model=schemas.TaskOut, status_code=201)
+def create_task(project_id: int, payload: schemas.TaskCreate, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    now = _now()
+    task = models.Task(
+        project_id=project_id,
+        titel=payload.titel,
+        beschreibung=payload.beschreibung,
+        status=payload.status,
+        zustaendig=payload.zustaendig,
+        faellig_am=payload.faellig_am,
+        erstellt_am=now,
+        aktualisiert_am=now,
+    )
+    db.add(task)
+    db.flush()
+    if payload.tags:
+        entity_links.sync_tags(db, "task", task.id, payload.tags)
+    db.commit()
+    db.refresh(task)
+    return _task_out(db, task)
+
+
+@router.put("/tasks/{task_id}", response_model=schemas.TaskOut)
+def update_task(task_id: int, payload: schemas.TaskUpdate, db: Session = Depends(get_db)):
+    task = _get_task_or_404(db, task_id)
+    changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    if changes:
+        for field, value in changes.items():
+            setattr(task, field, value)
+        task.aktualisiert_am = _now()
+    if payload.tags is not None:
+        entity_links.sync_tags(db, "task", task.id, payload.tags)
+    db.commit()
+    db.refresh(task)
+    return _task_out(db, task)
+
+
+@router.delete("/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int, db: Session = Depends(get_db)):
+    task = _get_task_or_404(db, task_id)
+    entity_links.delete_links_for_entity(db, "task", task_id)
+    db.delete(task)
     db.commit()

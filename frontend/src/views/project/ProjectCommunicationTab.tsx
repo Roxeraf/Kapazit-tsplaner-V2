@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import NotesSection from "../../components/NotesSection";
-import type { Comment, Decision, MeetingMinutes, Risk } from "../../types";
+import type { Comment, Decision, MeetingMinutes, Risk, Task } from "../../types";
 import DecisionList from "./components/DecisionList";
 import MeetingMinutesList from "./components/MeetingMinutesList";
 import RiskList from "./components/RiskList";
+import TaskList from "./components/TaskList";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
-type Section = "diskussionen" | "entscheidungen" | "risiken" | "meetingprotokolle";
+type Section = "diskussionen" | "entscheidungen" | "risiken" | "meetingprotokolle" | "aufgaben";
 
 export default function ProjectCommunicationTab() {
   const { project } = useProjectWorkspace();
@@ -16,6 +17,7 @@ export default function ProjectCommunicationTab() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
   const [meetings, setMeetings] = useState<MeetingMinutes[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,12 +26,14 @@ export default function ProjectCommunicationTab() {
   const refreshDecisions = () => api.listDecisions(project.id).then(setDecisions).catch((e) => setError(String(e)));
   const refreshRisks = () => api.listRisks(project.id).then(setRisks).catch((e) => setError(String(e)));
   const refreshMeetings = () => api.listMeetingMinutes(project.id).then(setMeetings).catch((e) => setError(String(e)));
+  const refreshTasks = () => api.listTasks(project.id).then(setTasks).catch((e) => setError(String(e)));
 
   useEffect(() => {
     refreshComments();
     refreshDecisions();
     refreshRisks();
     refreshMeetings();
+    refreshTasks();
   }, [project.id]);
 
   const handleAddNote = async (
@@ -58,8 +62,9 @@ export default function ProjectCommunicationTab() {
     for (const d of decisions) d.tags.forEach((t) => tags.add(t));
     for (const r of risks) r.tags.forEach((t) => tags.add(t));
     for (const m of meetings) m.tags.forEach((t) => tags.add(t));
+    for (const t of tasks) t.tags.forEach((tag) => tags.add(tag));
     return Array.from(tags).sort();
-  }, [comments, decisions, risks, meetings]);
+  }, [comments, decisions, risks, meetings, tasks]);
 
   const matches = (text: string) => !search.trim() || text.toLowerCase().includes(search.trim().toLowerCase());
   const hasTag = (tags: string[]) => !tagFilter || tags.includes(tagFilter);
@@ -68,9 +73,11 @@ export default function ProjectCommunicationTab() {
   const filteredDecisions = decisions.filter((d) => matches(d.titel + " " + (d.beschreibung ?? "")) && hasTag(d.tags));
   const filteredRisks = risks.filter((r) => matches(r.titel + " " + (r.beschreibung ?? "")) && hasTag(r.tags));
   const filteredMeetings = meetings.filter((m) => matches(m.titel + " " + m.text) && hasTag(m.tags));
+  const filteredTasks = tasks.filter((t) => matches(t.titel + " " + (t.beschreibung ?? "")) && hasTag(t.tags));
 
   const SECTIONS: { key: Section; label: string; count: number }[] = [
     { key: "diskussionen", label: "Diskussionen", count: filteredComments.length },
+    { key: "aufgaben", label: "Aufgaben", count: filteredTasks.length },
     { key: "entscheidungen", label: "Entscheidungen", count: filteredDecisions.length },
     { key: "risiken", label: "Risiken", count: filteredRisks.length },
     { key: "meetingprotokolle", label: "Meetings", count: filteredMeetings.length },
@@ -141,6 +148,7 @@ export default function ProjectCommunicationTab() {
         </div>
       )}
 
+      {section === "aufgaben" && <TaskList projectId={project.id} tasks={filteredTasks} onChanged={refreshTasks} />}
       {section === "entscheidungen" && (
         <DecisionList projectId={project.id} decisions={filteredDecisions} onChanged={refreshDecisions} />
       )}

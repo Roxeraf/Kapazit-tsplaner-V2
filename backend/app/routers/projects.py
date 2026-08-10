@@ -243,11 +243,13 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     meeting_ids = [
         m[0] for m in db.query(models.MeetingMinutes.id).filter(models.MeetingMinutes.project_id == project_id).all()
     ]
+    task_ids = [t[0] for t in db.query(models.Task.id).filter(models.Task.project_id == project_id).all()]
     for entity_type, ids in (
         ("comment", comment_ids),
         ("decision", decision_ids),
         ("risk", risk_ids),
         ("meeting_minutes", meeting_ids),
+        ("task", task_ids),
     ):
         if not ids:
             continue
@@ -258,14 +260,15 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
             models.DocumentLink.entity_type == entity_type, models.DocumentLink.entity_id.in_(ids)
         ).delete(synchronize_session=False)
 
-    # GapSnapshot, PlanHistory, Comment, Decision, Risk, MeetingMinutes haben eine FK auf
-    # project_id, aber keine Cascade-Relationship am Project-Modell (siehe models.py).
+    # GapSnapshot, PlanHistory, Comment, Decision, Risk, MeetingMinutes, Task haben eine FK
+    # auf project_id, aber keine Cascade-Relationship am Project-Modell (siehe models.py).
     db.query(models.GapSnapshot).filter(models.GapSnapshot.project_id == project_id).delete()
     db.query(models.PlanHistory).filter(models.PlanHistory.project_id == project_id).delete()
     db.query(models.Comment).filter(models.Comment.project_id == project_id).delete()
     db.query(models.Decision).filter(models.Decision.project_id == project_id).delete()
     db.query(models.Risk).filter(models.Risk.project_id == project_id).delete()
     db.query(models.MeetingMinutes).filter(models.MeetingMinutes.project_id == project_id).delete()
+    db.query(models.Task).filter(models.Task.project_id == project_id).delete()
 
     # Dokumente: Datei + Document-Zeile + eigene TagLink-Zeilen (als "document" getaggt) +
     # DocumentLink-Zeilen, bei denen dieses Dokument die verlinkte Datei ist.

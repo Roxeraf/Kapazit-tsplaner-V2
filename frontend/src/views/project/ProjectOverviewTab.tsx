@@ -2,7 +2,16 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { describeEntry, formatTimestamp } from "../../components/HistoryPanel";
-import { PROJECT_STATUS_LABELS, type Comment, type Decision, type GapAnalysis, type GapStatus, type PlanHistoryEntry, type Risk } from "../../types";
+import {
+  PROJECT_STATUS_LABELS,
+  type Comment,
+  type Decision,
+  type GapAnalysis,
+  type GapStatus,
+  type PlanHistoryEntry,
+  type Risk,
+  type Task,
+} from "../../types";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
 const GAP_STATUS_LABEL: Record<GapStatus, string> = {
@@ -28,6 +37,7 @@ export default function ProjectOverviewTab() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
 
   useEffect(() => {
     api.getProjectGap(project.id).then(setGap).catch(() => setGap(null));
@@ -35,12 +45,14 @@ export default function ProjectOverviewTab() {
     api.listComments(project.id).then(setComments).catch(() => setComments([]));
     api.listRisks(project.id).then(setRisks).catch(() => setRisks([]));
     api.listDecisions(project.id).then(setDecisions).catch(() => setDecisions([]));
+    api.listTasks(project.id).then(setTasks).catch(() => setTasks([]));
   }, [project.id]);
 
   const generalComments = comments
     .filter((c) => c.monat === null && c.phase_code === null)
     .sort((a, b) => (a.erstellt_am < b.erstellt_am ? 1 : -1));
 
+  const offeneAufgaben = tasks.filter((t) => t.status !== "erledigt");
   const offeneRisiken = risks.filter((r) => r.status !== "geschlossen");
   const offeneEntscheidungen = decisions.filter((d) => d.status === "offen");
 
@@ -78,10 +90,15 @@ export default function ProjectOverviewTab() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem" }}>
         <div className="card">
           <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Offene Aufgaben</h3>
-          {offeneRisiken.length === 0 && offeneEntscheidungen.length === 0 ? (
-            <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Keine offenen Risiken oder Entscheidungen.</p>
+          {offeneAufgaben.length === 0 && offeneRisiken.length === 0 && offeneEntscheidungen.length === 0 ? (
+            <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Keine offenen Aufgaben, Risiken oder Entscheidungen.</p>
           ) : (
             <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: "0.85rem" }}>
+              {offeneAufgaben.map((t) => (
+                <li key={`task-${t.id}`} style={{ padding: "0.25rem 0", borderBottom: "1px solid var(--border)" }}>
+                  ☑ {t.titel}
+                </li>
+              ))}
               {offeneRisiken.map((r) => (
                 <li key={`risk-${r.id}`} style={{ padding: "0.25rem 0", borderBottom: "1px solid var(--border)" }}>
                   ⚠ {r.titel}

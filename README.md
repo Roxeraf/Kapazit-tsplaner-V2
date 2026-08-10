@@ -101,7 +101,7 @@ npm run dev
 | `GET /team/utilization` | Auslastungsgrad je Teammitglied (zugeordnetes FTE / Kapazitäts-FTE) |
 | `GET /kpis` | Portfolio-Kennzahlen (Projektstatus-Verteilung, Ø Auslastung, offene Risiken/Entscheidungen) |
 | `GET/POST /projects/{id}/comments` | Notizen/Diskussionen lesen/anlegen (inkl. Tags, Zell-Kommentare über `monat`/`phase_code`) |
-| `GET/POST /projects/{id}/decisions`, `/risks`, `/meeting-minutes` | Entscheidungen/Risiken/Meetingprotokolle je Projekt (Kommunikation-Tab) |
+| `GET/POST /projects/{id}/decisions`, `/risks`, `/meeting-minutes`, `/tasks` | Entscheidungen/Risiken/Meetingprotokolle/Aufgaben je Projekt (Kommunikation-Tab) |
 | `POST /projects/{id}/documents` | Datei hochladen (multipart) — zentrale Ablage, optional direkt mit `entity_type`+`entity_id` verknüpft |
 | `GET /projects/{id}/documents`, `GET /documents/{id}/download` | Dokumente eines Projekts auflisten/herunterladen |
 | `POST/DELETE /document-links(/{id})` | Bestehendes Dokument mit einer weiteren Notiz/Entscheidung/Risiko/Meeting verknüpfen/entfernen |

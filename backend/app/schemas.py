@@ -120,7 +120,7 @@ class FteUpdate(BaseModel):
 
 # entity_type-Vokabular, geteilt zwischen TagLink und DocumentLink. "document" nur für
 # TagLink relevant (Dokumente sind selbst taggbar, aber nie Ziel eines DocumentLink).
-EntityType = Literal["comment", "decision", "risk", "meeting_minutes", "document"]
+EntityType = Literal["comment", "decision", "risk", "meeting_minutes", "task", "document"]
 
 
 class DocumentUsageOut(BaseModel):
@@ -258,6 +258,38 @@ class MeetingMinutesOut(BaseModel):
     teilnehmer: str | None
     text: str
     erstellt_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+class TaskCreate(BaseModel):
+    titel: str
+    beschreibung: str | None = None
+    status: str = "offen"
+    zustaendig: str | None = None
+    faellig_am: str | None = None
+    tags: list[str] = []
+
+
+class TaskUpdate(BaseModel):
+    titel: str | None = None
+    beschreibung: str | None = None
+    status: str | None = None
+    zustaendig: str | None = None
+    faellig_am: str | None = None
+    tags: list[str] | None = None
+
+
+class TaskOut(BaseModel):
+    id: int
+    project_id: int
+    titel: str
+    beschreibung: str | None
+    status: str
+    zustaendig: str | None
+    faellig_am: str | None
+    erstellt_am: str
+    aktualisiert_am: str
     tags: list[str] = []
     documents: list[DocumentOut] = []
 
@@ -400,6 +432,7 @@ class KpiSummary(BaseModel):
     durchschnittliche_auslastung_pct: float | None
     offene_risiken_gesamt: int
     offene_entscheidungen_gesamt: int
+    offene_aufgaben_gesamt: int
 
 
 # ---------------------------------------------------------------------------

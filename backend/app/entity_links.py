@@ -14,6 +14,7 @@ _ENTITY_LABEL_PREFIX = {
     "decision": "Entscheidung",
     "risk": "Risiko",
     "meeting_minutes": "Meeting",
+    "task": "Aufgabe",
 }
 
 
@@ -67,6 +68,9 @@ def _resolve_entity_label(db: Session, entity_type: str, entity_id: int) -> str:
         text = row.titel if row else None
     elif entity_type == "meeting_minutes":
         row = db.get(models.MeetingMinutes, entity_id)
+        text = row.titel if row else None
+    elif entity_type == "task":
+        row = db.get(models.Task, entity_id)
         text = row.titel if row else None
     if text is None:
         return f"{prefix} #{entity_id} (gelöscht)"

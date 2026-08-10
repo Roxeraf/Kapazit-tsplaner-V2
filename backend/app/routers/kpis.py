@@ -26,6 +26,7 @@ def get_kpis(db: Session = Depends(get_db)):
 
     offene_risiken = db.query(models.Risk).filter(models.Risk.status != "geschlossen").count()
     offene_entscheidungen = db.query(models.Decision).filter(models.Decision.status == "offen").count()
+    offene_aufgaben = db.query(models.Task).filter(models.Task.status != "erledigt").count()
 
     return schemas.KpiSummary(
         anzahl_projekte_aktiv=aktive_projekte,
@@ -36,4 +37,5 @@ def get_kpis(db: Session = Depends(get_db)):
         durchschnittliche_auslastung_pct=durchschnittliche_auslastung,
         offene_risiken_gesamt=offene_risiken,
         offene_entscheidungen_gesamt=offene_entscheidungen,
+        offene_aufgaben_gesamt=offene_aufgaben,
     )

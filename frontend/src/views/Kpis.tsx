@@ -37,6 +37,7 @@ export default function Kpis() {
           label="Ø Auslastung"
           value={kpis.durchschnittliche_auslastung_pct !== null ? `${kpis.durchschnittliche_auslastung_pct.toFixed(0)}%` : "–"}
         />
+        <StatTile label="Offene Aufgaben" value={kpis.offene_aufgaben_gesamt} color="var(--blau)" />
         <StatTile label="Offene Risiken" value={kpis.offene_risiken_gesamt} color="var(--rot)" />
         <StatTile label="Offene Entscheidungen" value={kpis.offene_entscheidungen_gesamt} color="var(--gelb)" />
       </div>

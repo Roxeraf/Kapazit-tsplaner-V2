@@ -210,7 +210,7 @@ export interface PlanHistoryEntry {
 
 // entity_type-Vokabular, geteilt zwischen Tags und Document-Verknüpfungen (siehe
 // CONCEPT.md Abschnitt 6a). "document" nur für Tags relevant.
-export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "document";
+export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document";
 
 export interface DocumentUsage {
   entity_type: string;
@@ -315,6 +315,7 @@ export interface KpiSummary {
   durchschnittliche_auslastung_pct: number | null;
   offene_risiken_gesamt: number;
   offene_entscheidungen_gesamt: number;
+  offene_aufgaben_gesamt: number;
 }
 
 export interface MeetingMinutes {
@@ -325,6 +326,28 @@ export interface MeetingMinutes {
   teilnehmer: string | null;
   text: string;
   erstellt_am: string;
+  tags: string[];
+  documents: Document[];
+}
+
+export type TaskStatus = "offen" | "in_bearbeitung" | "erledigt";
+
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  offen: "Offen",
+  in_bearbeitung: "In Bearbeitung",
+  erledigt: "Erledigt",
+};
+
+export interface Task {
+  id: number;
+  project_id: number;
+  titel: string;
+  beschreibung: string | null;
+  status: TaskStatus;
+  zustaendig: string | null;
+  faellig_am: string | null;
+  erstellt_am: string;
+  aktualisiert_am: string;
   tags: string[];
   documents: Document[];
 }

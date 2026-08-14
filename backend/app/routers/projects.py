@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import jira_sync, models, schemas
+from .. import documents_storage, entity_links, jira_sync, models, schemas
 from ..constants import PHASE_CODES, berechne_monate
 from ..database import get_db
 
@@ -22,8 +22,14 @@ def _log_change(
     alt: str | None,
     neu: str | None,
     kommentar_id: int | None,
+    batch_id: str | None = None,
 ) -> None:
-    """Schreibt einen PlanHistory-Eintrag, wenn sich ein Wert tatsächlich geändert hat."""
+    """Schreibt einen PlanHistory-Eintrag, wenn sich ein Wert tatsächlich geändert hat.
+
+    batch_id gruppiert alle Einträge eines Speichern-Klicks zu einer "Revision" für die
+    Historie-Ansicht (siehe HistoryTimeline.tsx) - unabhängig von kommentar_id, das die
+    fachliche Begründung ist (optional).
+    """
     if alt == neu:
         return
     db.add(
@@ -37,6 +43,7 @@ def _log_change(
             neuer_wert=neu,
             geaendert_am=datetime.now(timezone.utc).isoformat(),
             kommentar_id=kommentar_id,
+            batch_id=batch_id,
         )
     )
 
@@ -102,6 +109,7 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         anzahl_monate=p.anzahl_monate,
         reihenfolge=p.reihenfolge,
         status=p.status,
+        projektleiter=p.projektleiter,
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
         jira_component=p.jira_component,
         jira_project_key=p.jira_project_key,
@@ -152,6 +160,7 @@ def list_projects(db: Session = Depends(get_db)):
             anzahl_monate=p.anzahl_monate,
             reihenfolge=p.reihenfolge,
             status=p.status,
+            projektleiter=p.projektleiter,
             monate=berechne_monate(p.start_monat, p.anzahl_monate),
         )
         for p in projects
@@ -191,6 +200,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, db: Session 
     project = _get_project_or_404(db, project_id)
     changes = payload.model_dump(exclude_unset=True)
     kommentar_id = changes.pop("kommentar_id", None)
+    batch_id = changes.pop("batch_id", None)
     for field, value in changes.items():
         alt = getattr(project, field)
         if alt != value:
@@ -204,6 +214,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, db: Session 
                 alt=str(alt) if alt is not None else None,
                 neu=str(value) if value is not None else None,
                 kommentar_id=kommentar_id,
+                batch_id=batch_id,
             )
         setattr(project, field, value)
     db.commit()
@@ -222,12 +233,57 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
         if catalog_entry is not None:
             catalog_entry.relevant = False
 
-    # GapSnapshot, PlanHistory und Comment haben eine FK auf project_id, aber keine
-    # Cascade-Relationship am Project-Modell (siehe models.py) - sonst blieben Waisen-Zeilen
-    # in der DB zurück.
+    # Kommentare/Entscheidungen/Risiken/Meetingprotokolle können eigene Tag-/Dokument-
+    # Verknüpfungen haben (siehe entity_links.py) - deren TagLink/DocumentLink-Zeilen zuerst
+    # entfernen, sonst blieben Waisen-Zeilen zurück (die verlinkten Document-Zeilen selbst
+    # werden unten separat behandelt, nicht hier - zentrale Ablage, siehe CONCEPT.md 6a).
+    comment_ids = [c[0] for c in db.query(models.Comment.id).filter(models.Comment.project_id == project_id).all()]
+    decision_ids = [d[0] for d in db.query(models.Decision.id).filter(models.Decision.project_id == project_id).all()]
+    risk_ids = [r[0] for r in db.query(models.Risk.id).filter(models.Risk.project_id == project_id).all()]
+    meeting_ids = [
+        m[0] for m in db.query(models.MeetingMinutes.id).filter(models.MeetingMinutes.project_id == project_id).all()
+    ]
+    task_ids = [t[0] for t in db.query(models.Task.id).filter(models.Task.project_id == project_id).all()]
+    for entity_type, ids in (
+        ("comment", comment_ids),
+        ("decision", decision_ids),
+        ("risk", risk_ids),
+        ("meeting_minutes", meeting_ids),
+        ("task", task_ids),
+    ):
+        if not ids:
+            continue
+        db.query(models.TagLink).filter(
+            models.TagLink.entity_type == entity_type, models.TagLink.entity_id.in_(ids)
+        ).delete(synchronize_session=False)
+        db.query(models.DocumentLink).filter(
+            models.DocumentLink.entity_type == entity_type, models.DocumentLink.entity_id.in_(ids)
+        ).delete(synchronize_session=False)
+
+    # GapSnapshot, PlanHistory, Comment, Decision, Risk, MeetingMinutes, Task haben eine FK
+    # auf project_id, aber keine Cascade-Relationship am Project-Modell (siehe models.py).
     db.query(models.GapSnapshot).filter(models.GapSnapshot.project_id == project_id).delete()
     db.query(models.PlanHistory).filter(models.PlanHistory.project_id == project_id).delete()
     db.query(models.Comment).filter(models.Comment.project_id == project_id).delete()
+    db.query(models.Decision).filter(models.Decision.project_id == project_id).delete()
+    db.query(models.Risk).filter(models.Risk.project_id == project_id).delete()
+    db.query(models.MeetingMinutes).filter(models.MeetingMinutes.project_id == project_id).delete()
+    db.query(models.Task).filter(models.Task.project_id == project_id).delete()
+
+    # Dokumente: Datei + Document-Zeile + eigene TagLink-Zeilen (als "document" getaggt) +
+    # DocumentLink-Zeilen, bei denen dieses Dokument die verlinkte Datei ist.
+    documents = db.query(models.Document).filter(models.Document.project_id == project_id).all()
+    document_ids = [d.id for d in documents]
+    if document_ids:
+        db.query(models.TagLink).filter(
+            models.TagLink.entity_type == "document", models.TagLink.entity_id.in_(document_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.DocumentLink).filter(models.DocumentLink.document_id.in_(document_ids)).delete(
+            synchronize_session=False
+        )
+    for document in documents:
+        documents_storage.delete_file(document.speicherpfad)
+    db.query(models.Document).filter(models.Document.project_id == project_id).delete()
 
     db.delete(project)
     db.commit()
@@ -260,6 +316,7 @@ def set_project_phasen(project_id: int, payload: schemas.PhasenUpdate, db: Sessi
             alt="inaktiv",
             neu="aktiv",
             kommentar_id=payload.kommentar_id,
+            batch_id=payload.batch_id,
         )
     for code in bisherige_codes - neue_codes:
         _log_change(
@@ -272,6 +329,7 @@ def set_project_phasen(project_id: int, payload: schemas.PhasenUpdate, db: Sessi
             alt="aktiv",
             neu="inaktiv",
             kommentar_id=payload.kommentar_id,
+            batch_id=payload.batch_id,
         )
 
     db.query(models.ProjectGanttPhase).filter(
@@ -305,6 +363,7 @@ def set_project_fte(project_id: int, payload: schemas.FteUpdate, db: Session = D
         alt=str(alter_wert) if alter_wert is not None else None,
         neu=str(payload.wert_soll),
         kommentar_id=payload.kommentar_id,
+        batch_id=payload.batch_id,
     )
     if entry is None:
         entry = models.ProjectFtePlan(project_id=project_id, monat=payload.monat, wert_soll=payload.wert_soll)
@@ -358,7 +417,19 @@ def delete_subproject(subproject_id: int, db: Session = Depends(get_db)):
     sp = _get_subproject_or_404(db, subproject_id)
 
     # PlanHistory/Comment haben keine Cascade-Relationship am Subproject-Modell - sonst
-    # blieben Waisen-Zeilen in der DB zurück (analog zu delete_project).
+    # blieben Waisen-Zeilen in der DB zurück (analog zu delete_project). Comments können
+    # eigene Tag-/DocumentLink-Zeilen haben (siehe entity_links.py) - vor dem Löschen der
+    # Comment-Zeilen selbst entfernen, die verlinkten Document-Zeilen bleiben bestehen.
+    comment_ids = [
+        c[0] for c in db.query(models.Comment.id).filter(models.Comment.subproject_id == subproject_id).all()
+    ]
+    if comment_ids:
+        db.query(models.TagLink).filter(
+            models.TagLink.entity_type == "comment", models.TagLink.entity_id.in_(comment_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.DocumentLink).filter(
+            models.DocumentLink.entity_type == "comment", models.DocumentLink.entity_id.in_(comment_ids)
+        ).delete(synchronize_session=False)
     db.query(models.PlanHistory).filter(models.PlanHistory.subproject_id == subproject_id).delete()
     db.query(models.Comment).filter(models.Comment.subproject_id == subproject_id).delete()
 
@@ -393,6 +464,7 @@ def set_phasen(subproject_id: int, payload: schemas.PhasenUpdate, db: Session = 
             alt="inaktiv",
             neu="aktiv",
             kommentar_id=payload.kommentar_id,
+            batch_id=payload.batch_id,
         )
     for code in bisherige_codes - neue_codes:
         _log_change(
@@ -405,6 +477,7 @@ def set_phasen(subproject_id: int, payload: schemas.PhasenUpdate, db: Session = 
             alt="aktiv",
             neu="inaktiv",
             kommentar_id=payload.kommentar_id,
+            batch_id=payload.batch_id,
         )
 
     db.query(models.GanttPhase).filter(
@@ -438,6 +511,7 @@ def set_fte(subproject_id: int, payload: schemas.FteUpdate, db: Session = Depend
         alt=str(alter_wert) if alter_wert is not None else None,
         neu=str(payload.wert_soll),
         kommentar_id=payload.kommentar_id,
+        batch_id=payload.batch_id,
     )
     if entry is None:
         entry = models.FtePlan(subproject_id=subproject_id, monat=payload.monat, wert_soll=payload.wert_soll)
@@ -454,6 +528,20 @@ def set_fte(subproject_id: int, payload: schemas.FteUpdate, db: Session = Depend
 # ---------------------------------------------------------------------------
 
 
+def _comment_out(db: Session, comment: models.Comment) -> schemas.CommentOut:
+    return schemas.CommentOut(
+        id=comment.id,
+        project_id=comment.project_id,
+        subproject_id=comment.subproject_id,
+        monat=comment.monat,
+        phase_code=comment.phase_code,
+        text=comment.text,
+        erstellt_am=comment.erstellt_am,
+        tags=entity_links.tags_for(db, "comment", comment.id),
+        documents=entity_links.documents_for(db, "comment", comment.id),
+    )
+
+
 @router.post("/{project_id}/comments", response_model=schemas.CommentOut, status_code=201)
 def create_comment(project_id: int, payload: schemas.CommentCreate, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
@@ -468,9 +556,12 @@ def create_comment(project_id: int, payload: schemas.CommentCreate, db: Session 
         erstellt_am=datetime.now(timezone.utc).isoformat(),
     )
     db.add(comment)
+    db.flush()
+    if payload.tags:
+        entity_links.sync_tags(db, "comment", comment.id, payload.tags)
     db.commit()
     db.refresh(comment)
-    return comment
+    return _comment_out(db, comment)
 
 
 @router.get("/{project_id}/comments", response_model=list[schemas.CommentOut])
@@ -478,12 +569,13 @@ def list_comments(project_id: int, db: Session = Depends(get_db)):
     """Alle Kommentare zum Projekt inkl. seiner Teilprojekte - das Frontend filtert nach
     subproject_id/monat/phase_code, um jeden Kommentar an der richtigen Stelle anzuzeigen."""
     _get_project_or_404(db, project_id)
-    return (
+    comments = (
         db.query(models.Comment)
         .filter(models.Comment.project_id == project_id)
         .order_by(models.Comment.erstellt_am.desc())
         .all()
     )
+    return [_comment_out(db, c) for c in comments]
 
 
 @router.delete("/comments/{comment_id}", status_code=204)
@@ -495,6 +587,9 @@ def delete_comment(comment_id: int, db: Session = Depends(get_db)):
     db.query(models.PlanHistory).filter(models.PlanHistory.kommentar_id == comment_id).update(
         {"kommentar_id": None}
     )
+    # Tags/Anhänge der Notiz entfernen - die verlinkten Document-Zeilen bleiben in der
+    # zentralen Ablage bestehen (siehe CONCEPT.md Abschnitt 6a).
+    entity_links.delete_links_for_entity(db, "comment", comment_id)
     db.delete(comment)
     db.commit()
 
@@ -510,7 +605,8 @@ def _history_out(db: Session, entry: models.PlanHistory) -> schemas.PlanHistoryO
         alter_wert=entry.alter_wert,
         neuer_wert=entry.neuer_wert,
         geaendert_am=entry.geaendert_am,
-        kommentar=schemas.CommentOut.model_validate(kommentar) if kommentar is not None else None,
+        batch_id=entry.batch_id,
+        kommentar=_comment_out(db, kommentar) if kommentar is not None else None,
     )
 
 

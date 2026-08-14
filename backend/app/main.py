@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
 from .database import Base, engine
-from .routers import export, gap, jira, projects, team  # noqa: F401 (registriert Modelle via projects/export)
+from .routers import communication, documents, export, gap, jira, kpis, projects, team  # noqa: F401
 
 Base.metadata.create_all(bind=engine)
 
@@ -24,6 +24,15 @@ if "projects" in _inspector.get_table_names():
     if "status" not in _columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE projects ADD COLUMN status VARCHAR(20) DEFAULT 'aktiv'"))
+    if "projektleiter" not in _columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN projektleiter VARCHAR(200)"))
+
+if "plan_history" in _inspector.get_table_names():
+    _plan_history_columns = {col["name"] for col in _inspector.get_columns("plan_history")}
+    if "batch_id" not in _plan_history_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE plan_history ADD COLUMN batch_id VARCHAR(36)"))
 
 # erstellt_am/geaendert_am wurden zunächst mit VARCHAR(30) angelegt, datetime.isoformat() mit
 # Mikrosekunden + UTC-Offset kann aber bis zu 32 Zeichen lang werden (z.B.
@@ -60,6 +69,9 @@ app.include_router(export.router)
 app.include_router(team.router)
 app.include_router(jira.router)
 app.include_router(gap.router)
+app.include_router(documents.router)
+app.include_router(communication.router)
+app.include_router(kpis.router)
 
 
 @app.get("/health")

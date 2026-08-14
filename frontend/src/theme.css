@@ -73,6 +73,53 @@ a {
   font-weight: 600;
 }
 
+.app-nav--tiered {
+  flex-wrap: wrap;
+  row-gap: 0.35rem;
+}
+
+.app-nav-group {
+  display: flex;
+  gap: 1.1rem;
+  align-items: baseline;
+}
+
+.app-nav-group-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8fa9c7;
+  margin-right: 0.15rem;
+}
+
+.app-nav-group--utility {
+  margin-left: auto;
+  opacity: 0.75;
+}
+
+.tab-nav {
+  display: flex;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.tab-nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  padding: 0.5rem 0.1rem;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-nav a.active,
+.tab-nav a:hover {
+  color: var(--navy);
+  font-weight: 600;
+  border-bottom-color: var(--blau);
+}
+
 .app-main {
   flex: 1;
   padding: 1.5rem;

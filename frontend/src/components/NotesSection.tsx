@@ -1,6 +1,9 @@
 import { useState } from "react";
 import type { Comment } from "../types";
+import AttachmentList from "./AttachmentList";
+import AttachmentPicker from "./AttachmentPicker";
 import ConfirmDialog from "./ConfirmDialog";
+import TagInput from "./TagInput";
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
@@ -14,10 +17,12 @@ export default function NotesSection({
   onDelete,
 }: {
   notes: Comment[];
-  onAdd: (text: string) => Promise<void>;
+  onAdd: (input: { text: string; tags: string[]; files: File[] }) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
 }) {
   const [text, setText] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [noteToDelete, setNoteToDelete] = useState<Comment | null>(null);
@@ -27,8 +32,10 @@ export default function NotesSection({
     setSaving(true);
     setError(null);
     try {
-      await onAdd(text.trim());
+      await onAdd({ text: text.trim(), tags, files });
       setText("");
+      setTags([]);
+      setFiles([]);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -53,45 +60,51 @@ export default function NotesSection({
       {notes.length === 0 ? (
         <p style={{ color: "var(--text-muted)", margin: 0, fontSize: "0.85rem" }}>Noch keine Notizen.</p>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 0.5rem", fontSize: "0.85rem" }}>
+        <div style={{ marginBottom: "0.75rem" }}>
           {notes.map((n) => (
-            <li
+            <div
               key={n.id}
-              style={{
-                padding: "0.35rem 0",
-                borderBottom: "1px solid var(--border)",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                gap: "0.5rem",
-              }}
+              className="card"
+              style={{ marginBottom: "0.6rem", padding: "0.6rem 0.85rem", fontSize: "0.88rem" }}
             >
-              <div>
-                <div>{n.text}</div>
-                <div style={{ color: "var(--text-muted)" }}>{formatTimestamp(n.erstellt_am)}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>{formatTimestamp(n.erstellt_am)}</span>
+                <button
+                  type="button"
+                  onClick={() => setNoteToDelete(n)}
+                  title="Notiz löschen"
+                  style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
+                >
+                  ×
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setNoteToDelete(n)}
-                title="Notiz löschen"
-                style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
-              >
-                ×
-              </button>
-            </li>
+              <div style={{ margin: "0.3rem 0" }}>{n.text}</div>
+              {n.tags.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginBottom: "0.2rem" }}>
+                  {n.tags.map((t) => (
+                    <span key={t} style={{ fontSize: "0.75rem", color: "var(--blau)" }}>
+                      #{t}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <AttachmentList documents={n.documents} />
+            </div>
           ))}
-        </ul>
+        </div>
       )}
-      <div className="field-row" style={{ marginTop: 0 }}>
+      <div className="field-row" style={{ marginTop: 0, flexDirection: "column", alignItems: "stretch" }}>
         <label style={{ flex: 1 }}>
           Neue Notiz
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="z. B. Verzögerung wegen fehlender Kundenunterschrift"
+            placeholder="z. B. Kunde hat die finale Freigabe für den GoLive erteilt"
           />
         </label>
-        <button type="button" className="btn secondary" style={{ alignSelf: "flex-end" }} disabled={saving} onClick={handleAdd}>
+        <TagInput value={tags} onChange={setTags} />
+        <AttachmentPicker files={files} onChange={setFiles} />
+        <button type="button" className="btn secondary" style={{ alignSelf: "flex-start" }} disabled={saving} onClick={handleAdd}>
           + Notiz hinzufügen
         </button>
       </div>
@@ -99,7 +112,7 @@ export default function NotesSection({
       <ConfirmDialog
         open={noteToDelete !== null}
         title="Notiz löschen"
-        message={`Notiz "${noteToDelete?.text}" wirklich löschen?`}
+        message={`Notiz "${noteToDelete?.text}" wirklich löschen? Angehängte Dateien bleiben im Dokumente-Tab erhalten.`}
         onConfirm={handleDelete}
         onCancel={() => setNoteToDelete(null)}
       />

@@ -1,5 +1,10 @@
 import type {
   Comment,
+  Decision,
+  DecisionStatus,
+  Document,
+  DocumentLink,
+  EntityType,
   ForecastSummary,
   GapAnalysis,
   JiraAccountMatch,
@@ -8,12 +13,21 @@ import type {
   JiraProjectStatus,
   JiraStatus,
   JiraSyncResult,
+  KpiSummary,
+  MeetingMinutes,
+  MemberUtilization,
   PlanHistoryEntry,
   ProjectDetail,
   ProjectStatus,
   ProjectSummary,
+  Risk,
+  RiskLevel,
+  RiskStatus,
   SubprojectDetail,
   SubprojectListItem,
+  Tag,
+  Task,
+  TaskStatus,
   Team,
   TeamMember,
   TeamWithMembers,
@@ -27,6 +41,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+  }
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  return res.json() as Promise<T>;
+}
+
+// Für multipart/form-data-Uploads: der generische request() setzt immer
+// Content-Type: application/json, das würde den vom Browser gesetzten
+// "multipart/form-data; boundary=..."-Header überschreiben.
+async function requestForm<T>(path: string, formData: FormData, method = "POST"): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method, body: formData });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`${res.status} ${res.statusText}: ${body}`);
@@ -55,7 +84,9 @@ export const api = {
       anzahl_monate: number;
       jira_component: string | null;
       status: ProjectStatus;
+      projektleiter: string | null;
       kommentar_id: number | null;
+      batch_id: string | null;
     }>,
   ) => request<ProjectDetail>(`/projects/${projectId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteProject: (projectId: number) => request<void>(`/projects/${projectId}`, { method: "DELETE" }),
@@ -68,25 +99,49 @@ export const api = {
     }),
   deleteSubproject: (subprojectId: number) =>
     request<void>(`/projects/subprojects/${subprojectId}`, { method: "DELETE" }),
-  setProjectPhasen: (projectId: number, monat: string, codes: string[], kommentar_id?: number | null) =>
+  setProjectPhasen: (
+    projectId: number,
+    monat: string,
+    codes: string[],
+    kommentar_id?: number | null,
+    batch_id?: string | null,
+  ) =>
     request<ProjectDetail>(`/projects/${projectId}/phasen`, {
       method: "PUT",
-      body: JSON.stringify({ monat, codes, kommentar_id }),
+      body: JSON.stringify({ monat, codes, kommentar_id, batch_id }),
     }),
-  setProjectFte: (projectId: number, monat: string, wert_soll: number, kommentar_id?: number | null) =>
+  setProjectFte: (
+    projectId: number,
+    monat: string,
+    wert_soll: number,
+    kommentar_id?: number | null,
+    batch_id?: string | null,
+  ) =>
     request<ProjectDetail>(`/projects/${projectId}/fte`, {
       method: "PUT",
-      body: JSON.stringify({ monat, wert_soll, kommentar_id }),
+      body: JSON.stringify({ monat, wert_soll, kommentar_id, batch_id }),
     }),
-  setPhasen: (subprojectId: number, monat: string, codes: string[], kommentar_id?: number | null) =>
+  setPhasen: (
+    subprojectId: number,
+    monat: string,
+    codes: string[],
+    kommentar_id?: number | null,
+    batch_id?: string | null,
+  ) =>
     request(`/projects/subprojects/${subprojectId}/phasen`, {
       method: "PUT",
-      body: JSON.stringify({ monat, codes, kommentar_id }),
+      body: JSON.stringify({ monat, codes, kommentar_id, batch_id }),
     }),
-  setFte: (subprojectId: number, monat: string, wert_soll: number, kommentar_id?: number | null) =>
+  setFte: (
+    subprojectId: number,
+    monat: string,
+    wert_soll: number,
+    kommentar_id?: number | null,
+    batch_id?: string | null,
+  ) =>
     request(`/projects/subprojects/${subprojectId}/fte`, {
       method: "PUT",
-      body: JSON.stringify({ monat, wert_soll, kommentar_id }),
+      body: JSON.stringify({ monat, wert_soll, kommentar_id, batch_id }),
     }),
   updateSubproject: (subprojectId: number, payload: { name?: string; reihenfolge?: number }) =>
     request<SubprojectDetail>(`/projects/subprojects/${subprojectId}`, {
@@ -152,17 +207,161 @@ export const api = {
   // Gap-Analyse
   getGap: (teamId?: number) =>
     request<GapAnalysis[]>(`/gap${teamId ? `?team_id=${teamId}` : ""}`),
+  getProjectGap: (projectId: number) => request<GapAnalysis>(`/gap/${projectId}`),
   getForecast: (teamId?: number) =>
     request<ForecastSummary[]>(`/forecast${teamId ? `?team_id=${teamId}` : ""}`),
 
   // Kommentare & Änderungshistorie
   createComment: (
     projectId: number,
-    payload: { subproject_id?: number | null; monat?: string | null; phase_code?: string | null; text: string },
+    payload: {
+      subproject_id?: number | null;
+      monat?: string | null;
+      phase_code?: string | null;
+      text: string;
+      tags?: string[];
+    },
   ) => request<Comment>(`/projects/${projectId}/comments`, { method: "POST", body: JSON.stringify(payload) }),
   listComments: (projectId: number) => request<Comment[]>(`/projects/${projectId}/comments`),
   deleteComment: (commentId: number) => request<void>(`/projects/comments/${commentId}`, { method: "DELETE" }),
   getProjectHistory: (projectId: number) => request<PlanHistoryEntry[]>(`/projects/${projectId}/history`),
   getSubprojectHistory: (subprojectId: number) =>
     request<PlanHistoryEntry[]>(`/projects/subprojects/${subprojectId}/history`),
+
+  // Zentrale Dokumentenablage & Tags (siehe CONCEPT.md Abschnitt 6a)
+  uploadDocument: (
+    projectId: number,
+    file: File,
+    options?: { entityType?: EntityType; entityId?: number; tags?: string[]; hochgeladenVon?: string },
+  ) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (options?.tags && options.tags.length > 0) form.append("tags", options.tags.join(","));
+    if (options?.entityType) form.append("entity_type", options.entityType);
+    if (options?.entityId !== undefined) form.append("entity_id", String(options.entityId));
+    if (options?.hochgeladenVon) form.append("hochgeladen_von", options.hochgeladenVon);
+    return requestForm<Document>(`/projects/${projectId}/documents`, form);
+  },
+  listDocuments: (projectId: number, params?: { search?: string; tag?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.set("search", params.search);
+    if (params?.tag) query.set("tag", params.tag);
+    const qs = query.toString();
+    return request<Document[]>(`/projects/${projectId}/documents${qs ? `?${qs}` : ""}`);
+  },
+  downloadDocumentUrl: (documentId: number) => `${API_BASE}/documents/${documentId}/download`,
+  updateDocument: (documentId: number, payload: { dateiname?: string; tags?: string[] }) =>
+    request<Document>(`/documents/${documentId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteDocument: (documentId: number) => request<void>(`/documents/${documentId}`, { method: "DELETE" }),
+  linkDocument: (documentId: number, entityType: EntityType, entityId: number) =>
+    request<DocumentLink>("/document-links", {
+      method: "POST",
+      body: JSON.stringify({ document_id: documentId, entity_type: entityType, entity_id: entityId }),
+    }),
+  unlinkDocument: (linkId: number) => request<void>(`/document-links/${linkId}`, { method: "DELETE" }),
+  listTags: (search?: string) => request<Tag[]>(`/tags${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+
+  // Kommunikation: Entscheidungen/Risiken/Meetingprotokolle (siehe CONCEPT.md Abschnitt 6a)
+  listDecisions: (projectId: number) => request<Decision[]>(`/projects/${projectId}/decisions`),
+  createDecision: (
+    projectId: number,
+    payload: {
+      titel: string;
+      beschreibung?: string | null;
+      status?: DecisionStatus;
+      entschieden_von?: string | null;
+      entschieden_am?: string | null;
+      tags?: string[];
+    },
+  ) => request<Decision>(`/projects/${projectId}/decisions`, { method: "POST", body: JSON.stringify(payload) }),
+  updateDecision: (
+    decisionId: number,
+    payload: Partial<{
+      titel: string;
+      beschreibung: string | null;
+      status: DecisionStatus;
+      entschieden_von: string | null;
+      entschieden_am: string | null;
+      tags: string[];
+    }>,
+  ) => request<Decision>(`/projects/decisions/${decisionId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteDecision: (decisionId: number) => request<void>(`/projects/decisions/${decisionId}`, { method: "DELETE" }),
+
+  listRisks: (projectId: number) => request<Risk[]>(`/projects/${projectId}/risks`),
+  createRisk: (
+    projectId: number,
+    payload: {
+      titel: string;
+      beschreibung?: string | null;
+      wahrscheinlichkeit?: RiskLevel;
+      auswirkung?: RiskLevel;
+      status?: RiskStatus;
+      owner?: string | null;
+      faellig_am?: string | null;
+      tags?: string[];
+    },
+  ) => request<Risk>(`/projects/${projectId}/risks`, { method: "POST", body: JSON.stringify(payload) }),
+  updateRisk: (
+    riskId: number,
+    payload: Partial<{
+      titel: string;
+      beschreibung: string | null;
+      wahrscheinlichkeit: RiskLevel;
+      auswirkung: RiskLevel;
+      status: RiskStatus;
+      owner: string | null;
+      faellig_am: string | null;
+      tags: string[];
+    }>,
+  ) => request<Risk>(`/projects/risks/${riskId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteRisk: (riskId: number) => request<void>(`/projects/risks/${riskId}`, { method: "DELETE" }),
+
+  listMeetingMinutes: (projectId: number) => request<MeetingMinutes[]>(`/projects/${projectId}/meeting-minutes`),
+  createMeetingMinutes: (
+    projectId: number,
+    payload: { titel: string; datum: string; teilnehmer?: string | null; text: string; tags?: string[] },
+  ) =>
+    request<MeetingMinutes>(`/projects/${projectId}/meeting-minutes`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateMeetingMinutes: (
+    meetingId: number,
+    payload: Partial<{ titel: string; datum: string; teilnehmer: string | null; text: string; tags: string[] }>,
+  ) =>
+    request<MeetingMinutes>(`/projects/meeting-minutes/${meetingId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteMeetingMinutes: (meetingId: number) =>
+    request<void>(`/projects/meeting-minutes/${meetingId}`, { method: "DELETE" }),
+
+  listTasks: (projectId: number) => request<Task[]>(`/projects/${projectId}/tasks`),
+  createTask: (
+    projectId: number,
+    payload: {
+      titel: string;
+      beschreibung?: string | null;
+      status?: TaskStatus;
+      zustaendig?: string | null;
+      faellig_am?: string | null;
+      tags?: string[];
+    },
+  ) => request<Task>(`/projects/${projectId}/tasks`, { method: "POST", body: JSON.stringify(payload) }),
+  updateTask: (
+    taskId: number,
+    payload: Partial<{
+      titel: string;
+      beschreibung: string | null;
+      status: TaskStatus;
+      zustaendig: string | null;
+      faellig_am: string | null;
+      tags: string[];
+    }>,
+  ) => request<Task>(`/projects/tasks/${taskId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteTask: (taskId: number) => request<void>(`/projects/tasks/${taskId}`, { method: "DELETE" }),
+
+  // Controlling-Erweiterung: Auslastung & KPIs (siehe CONCEPT.md Abschnitt 6/9, Schritt 9)
+  getUtilization: () => request<MemberUtilization[]>("/team/utilization"),
+  getKpis: () => request<KpiSummary>("/kpis"),
 };

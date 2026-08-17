@@ -653,3 +653,35 @@ class Milestone(Base):
     owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
     aktualisiert_am: Mapped[str] = mapped_column(String(40))
+
+
+class BaselineSnapshot(Base):
+    """Eingefrorener, benannter Planstand eines Projekts zu einem Zeitpunkt (Phase 18,
+    Master-MD Abschnitt 12). Zielarchitektur-native Entität, englische Feldnamen wie
+    PlanPhase/Milestone. Erst sinnvoll seit Phase 17 (PlanPhase/Milestone liefern die
+    Baseline-/Forecast-Felder, die hier eingefroren werden)."""
+
+    __tablename__ = "baseline_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[str] = mapped_column(String(40))
+    created_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
+
+
+class BaselineEntry(Base):
+    """Ein eingefrorener Feldwert innerhalb eines BaselineSnapshot (generisch über
+    entity_type/entity_id/field, analog zu TagLink/DocumentLink/EntityRelation). entity_id
+    ist bewusst KEIN Fremdschlüssel: ein Snapshot muss gültig bleiben, auch wenn die
+    referenzierte PlanPhase/Milestone später gelöscht wird - historischer Stand, analog zu
+    PlanHistory."""
+
+    __tablename__ = "baseline_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    baseline_id: Mapped[int] = mapped_column(ForeignKey("baseline_snapshots.id"))
+    entity_type: Mapped[str] = mapped_column(String(30))
+    entity_id: Mapped[int] = mapped_column()
+    field: Mapped[str] = mapped_column(String(50))
+    value: Mapped[str | None] = mapped_column(String(500), nullable=True)

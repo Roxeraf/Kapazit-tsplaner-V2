@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.8 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–17 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.9 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–18 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -517,7 +517,44 @@ Dieses Repo enthält:
     Feed-Endpunkte weiterhin regressionsfrei. Kein Frontend-Umbau. Details siehe Abschnitt
     12.4 (Phase 17 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–17 der Zielarchitektur (Abschnitt 12) umgesetzt.
+18. **Phase 18 (Baseline Management, Kapazitätsplaner-v2-Zielarchitektur):** Migration
+    `0007` (additiv, zwei neue Tabellen `baseline_snapshots`/`baseline_entries`, keine
+    Änderung an bestehenden Tabellen). Neue Modelle **`BaselineSnapshot`** (`project_id`,
+    `name`, `created_at`, `created_by_person_id`) und **`BaselineEntry`** (`baseline_id`,
+    `entity_type`, `entity_id`, `field`, `value`) — Master-MD Abschnitt 12, generisches
+    Snapshot-Modell analog zu `TagLink`/`DocumentLink`/`EntityRelation`. Wichtiger
+    Unterschied: `BaselineEntry.entity_id` ist bewusst **kein** Fremdschlüssel — ein Snapshot
+    muss ein gültiger historischer Stand bleiben, auch wenn die referenzierte `PlanPhase`/
+    `Milestone` später gelöscht wird (analog zu `PlanHistory`, das ebenfalls unabhängig vom
+    Fortbestand der Quelle historisiert; verifiziert: nach Löschen einer `PlanPhase` blieben
+    alle 11 zugehörigen `BaselineEntry`-Zeilen des Snapshots unverändert erhalten, nur
+    `label`/`current_value` wurden korrekt `null`). `POST /projects/{id}/baselines`
+    (`backend/app/routers/baselines.py`, neuer Router nach dem Planning/Communication-
+    Muster) friert automatisch je `PlanPhase` des Projekts `phase_type, baseline_start,
+    baseline_end, forecast_start, forecast_end, status, progress` und je `Milestone` `name,
+    baseline_date, forecast_date, status` als `BaselineEntry`-Zeilen ein — bewusst nur
+    `PlanPhase`/`Milestone` (Phase 17), keine strukturierte Baseline für das Legacy-Gantt-
+    Grid (siehe Abschnitt 12.3 Frage 5). `GET /projects/{id}/baselines` (Liste),
+    `GET`/`DELETE /projects/baselines/{id}` (Detail/Löschen). **Schedule-/Milestone-
+    Deviations:** `GET /projects/baselines/{id}/deviations` vergleicht je eingefrorenem
+    Datumsfeld den damaligen Wert mit dem aktuellen Live-Wert der referenzierten `PlanPhase`/
+    `Milestone` (`entity_links.model_for`) und liefert die Differenz in Tagen
+    (`delta_days`) — bewusst **kein** genereller Multi-Dimensions-GAP hier, das bleibt Phase
+    21 (GAP Engine); dieser Endpoint deckt nur die in Phase 18 explizit genannten Termin-
+    Abweichungen ab. `created_by_person_id` wird gegen `Person` validiert (404). Lösch-
+    Kaskade in `delete_project` ergänzt (Entries vor Snapshots); bewusst **keine** Änderung
+    an `delete_subproject`/`delete_plan_phase`/`delete_milestone` (Snapshots bleiben
+    historischer Stand). Verifiziert per curl: Snapshot mit 11 Entries erstellt, danach
+    Forecast einer `PlanPhase` (+8 Tage) und eines `Milestone` (+14 Tage) geändert —
+    Deviations lieferten exakt `delta_days=8`/`14`, alle unveränderten Felder korrekt `0`;
+    Snapshot überlebte das Löschen der zugehörigen `PlanPhase` vollständig; 404 bei
+    unbekanntem `created_by_person_id`. Migration gegen frische DB und simulierte bestehende
+    DB (mit befülltem `plan_phases`) getestet — kein Datenverlust, Downgrade/Upgrade-Round-
+    Trip sauber. Bestehende Endpunkte (`/gap`, `/knowledge/*`, Activity Feed, Gantt)
+    regressionsfrei. Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 18 als erledigt
+    markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–18 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -598,8 +635,9 @@ Knowledge Query Layer (`/knowledge/*`, siehe Abschnitt 11 Punkt 15). Phase 16: `
 (`caused_by_party`/`waiting_for_party`), `Comment.parent_id` (Discussion Threading),
 `Decision.begruendung` (Decision Context), Activity Feed (siehe Abschnitt 11 Punkt 16). Phase
 17: `PlanPhase`, `Milestone`, Dependencies über `EntityRelation` (siehe Abschnitt 11 Punkt
-17). Alle übrigen aus der Master-MD (`BaselineSnapshot`/`BaselineEntry`, `ResourceRole`,
-`Skill`/`PersonSkill`, `ResourceDemand`,
+17). Phase 18: `BaselineSnapshot`, `BaselineEntry`, Schedule-/Milestone-Deviations (siehe
+Abschnitt 11 Punkt 18). Alle übrigen aus der Master-MD (`ResourceRole`, `Skill`/
+`PersonSkill`, `ResourceDemand`,
 `CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte GAP-Engine,
 mehrdimensionales Project Health, Administration-UI) bleiben für die jeweils zugeordnete
 spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht umgesetzt**.
@@ -674,7 +712,7 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–17 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17). Phasen 18–26 sind
+Phase 13–18 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18). Phasen 19–26 sind
 Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
@@ -684,7 +722,7 @@ Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 | 15 | Semantic Knowledge Foundation | ✅ Tag-AI-Metadata, Knowledge Query Layer (`/knowledge/*`) |
 | 16 | Activity & Blocker Core | ✅ Blocker (caused_by/waiting_for), Discussion Threading, Decision Context, Activity Feed |
 | 17 | Project Planning Core | ✅ PlanPhase, Milestone, Dependencies (Gantt bleibt unverändert UI) |
-| 18 | Baseline Management | BaselineSnapshot, BaselineEntry, Baseline vs Forecast |
+| 18 | Baseline Management | ✅ BaselineSnapshot, BaselineEntry, Baseline vs Forecast, Deviations |
 | 19 | Capacity Planning Core | ResourceRole, Skill, PersonSkill, ResourceDemand, Commitment-Level |
 | 20 | Real Capacity | CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation |
 | 21 | GAP Engine | Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Drill-down |

@@ -572,6 +572,53 @@ class MilestoneOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Baseline Management (Phase 18, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 12) -
+# eingefrorener, benannter Planstand (PlanPhase/Milestone-Felder) zu einem Zeitpunkt.
+# ---------------------------------------------------------------------------
+
+
+class BaselineSnapshotCreate(BaseModel):
+    name: str
+    created_by_person_id: int | None = None
+
+
+class BaselineEntryOut(BaseModel):
+    id: int
+    entity_type: str
+    entity_id: int
+    field: str
+    value: str | None
+
+
+class BaselineSnapshotOut(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    created_at: str
+    created_by_person_id: int | None
+    entries: list[BaselineEntryOut] = []
+
+
+class BaselineSnapshotSummary(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    created_at: str
+    created_by_person_id: int | None
+    entry_count: int
+
+
+class BaselineDeviationOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    label: str | None
+    field: str
+    baseline_value: str | None
+    current_value: str | None
+    delta_days: int | None  # None, wenn baseline_value/current_value kein gültiges Datum ist
+
+
+# ---------------------------------------------------------------------------
 # Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
 # chronologische Aggregation bestehender Endpunkte, keine neue Tabelle.
 # ---------------------------------------------------------------------------

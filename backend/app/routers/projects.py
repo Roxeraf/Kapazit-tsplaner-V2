@@ -299,6 +299,17 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.query(models.PlanPhase).filter(models.PlanPhase.project_id == project_id).delete()
     db.query(models.Milestone).filter(models.Milestone.project_id == project_id).delete()
 
+    # BaselineSnapshot/BaselineEntry (Phase 18): Entries zuerst über baseline_id, dann die
+    # Snapshots selbst - BaselineEntry hat keine direkte project_id-Spalte (siehe models.py).
+    baseline_ids = [
+        b[0] for b in db.query(models.BaselineSnapshot.id).filter(models.BaselineSnapshot.project_id == project_id).all()
+    ]
+    if baseline_ids:
+        db.query(models.BaselineEntry).filter(models.BaselineEntry.baseline_id.in_(baseline_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(models.BaselineSnapshot).filter(models.BaselineSnapshot.project_id == project_id).delete()
+
     # Dokumente: Datei + Document-Zeile + eigene TagLink-Zeilen (als "document" getaggt) +
     # DocumentLink-Zeilen, bei denen dieses Dokument die verlinkte Datei ist.
     documents = db.query(models.Document).filter(models.Document.project_id == project_id).all()

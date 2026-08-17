@@ -30,52 +30,14 @@ class Project(Base):
     # Jira-Projekt-Key, falls dieses Kapa-Projekt aus dem Jira-Projekt-Katalog (Abschnitt 10 in
     # CONCEPT.md) automatisch angelegt wurde — verhindert Doppelanlage beim erneuten Aktivieren.
     jira_project_key: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)
-    # Projektleitung (freies Textfeld, wie `kunde`). Bleibt bestehen (Abwärtskompatibilität) -
-    # projektleiter_person_id ist die additive, nullable Bridge auf das Personen-Verzeichnis
-    # (Phase 14, siehe CONCEPT.md Abschnitt 12), per Best-Effort-Mapping befüllt.
-    projektleiter: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Projektleitung wird seit Phase 26.1 ausschließlich über die Personen-Bridge geführt
+    # (projektleiter_person_id); das ehemalige Freitextfeld projektleiter ist mit dem
+    # Legacy Cutover (Phase 26.9) entfallen.
     projektleiter_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
 
     subprojects: Mapped[list["Subproject"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Subproject.reihenfolge"
     )
-    gantt_phases: Mapped[list["ProjectGanttPhase"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
-    fte_plan: Mapped[list["ProjectFtePlan"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
-    assignments: Mapped[list["Assignment"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
-
-
-class ProjectGanttPhase(Base):
-    """Gantt-Phasen direkt am Projekt (Grundplanung; Teilprojekte sind optionale Feinplanung)."""
-
-    __tablename__ = "project_gantt_phases"
-    __table_args__ = (UniqueConstraint("project_id", "monat", "phase_code"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
-    monat: Mapped[str] = mapped_column(String(10))
-    phase_code: Mapped[str] = mapped_column(String(1))
-
-    project: Mapped["Project"] = relationship(back_populates="gantt_phases")
-
-
-class ProjectFtePlan(Base):
-    """FTE-Soll direkt am Projekt (Grundplanung; Teilprojekte sind optionale Feinplanung)."""
-
-    __tablename__ = "project_fte_plan"
-    __table_args__ = (UniqueConstraint("project_id", "monat"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
-    monat: Mapped[str] = mapped_column(String(10))
-    wert_soll: Mapped[float] = mapped_column(Float, default=0)
-
-    project: Mapped["Project"] = relationship(back_populates="fte_plan")
 
 
 class Subproject(Base):
@@ -89,40 +51,6 @@ class Subproject(Base):
     reihenfolge: Mapped[int] = mapped_column(default=0)
 
     project: Mapped["Project"] = relationship(back_populates="subprojects")
-    gantt_phases: Mapped[list["GanttPhase"]] = relationship(
-        back_populates="subproject", cascade="all, delete-orphan"
-    )
-    fte_plan: Mapped[list["FtePlan"]] = relationship(
-        back_populates="subproject", cascade="all, delete-orphan"
-    )
-
-
-class GanttPhase(Base):
-    """Entspricht einer belegten Gantt-Zelle. Mehrere Phasen pro Monat = mehrere Zeilen."""
-
-    __tablename__ = "gantt_phases"
-    __table_args__ = (UniqueConstraint("subproject_id", "monat", "phase_code"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    subproject_id: Mapped[int] = mapped_column(ForeignKey("subprojects.id"))
-    monat: Mapped[str] = mapped_column(String(10))  # z.B. "Apr 26"
-    phase_code: Mapped[str] = mapped_column(String(1))  # p/k/t/g/?
-
-    subproject: Mapped["Subproject"] = relationship(back_populates="gantt_phases")
-
-
-class FtePlan(Base):
-    """Entspricht den FTE-Zeilen (Soll) je Teilprojekt/Monat."""
-
-    __tablename__ = "fte_plan"
-    __table_args__ = (UniqueConstraint("subproject_id", "monat"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    subproject_id: Mapped[int] = mapped_column(ForeignKey("subprojects.id"))
-    monat: Mapped[str] = mapped_column(String(10))
-    wert_soll: Mapped[float] = mapped_column(Float, default=0)
-
-    subproject: Mapped["Subproject"] = relationship(back_populates="fte_plan")
 
 
 # ---------------------------------------------------------------------------
@@ -143,30 +71,12 @@ class Team(Base):
     source: Mapped[str] = mapped_column(String(30), default="LOCAL")
     active: Mapped[bool] = mapped_column(default=True)
 
-    members: Mapped[list["TeamMember"]] = relationship(back_populates="team")
-
-
-class TeamMember(Base):
-    __tablename__ = "team_members"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(200))
-    jira_account_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    wochenstunden: Mapped[float] = mapped_column(Float, default=40)
-    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
-    # Nullable Bridge auf das Personen-Verzeichnis (Phase 14) - TeamMember bleibt bestehen,
-    # solange Assignment/Jira-Sync noch darauf referenzieren (siehe CONCEPT.md Abschnitt 12.3
-    # Frage 4), per Best-Effort-Mapping befüllt.
-    person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
-
-    team: Mapped["Team | None"] = relationship(back_populates="members")
-    assignments: Mapped[list["Assignment"]] = relationship(back_populates="team_member")
-
 
 # ---------------------------------------------------------------------------
 # Personen, Organisation & Permissions (Phase 14 der Kapazitätsplaner-v2-Zielarchitektur,
-# siehe CONCEPT.md Abschnitt 12). Person ist bewusst schlank (kein Auth/Login) und getrennt
-# von TeamMember (Kapazitätsressource) - siehe Entwicklungsprinzip 8 der Master-MD.
+# siehe CONCEPT.md Abschnitt 12). Person ist bewusst schlank (kein Auth/Login); das
+# ehemalige Parallelmodell TeamMember ist mit dem Legacy Cutover (Phase 26.9) entfallen -
+# "Mitglied eines Teams" wird über ResourceProfile.team_id ausgedrückt.
 # ---------------------------------------------------------------------------
 
 
@@ -183,8 +93,8 @@ class Person(Base):
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     display_name: Mapped[str] = mapped_column(String(200))
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # Used by Jira/Tempo worklog synchronization. TeamMember keeps the same value only as a
-    # compatibility bridge for the restored legacy planning UI.
+    # Alleinige Quelle für die Jira-/Tempo-Worklog-Zuordnung (siehe jira_sync.py) - seit dem
+    # Legacy Cutover (Phase 26.9), übernommen aus TeamMember.jira_account_id (Migration 0003).
     jira_account_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source: Mapped[str] = mapped_column(String(30), default="LOCAL")  # LOCAL | ENTERPRISE_PLATFORM
     active: Mapped[bool] = mapped_column(default=True)
@@ -262,22 +172,6 @@ class RolePermission(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("app_roles.id"))
     permission_id: Mapped[int] = mapped_column(ForeignKey("permissions.id"))
-
-
-class Assignment(Base):
-    """Verknüpft MA <-> Projekt mit einem FTE-Wert (nicht Prozent — direkt in derselben Einheit
-    wie FTE-Soll/-Ist, siehe CONCEPT.md). Auf Projekt- statt Teilprojekt-Ebene, konsistent zur
-    übrigen Projekt/Teilprojekt-Logik (Teilprojekte sind reine Feinplanung ohne eigene MA-Zuordnung)."""
-
-    __tablename__ = "assignments"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    team_member_id: Mapped[int] = mapped_column(ForeignKey("team_members.id"))
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
-    fte: Mapped[float] = mapped_column(Float, default=0)
-
-    team_member: Mapped["TeamMember"] = relationship(back_populates="assignments")
-    project: Mapped["Project"] = relationship(back_populates="assignments")
 
 
 class UnassignedJiraAuthor(Base):

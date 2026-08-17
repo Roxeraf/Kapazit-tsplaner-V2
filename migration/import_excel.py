@@ -12,9 +12,16 @@ nach der Struktur, die das VBA-Tool erzeugt (legacy/VBA.txt, Funktion
   Teilprojekt 2: Header Zeile 10, Phasenzeilen 11-15
   Teilprojekt 3: Header Zeile 16, Phasenzeilen 17-21
   FTE (Soll):    Zeile 24 (TP1), 25 (TP2), 26 (TP3) — Zeile 27 (Summe) wird ignoriert,
-                 die Summe berechnet der neue Web-App aus TP1-3 on the fly.
+                 die Summe errechnet die neue Web-App aus TP1-3 von selbst.
 
 Das Konfigurationsblatt liefert Startmonat/Anzahl Monate (Row 17/18, Spalte C).
+
+Seit dem Legacy Cutover (Phase 26.9, CONCEPT.md Abschnitt 11 Punkt 26) schreibt der
+Import nicht mehr in das alte Gantt/FTE-Grid, sondern in die führende Zielarchitektur:
+  - Phasenzellen -> PlanPhase (aufeinanderfolgende Monate mit gleichem Phasencode werden
+    zu EINER Phase mit forecast_start/forecast_end verdichtet; "?"-Zellen -> Milestone)
+  - FTE-Soll -> ResourceDemand je Monat (Rolle "Allgemein", wird einmalig angelegt)
+Grund: Das alte Grid ist entfernt, PUT /projects/.../phasen|fte existiert nicht mehr.
 
 Nutzung:
     python migration/import_excel.py <pfad-zur-datei.xlsm> [--api http://localhost:8000]
@@ -24,6 +31,7 @@ da nur für den einmaligen Migrationslauf benötigt).
 """
 
 import argparse
+import datetime
 import sys
 
 import requests
@@ -36,6 +44,52 @@ MONAT_HEADER_ROW = 2
 FIRST_MONAT_COL = 2  # Spalte B
 
 SKIP_SHEETS = {"Konfiguration", "Legende", "Gesamtuebersicht"}
+
+# Phasencode -> sprechendes Label, identisch zu backend/app/constants.py PHASE_LABELS
+# (Import-Ziel: PlanPhase.phase_type ist Freitext; dieselben Labels, die PlanPhaseList
+# als Datalist vorschlägt und die der PPTX-Export wieder auf Kürzel zurückführt).
+PHASE_LABELS = {
+    "p": "Pflichtenheft",
+    "k": "Konfiguration",
+    "t": "Test",
+    "s": "Schulung",
+    "g": "GoLive",
+    "?": "Meilenstein",
+}
+
+MONAT_NAMEN = [
+    "Jan", "Feb", "Mrz", "Apr", "Mai", "Jun",
+    "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
+]
+
+
+def _monat_start(period: str) -> str:
+    name, jahr_str = period.split()
+    jahr = 2000 + int(jahr_str)
+    monat = MONAT_NAMEN.index(name) + 1
+    return f"{jahr}-{monat:02d}-01"
+
+
+def _monat_end(period: str) -> str:
+    name, jahr_str = period.split()
+    jahr = 2000 + int(jahr_str)
+    monat = MONAT_NAMEN.index(name) + 1
+    if monat == 12:
+        return f"{jahr}-12-31"
+    return (datetime.date(jahr, monat + 1, 1) - datetime.timedelta(days=1)).isoformat()
+
+
+def _berechne_monate(start_monat: str, anzahl_monate: int) -> list[str]:
+    """start_monat 'MM.YYYY' -> ['Apr 25', ...] (Duplikat von constants.berechne_monate)."""
+    monat_str, jahr_str = start_monat.split(".")
+    monat_idx = int(monat_str) - 1
+    jahr = int(jahr_str)
+    monate = []
+    for i in range(anzahl_monate):
+        m = (monat_idx + i) % 12
+        j = jahr + (monat_idx + i) // 12
+        monate.append(f"{MONAT_NAMEN[m]} {j % 100:02d}")
+    return monate
 
 
 def read_config(wb) -> tuple[str, int]:
@@ -86,6 +140,71 @@ def read_project_sheet(ws, anzahl_monate: int) -> dict:
     return {"name": name, "subprojects": subprojects}
 
 
+def _verdichte_phasen(monate: list[str], phasen: dict[str, list[str]]) -> list[dict]:
+    """Planphase-Erzeugung: aufeinanderfolgende Monate mit gleichem Code -> EINE Phase.
+
+    Rückgabe: Liste von Dicts mit "kind": "plan_phase"|"milestone" und den zu
+    schreibenden Feldern. '?'-Zellen werden zu Milestones.
+    """
+    idx_by_monat = {monat: i for i, monat in enumerate(monate)}
+
+    runs: dict[str, list[int]] = {}
+    for monat, codes in phasen.items():
+        idx = idx_by_monat.get(monat)
+        if idx is None:
+            continue
+        for code in codes:
+            runs.setdefault(code, []).append(idx)
+
+    result: list[dict] = []
+    for code, indices in sorted(runs.items()):
+        indices = sorted(set(indices))
+        gruppen: list[list[int]] = []
+        for idx in indices:
+            if gruppen and idx == gruppen[-1][-1] + 1:
+                gruppen[-1].append(idx)
+            else:
+                gruppen.append([idx])
+        for gruppe in gruppen:
+            start_label = monate[gruppe[0]]
+            end_label = monate[gruppe[-1]]
+            if code == "?":
+                result.append(
+                    {
+                        "kind": "milestone",
+                        "name": f"Meilenstein {_monat_end(end_label)}",
+                        "forecast_date": _monat_end(end_label),
+                    }
+                )
+            else:
+                result.append(
+                    {
+                        "kind": "plan_phase",
+                        "phase_type": PHASE_LABELS.get(code, f"Phase {code}"),
+                        "forecast_start": _monat_start(start_label),
+                        "forecast_end": _monat_end(end_label),
+                    }
+                )
+    return result
+
+
+def _ensure_default_role(api_base: str) -> int:
+    """Findet die ResourceRole "Allgemein" und legt sie bei Bedarf an (identischer
+    Default wie in Migration 0003_phase26_legacy_cutover). Rückgabe: role_id."""
+    roles = requests.get(f"{api_base}/resource-roles", timeout=30)
+    roles.raise_for_status()
+    for role in roles.json():
+        if role["name"] == "Allgemein":
+            return role["id"]
+    resp = requests.post(
+        f"{api_base}/resource-roles",
+        json={"name": "Allgemein", "description": "Default-Rolle für den Excel-Import (migration/import_excel.py)"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
 def push_to_api(api_base: str, start_monat: str, anzahl_monate: int, project: dict) -> None:
     resp = requests.post(
         f"{api_base}/projects",
@@ -99,6 +218,9 @@ def push_to_api(api_base: str, start_monat: str, anzahl_monate: int, project: di
     resp.raise_for_status()
     project_id = resp.json()["id"]
 
+    monate = _berechne_monate(start_monat, anzahl_monate)
+    role_id = _ensure_default_role(api_base)
+
     for sp in project["subprojects"]:
         resp = requests.post(
             f"{api_base}/projects/{project_id}/subprojects",
@@ -108,17 +230,24 @@ def push_to_api(api_base: str, start_monat: str, anzahl_monate: int, project: di
         resp.raise_for_status()
         subproject_id = resp.json()["id"]
 
-        for monat, codes in sp["phasen"].items():
-            requests.put(
-                f"{api_base}/projects/subprojects/{subproject_id}/phasen",
-                json={"monat": monat, "codes": codes},
-                timeout=30,
-            ).raise_for_status()
+        for eintrag in _verdichte_phasen(monate, sp["phasen"]):
+            if eintrag["kind"] == "milestone":
+                requests.post(
+                    f"{api_base}/projects/{project_id}/milestones",
+                    json={"subproject_id": subproject_id, **eintrag},
+                    timeout=30,
+                ).raise_for_status()
+            else:
+                requests.post(
+                    f"{api_base}/projects/{project_id}/plan-phases",
+                    json={"subproject_id": subproject_id, **eintrag},
+                    timeout=30,
+                ).raise_for_status()
 
         for monat, wert in sp["fte"].items():
-            requests.put(
-                f"{api_base}/projects/subprojects/{subproject_id}/fte",
-                json={"monat": monat, "wert_soll": wert},
+            requests.post(
+                f"{api_base}/projects/{project_id}/resource-demands",
+                json={"resource_role_id": role_id, "period": monat, "fte": wert},
                 timeout=30,
             ).raise_for_status()
 
@@ -151,4 +280,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

@@ -1,7 +1,6 @@
 """Capacity Planning Core (Phase 19, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt
 14-19). Grundsatz "Demand ≠ Assignment": ResourceDemand wird zunächst unabhängig von
-konkreten Personen geplant, erst ResourceAssignment ordnet ihn Personen zu - komplett
-unabhängig vom bestehenden Assignment-Modell (TeamMember<->Project, siehe routers/team.py).
+konkreten Personen geplant, erst ResourceAssignment ordnet ihn Personen zu.
 Folgt demselben CRUD-Muster wie routers/people.py/planning.py."""
 
 from datetime import datetime, timezone

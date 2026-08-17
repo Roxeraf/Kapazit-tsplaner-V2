@@ -66,6 +66,15 @@ cd export
 npm install
 ```
 
+**DB-Migrationen** (Schema wird automatisch beim Backend-Start über Alembic
+gebaut/aktualisiert, siehe `backend/app/db_bootstrap.py` und CONCEPT.md Abschnitt 12.1).
+Vor dem Commit einer Schema-/Migrationsänderung den Migrations-Wächter laufen lassen:
+
+```sh
+cd backend
+python check_migrations.py   # prüft Kette, Drift, Seeds, Roundtrip auf Wegwerf-DB
+```
+
 **Frontend** (Node 18+):
 
 ```sh
@@ -83,30 +92,31 @@ npm run dev
 | `GET/PUT/DELETE /projects/{id}` | Projekt lesen (inkl. `jira_component`, `ist`)/ändern/löschen |
 | `POST /projects/{id}/subprojects` | Teilprojekt anlegen |
 | `GET/PUT/DELETE /projects/subprojects/{id}` | Teilprojekt lesen/ändern/löschen |
-| `GET /projects/subprojects/all` | Alle Teilprojekte flach (für die Zuordnung MA ↔ Teilprojekt) |
-| `PUT /projects/subprojects/{id}/phasen` | Gantt-Phasencodes für einen Monat setzen (`p/k/t/s/g/?`) |
-| `PUT /projects/subprojects/{id}/fte` | FTE-Soll-Wert für einen Monat setzen |
+| `GET /projects/subprojects/all` | Alle Teilprojekte flach (für die `subproject_id`-Zuordnung von PlanPhases) |
+| `GET/POST /projects/{id}/plan-phases`, `PUT/DELETE /projects/plan-phases/{id}` | **Planphasen** (führende Planungswahrheit seit Phase 26.9) |
+| `GET/POST /projects/{id}/milestones`, `PUT/DELETE /projects/milestones/{id}` | **Milestones** |
+| `GET/POST /projects/{id}/baselines(/{id})` | **Baseline-Snapshots** (frieren PlanPhase/Milestone-Stände ein) |
+| `GET /projects/baselines/{id}/deviations` | Termin-Abweichungen eines Snapshots in Tagen |
+| `GET/POST /resource-roles`, `/skills` | Ressourcen-Rollen und Skills (Stammdaten) |
+| `GET/POST /projects/{id}/resource-demands`, `PUT/DELETE /projects/resource-demands/{id}` | **Ressourcenbedarf** (Rolle × Periode, fte) |
+| `GET/POST /resource-demands/{id}/assignments` | Bedarf konkreten Personen zuordnen (+ `/candidates` für Kapazitätsvorschläge) |
 | `GET /projects/{id}/export/pptx` | Projekt als PPTX exportieren |
 | `GET /projects/export/pptx/portfolio` | Alle Projekte als eine PPTX exportieren |
-| `GET /team` | Teams inkl. Mitgliedern (Team-Kapazität-Übersicht) |
+| `GET /team` | Teams auflisten (Mitglieder laufen über `/people` + `/people/{id}/resource-profile`) |
 | `POST/PUT/DELETE /team/teams(/{id})` | Team anlegen/ändern/löschen |
-| `GET/POST /team/members`, `PUT/DELETE /team/members/{id}` | MA-Stammdaten pflegen |
-| `POST /team/members/{id}/assignments`, `DELETE /team/assignments/{id}` | MA ↔ Teilprojekt zuordnen/entfernen |
+| `GET/POST/PUT /people`, `/people/{id}` | **Personen** pflegen (inkl. `jira_account_id`, `active`) |
+| `GET/POST/PUT /people/{id}/resource-profile` | ResourceProfile (= kapazitätsplanbar, Team, Wochenstunden) |
+| `GET /team/unassigned-authors` | Noch keiner Person zugeordnete Jira-Buchungsautoren |
 | `GET /jira/status` | Prüft, ob `JIRA_BASE_URL`/`JIRA_EMAIL`/`JIRA_API_TOKEN` gesetzt sind |
-| `GET /jira/lookup-account?query=` | Jira-Nutzersuche (für `team_members.jira_account_id`) |
+| `GET /jira/lookup-account?query=` | Jira-Nutzersuche (für `persons.jira_account_id`) |
 | `POST /jira/sync` | Worklog-Sync für alle (oder ein) Projekt(e) mit gesetzter `jira_component` |
 | `GET /gap` | Soll/Ist/Gap je Monat und Projekt inkl. Hochrechnung (Trendfortschreibung), optional `?team_id=` |
 | `GET /gap/{project_id}` | Gap-Analyse für ein einzelnes Projekt |
 | `GET /forecast` | Hochrechnung Jahresende/Projektende je Projekt (Kurzform von `/gap`), optional `?team_id=` |
-| `GET /team/utilization` | Auslastungsgrad je Teammitglied (zugeordnetes FTE / Kapazitäts-FTE) |
+| `GET /team/utilization?period=` | Auslastungsgrad je Person (zugeordnetes FTE / Kapazitäts-FTE) |
 | `GET /kpis` | Portfolio-Kennzahlen (Projektstatus-Verteilung, Ø Auslastung, offene Risiken/Entscheidungen) |
-| `GET/POST /projects/{id}/comments` | Notizen/Diskussionen lesen/anlegen (inkl. Tags, Zell-Kommentare über `monat`/`phase_code`) |
-| `GET/POST /projects/{id}/decisions`, `/risks`, `/meeting-minutes`, `/tasks` | Entscheidungen/Risiken/Meetingprotokolle/Aufgaben je Projekt (Kommunikation-Tab) |
-| `POST /projects/{id}/documents` | Datei hochladen (multipart) — zentrale Ablage, optional direkt mit `entity_type`+`entity_id` verknüpft |
-| `GET /projects/{id}/documents`, `GET /documents/{id}/download` | Dokumente eines Projekts auflisten/herunterladen |
-| `POST/DELETE /document-links(/{id})` | Bestehendes Dokument mit einer weiteren Notiz/Entscheidung/Risiko/Meeting verknüpfen/entfernen |
-| `GET /tags` | Systemweite Tag-Autocomplete |
-| `GET /projects/{id}/history`, `/projects/subprojects/{id}/history` | Änderungshistorie, gruppiert nach Revision (`batch_id`) |
+| `GET /projects/{id}/cockpit`, `/health` | Project Control Cockpit + Health-Dimensionen |
+| `GET /controlling/portfolio-health`, `/allocation-gaps`, `...` | Portfolio-Controlling (Health, Kapazität, Schedule-/Progress-Gaps) |
 
 ## Migration bestehender Excel-Daten
 
@@ -115,6 +125,11 @@ cd migration
 pip install -r requirements.txt
 python import_excel.py /pfad/zur/bestehenden_datei.xlsm --api http://localhost:8000
 ```
+
+Der Import schreibt seit Phase 26.9 (Legacy Cutover) direkt in die Zielarchitektur:
+Phasenzellen → `PlanPhase`/`Milestone` (aufeinanderfolgende Monate gleichen Phasencodes
+werden zu einer Phase verdichtet), FTE-Zellen → `ResourceDemand` (Rolle "Allgemein", wird
+bei Bedarf angelegt).
 
 `--dry-run` liest die Datei nur ein und gibt die geparsten Projekte aus, ohne
 etwas in die API zu schreiben.

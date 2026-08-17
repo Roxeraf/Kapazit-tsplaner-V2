@@ -4,7 +4,8 @@ frontend/dist/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/.venv/
-backend/*.db
+backend/*.db*
+# SQLite-Datenbanken und -Backups (auch *.db.stale-backup-*)
 backend/data/
 *.pyc
 

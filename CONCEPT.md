@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.16 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–25 (… Knowledge Experience, Administration UX) der Kapazitätsplaner-v2-Zielarchitektur vollständig umgesetzt; Phase 26 (Functional Integration) mit Unterschritten 26.1–26.7 (Person/Planning/Capacity/Activity/Knowledge/Cockpit Integration, Actionable GAPs) umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.17 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–26 (… Knowledge Experience, Administration UX, Functional Integration) der Kapazitätsplaner-v2-Zielarchitektur vollständig umgesetzt. Mit Phase 26.9 (Legacy Cutover, Welle 2) sind die alten Excel-abgeleiteten Parallelmodelle (Gantt/FTE-Grid, TeamMember/Assignment) real entfernt — **PlanPhase/Milestone/ResourceDemand/Person sind die eine führende Wahrheit** (Planung, Kapazität, Personen), und zwar mit Datenkonvertierung statt Drop-and-Pray (siehe Abschnitt 11, Punkt 26, und Abschnitt 12.1 zur Migrations-Policy)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -1151,9 +1151,51 @@ Dieses Repo enthält:
       Playwright-Screenshot des Dokumente-Tabs bestätigt alle drei Backlinks ("Verwendet in:
       Milestone „GoLive“" / "Planphase „Konfiguration“" / "Blocker „Zugang fehlt“") korrekt
       im UI.
-    - **26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung.
+    - **26.9 (Legacy Cutover) — ✅ erledigt (Welle 2).** Die alten Excel-abgeleiteten
+      Parallelmodelle sind real entfernt, nicht dauerhaft als Bridge stehen geblieben.
+      **Migration `0003_phase26_legacy_cutover`** (auf der konsolidierten Baseline)
+      konvertiert die Bestandsdaten strukturiert, BEVOR sie die Tabellen löscht
+      (Migrations-Policy Nr. 3, Abschnitt 12.1):
+      - `gantt_phases`/`project_gantt_phases` -> `PlanPhase` (aufeinanderfolgende Monate
+        gleichen Codes werden zu einer Phase mit forecast_start/end verdichtet) bzw.
+        `Milestone` für "?"-Zellen;
+      - `fte_plan`/`project_fte_plan` -> `ResourceDemand` (projektweite Monatssummen,
+        Default-Rolle "Allgemein");
+      - `team_members` -> `Person` (Best-Effort-Matching über jira_account_id/Name) +
+        `ResourceProfile` (wochenstunden, team_id);
+      - `assignments` -> `ResourceDemand`+`ResourceAssignment` je Projekt-Monat.
+      Danach werden `assignments`, `team_members`, `gantt_phases`, `fte_plan`,
+      `project_gantt_phases`, `project_fte_plan` sowie `projects.projektleiter`
+      (Freitext, seit 26.1 durch `projektleiter_person_id` abgelöst) gedroppt.
+      Downgrade stellt die Tabellen strukturell wieder her (keine Datenwiederherstellung).
+      Verifiziert gegen die Compose-Postgres-Bestandsdaten (Projekt 11: 4 Gantt-Zellen
+      Sep–Dez 26 -> eine PlanPhase "Pflichtenheft" 2026-09-01..2026-12-31; 7 TeamMember ->
+      3 neue + 5 gematchte Personen mit ResourceProfile) sowie gegen frische SQLite im
+      Migrations-Wächter (Roundtrip, kein Drift).
+      **Umgehängte Leser/Writer** (vor dem Tabellen-Drop): `jira_sync.py` (Person statt
+      TeamMember, 40h-Fallback für unbekannte Autoren bleibt aus 41f71ed erhalten),
+      `gap_analysis.py` (Soll = ResourceDemand, Team-Filter über ResourceProfile),
+      `routers/export.py` (PPTX: Gantt-Raster aus PlanPhase/Milestone rekonstruiert,
+      FTE aus gap_analysis), `routers/team.py` (Person/ResourceProfile statt
+      TeamMember/Assignment-CRUD, Auslastung periodenscharf aus capacity_calc),
+      `routers/kpis.py` (Auslastung über compute_portfolio_utilization),
+      `routers/health.py` (Cockpit-Projektleiter über Personen-Bridge),
+      `schemas.py` (Legacy-Typen entfernt, `PortfolioUtilizationEntry` ergänzt).
+      Frontend: `TeamCapacity.tsx` auf Person/ResourceProfile umgestellt (Anlegen =
+      createPerson+createResourceProfile, "Entfernen" = Deaktivieren, Jira-Matching auf
+      `Person.jira_account_id`), `Utilization.tsx` auf den neuen perioden-scharfen
+      Endpoint, `ProjectPlanningTab.tsx` auf `PlanPhaseList`/`MilestoneList`/
+      `BaselineList`/`ResourceDemandGrid` (der 26.2/26.3-Zielzustand), Team-
+      Zuordnung-Karte entfernt, `PhaseRows.tsx` gelöscht, tote `client.ts`-Methoden und
+      Typen entfernt. Der ProjectJiraTab-Bestandes-Fix aus 41f71ed (Tempo-Status,
+      unzugeordnete Autoren) blieb dabei erhalten. `migration/import_excel.py` importiert
+      ab jetzt in PlanPhase/Milestone/ResourceDemand (Default-Rolle "Allgemein").
+      `alembic check` auf SQLite und PostgreSQL: kein Drift; Wächter-Roundtrip grün;
+      End-to-End auf der echten PostgreSQL-DB: PlanPhase/Milestone/Baseline/ResourceDemand
+      CRUD, Gap (Soll aus Demand), Kickpoint/Health, /team/utilization, /kpis,
+      /controlling/portfolio-health und PPTX-Export (1,5 MB) funktionieren.
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit den Unterschritten 26.1–26.7 umgesetzt, siehe Punkt 26 oben.
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der offene Jira-Issues-Endpoint für den Jira-Tab, der tatsächliche Excel-Migrationslauf gegen eine echte Bestands-.xlsm-Datei (der Import-Code in `migration/import_excel.py` ist auf PlanPhase/Milestone/ResourceDemand umgestellt, die Datei selbst liegt aber nicht im Repo), sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–26 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt — inkl. Phase 26.9 (Legacy Cutover mit Datenkonvertierung, siehe Punkt 26 oben).
 
 ---
 
@@ -1176,26 +1218,52 @@ dokumentieren — genau das leistet dieser Abschnitt, bevor mit Phase 13 begonne
 
 ### 12.1 Migrationsstrategie (Alembic)
 
-Siehe Abschnitt 11 Punkt 13 für den vollständigen Umsetzungsstand. Kurzfassung der Strategie:
+Siehe Abschnitt 11 Punkt 13 für den fachlichen Umsetzungsstand. Stand nach dem
+Konsolidierungsdurchgang (2026-08-17, Schiefstands-Bereinigung):
 
-- Jede künftige Schemaänderung ist eine Alembic-Revision unter `backend/alembic/versions/` —
-  **keine neuen ad-hoc `ALTER TABLE`-Anweisungen mehr** in `main.py` oder anderswo.
-- `backend/alembic/env.py` liest `DATABASE_URL` aus `app.database` (keine doppelt gepflegte
-  Connection-String-Quelle) und nutzt `Base.metadata` für Autogenerate — neue Modelle in
-  `models.py` werden per `alembic revision --autogenerate -m "..."` erfasst.
-- Baseline (`0001`) entspricht exakt dem Schema, das vor Phase 13 per `create_all()` +
-  ad-hoc-`ALTER TABLE` erzeugt wurde (SQLite-Dev wie Postgres-Prod).
-- `db_bootstrap.run_migrations()` (aufgerufen beim App-Start in `main.py`) unterscheidet drei
-  Fälle: (a) DB kennt bereits `alembic_version` → normales `upgrade head`; (b) frische DB
-  (weder `alembic_version` noch `projects` vorhanden) → `upgrade head` führt die Baseline real
-  aus; (c) bestehende, bereits befüllte DB ohne `alembic_version` (heutiger Dev-/Prod-Stand)
-  → einmaliges `stamp 0001`, danach `upgrade head` nur für die Migrationen ab `0002`. Damit
-  bleibt der bisherige Betriebs-Workflow (`uvicorn app.main:app`, Docker-`CMD` unverändert)
-  erhalten — die Migration läuft beim Start, wie zuvor `create_all()`.
-- SQLite-Besonderheit: `ALTER TABLE ... ADD CONSTRAINT` wird von SQLite nicht unterstützt;
-  entsprechende Migrationsschritte (z.B. `tags.category_id`-FK in `0002`) laufen über Alembics
-  `batch_alter_table` (Copy-Move-Strategie), was unter Postgres identisch als normales
-  `ALTER TABLE` funktioniert.
+**Revisionen-Kette:**
+- Baseline `0001_consolidated` — Squash der historischen Kette `0001–0014`. Die alte Kette
+  enthielt die Rücknahme des Phase-26.9-Cutovers (`0013` destruktiv + `0014` Restore), die
+  auf frischen DBs ein No-Op-, auf Bestands-DBs ein Datenverlust-Paar bildete. Alle
+  bekannten DBs waren leer/pre-production → per Nutzerentscheidung zur einen Baseline
+  verdichtet. Sie bildet exakt das Schema ab, das der alte Head `0014` erzeugt hat
+  (per `alembic check` verifiziert), inkl. Seeds (Permissions, Health-Thresholds).
+- `0002_align_project_nullable`: gleicht einen vorbestehenden Alt-Drift der Bestands-PG-DB
+  an (`projects.reihenfolge`/`status` waren dort nullable, das Modell verlangt NOT NULL).
+- `0003_phase26_legacy_cutover`: **Legacy-Cutover mit Datenkonvertierung** (siehe Abschnitt
+  11, Punkt 26.9) — PlanPhase/Milestone/ResourceDemand/Person werden die eine führende
+  Wahrheit, Gantt/FTE-Grid und TeamMember/Assignment werden NACH strukturierter
+  Überführung der Bestandsdaten entfernt. Die Migration ist defensiv gegen
+  Zwischenzustände (Tabellen/Spalten-Existenzprüfungen, No-Op auf bereits bereinigten DBs).
+- `db_bootstrap.run_migrations()` (App-Start in `main.py`) unterscheidet:
+  (a) **frische DB** (kein `alembic_version`) → `upgrade head` führt die Baseline real aus;
+  (b) **bekannte Revision der Kette** → normales `upgrade head`;
+  (c) **Retired-Head `0014`** (Schema nachweislich identisch mit der Baseline) → einmalig
+    `alembic stamp --purge` auf `0001_consolidated`, dann `upgrade head` — ohne
+    Schemaänderung, ohne Datenrisiko;
+  (d) **Pre-Alembic-DB** (kein `alembic_version`, aber `projects` existiert) und
+  (e) **Retired-Zwischenstand `0001`–`0013`** (Schema ≠ Baseline) und
+  (f) **unbekannte Revision** → klare `MigrationStateError`-Fehlermeldungen mit
+    Handlungsinstruktion statt stiller Falschmigration oder nackigem Traceback.
+- **Migrations-Wächter** `backend/check_migrations.py` (Pre-Commit/CI gedacht): prüft auf
+  einer Wegwerf-SQLite-DB exakt einen Head, lückenlose Kette an der Baseline, vollen
+  Upgrade/Drift/Seeds/Downgrade-Roundtrip. Schützt vor dem historischen Fehlertyp
+  (gelöschte Revisionen ⇒ `KeyError` beim App-Start).
+
+**Migrations-Policy (verbindlich):**
+1. Jede Schemaänderung ist eine Alembic-Revision unter `backend/alembic/versions/` — keine
+   ad-hoc `ALTER TABLE` in `main.py` oder anderswo.
+2. **Referenzierte Revisionen nie löschen.** Eine bestehende Kette wird nie dadurch
+   "repariert", dass Dateien verschwinden — sonst bricht der Start jeder DB, die darauf
+   steht (historischer 0013-Vorfall).
+3. **Destruktive Migrationen nur mit Datenkonvertierung:** Tabellen nur droppen, wenn die
+   Daten vorher strukturiert in ihr Zielmodell überführt wurden (oder das Projekt
+   ausdrücklich und dokumentiert Datenverlust akzeptiert). Reines Drop-im-Upload-ohne-
+   Konvertierung ist verboten (historisches 0013/0014-Muster).
+4. Vor jedem Commit: `python backend/check_migrations.py` — scheitert die Kette, wird
+   nicht committed.
+5. `env.py` liest `DATABASE_URL` aus `app.database` (eine Quelle), Autogenerate nutzt
+   `Base.metadata`; SQLite-Besonderheiten laufen über `batch_alter_table`.
 
 ### 12.2 Mapping bestehender Code → Zielarchitektur (A/B/C/D)
 

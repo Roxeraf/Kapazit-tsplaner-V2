@@ -25,7 +25,8 @@ import type {
   JiraSyncResult,
   KpiSummary,
   MeetingMinutes,
-  MemberUtilization,
+  PortfolioUtilizationEntry,
+  ResourceProfile,
   ActivityItem,
   BaselineSnapshot,
   BaselineSnapshotSummary,
@@ -61,8 +62,6 @@ import type {
   Task,
   TaskStatus,
   Team,
-  TeamMember,
-  TeamWithMembers,
   UnassignedAuthor,
 } from "../types";
 
@@ -116,7 +115,6 @@ export const api = {
       anzahl_monate: number;
       jira_component: string | null;
       status: ProjectStatus;
-      projektleiter: string | null;
       projektleiter_person_id: number | null;
       kommentar_id: number | null;
       batch_id: string | null;
@@ -132,50 +130,6 @@ export const api = {
     }),
   deleteSubproject: (subprojectId: number) =>
     request<void>(`/projects/subprojects/${subprojectId}`, { method: "DELETE" }),
-  setProjectPhasen: (
-    projectId: number,
-    monat: string,
-    codes: string[],
-    kommentar_id?: number | null,
-    batch_id?: string | null,
-  ) =>
-    request<ProjectDetail>(`/projects/${projectId}/phasen`, {
-      method: "PUT",
-      body: JSON.stringify({ monat, codes, kommentar_id, batch_id }),
-    }),
-  setProjectFte: (
-    projectId: number,
-    monat: string,
-    wert_soll: number,
-    kommentar_id?: number | null,
-    batch_id?: string | null,
-  ) =>
-    request<ProjectDetail>(`/projects/${projectId}/fte`, {
-      method: "PUT",
-      body: JSON.stringify({ monat, wert_soll, kommentar_id, batch_id }),
-    }),
-  setPhasen: (
-    subprojectId: number,
-    monat: string,
-    codes: string[],
-    kommentar_id?: number | null,
-    batch_id?: string | null,
-  ) =>
-    request(`/projects/subprojects/${subprojectId}/phasen`, {
-      method: "PUT",
-      body: JSON.stringify({ monat, codes, kommentar_id, batch_id }),
-    }),
-  setFte: (
-    subprojectId: number,
-    monat: string,
-    wert_soll: number,
-    kommentar_id?: number | null,
-    batch_id?: string | null,
-  ) =>
-    request(`/projects/subprojects/${subprojectId}/fte`, {
-      method: "PUT",
-      body: JSON.stringify({ monat, wert_soll, kommentar_id, batch_id }),
-    }),
   updateSubproject: (subprojectId: number, payload: { name?: string; reihenfolge?: number }) =>
     request<SubprojectDetail>(`/projects/subprojects/${subprojectId}`, {
       method: "PUT",
@@ -346,38 +300,15 @@ export const api = {
   exportPptxUrl: (projectId: number) => `${API_BASE}/projects/${projectId}/export/pptx`,
   exportPortfolioPptxUrl: () => `${API_BASE}/projects/export/pptx/portfolio`,
 
-  // Team-Kapazität
-  listTeams: () => request<TeamWithMembers[]>("/team"),
-  listMembers: () => request<TeamMember[]>("/team/members"),
+  // Team-Kapazität (Phase 26.9: Mitgliederverwaltung läuft über Person/ResourceProfile,
+  // siehe listPeople/createPerson/updatePerson/getResourceProfile weiter unten)
+  listTeams: () => request<Team[]>("/team"),
   listUnassignedAuthors: () => request<UnassignedAuthor[]>("/team/unassigned-authors"),
   createTeam: (name: string) =>
     request<Team>("/team/teams", { method: "POST", body: JSON.stringify({ name }) }),
   updateTeam: (teamId: number, payload: { name?: string }) =>
     request<Team>(`/team/teams/${teamId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteTeam: (teamId: number) => request<void>(`/team/teams/${teamId}`, { method: "DELETE" }),
-  createMember: (payload: {
-    name: string;
-    jira_account_id?: string | null;
-    wochenstunden?: number;
-    team_id?: number | null;
-  }) => request<TeamMember>("/team/members", { method: "POST", body: JSON.stringify(payload) }),
-  updateMember: (
-    memberId: number,
-    payload: Partial<{
-      name: string;
-      jira_account_id: string | null;
-      wochenstunden: number;
-      team_id: number | null;
-    }>,
-  ) => request<TeamMember>(`/team/members/${memberId}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deleteMember: (memberId: number) => request<void>(`/team/members/${memberId}`, { method: "DELETE" }),
-  createAssignment: (memberId: number, projectId: number, fte: number) =>
-    request<TeamMember>(`/team/members/${memberId}/assignments`, {
-      method: "POST",
-      body: JSON.stringify({ project_id: projectId, fte }),
-    }),
-  deleteAssignment: (assignmentId: number) =>
-    request<void>(`/team/assignments/${assignmentId}`, { method: "DELETE" }),
 
   // Jira-Ist-Integration
   jiraStatus: () => request<JiraStatus>("/jira/status"),
@@ -556,16 +487,39 @@ export const api = {
   deleteTask: (taskId: number) => request<void>(`/projects/tasks/${taskId}`, { method: "DELETE" }),
 
   // Controlling-Erweiterung: Auslastung & KPIs (siehe CONCEPT.md Abschnitt 6/9, Schritt 9)
-  getUtilization: () => request<MemberUtilization[]>("/team/utilization"),
+  getUtilization: (period?: string) =>
+    request<PortfolioUtilizationEntry[]>(`/team/utilization${period ? `?period=${encodeURIComponent(period)}` : ""}`),
   getKpis: () => request<KpiSummary>("/kpis"),
 
   // Fachliche Administration (Phase 25) + projektweiter PersonPicker (Phase 26.1)
   listPeople: (search?: string) =>
     request<AdminPerson[]>(`/people${search ? `?search=${encodeURIComponent(search)}` : ""}`),
-  createPerson: (payload: { display_name: string; email?: string | null }) =>
+  createPerson: (payload: { display_name: string; email?: string | null; jira_account_id?: string | null }) =>
     request<AdminPerson>("/people", { method: "POST", body: JSON.stringify(payload) }),
-  updatePerson: (id: number, payload: Partial<Pick<AdminPerson, "display_name" | "email" | "active">>) =>
-    request<AdminPerson>(`/people/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  updatePerson: (
+    id: number,
+    payload: Partial<Pick<AdminPerson, "display_name" | "email" | "active" | "jira_account_id">>,
+  ) => request<AdminPerson>(`/people/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+
+  // ResourceProfile (Phase 14/26.9) - macht eine Person kapazitätsplanbar/teamzugehörig.
+  getResourceProfile: (personId: number) =>
+    request<ResourceProfile | null>(`/people/${personId}/resource-profile`),
+  createResourceProfile: (
+    personId: number,
+    payload: { team_id?: number | null; weekly_hours?: number; capacity_relevant?: boolean; active?: boolean },
+  ) =>
+    request<ResourceProfile>(`/people/${personId}/resource-profile`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateResourceProfile: (
+    personId: number,
+    payload: Partial<{ team_id: number | null; weekly_hours: number; capacity_relevant: boolean; active: boolean }>,
+  ) =>
+    request<ResourceProfile>(`/people/${personId}/resource-profile`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 
   // Projektteam (Phase 14, ab Phase 26.1 im Frontend genutzt)
   listProjectMemberships: (projectId: number) =>

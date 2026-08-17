@@ -26,12 +26,12 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
     Alle Buchungen werden übernommen. Für noch nicht zugeordnete Accounts verwendet die
     Ist-FTE-Berechnung 40 Wochenstunden als transparenten Standardwert. Damit verschwinden
     Tempo-/Jira-Daten nicht nur deshalb, weil die Personenpflege noch nicht abgeschlossen ist.
-    Nur Buchungen von MA mit bekanntem `jira_account_id` (siehe team_members) werden
-    übernommen, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
+    Nur Buchungen von Personen mit bekanntem `jira_account_id` (siehe models.Person) werden
+    als zugeordnet gezählt, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
 
     Rückgabe: (Anzahl gecachter Worklogs, Anzahl unzugeordneter Buchungen, Beispiele
     unbekannter Autoren als {"account_id", "display_name"} — zum Abgleich mit den in den
-    Team-Stammdaten hinterlegten Jira-Account-IDs, falls eine Zuordnung fehlschlägt).
+    Personen-Stammdaten hinterlegten Jira-Account-IDs, falls eine Zuordnung fehlschlägt).
     """
     since = (date.today() - timedelta(days=SYNC_LOOKBACK_DAYS)).isoformat()
     if tempo_client.is_configured():
@@ -53,13 +53,9 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
     raw_worklogs = list(aggregiert.values())
 
     known_account_ids = {
-        m.jira_account_id
-        for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
-    }
-    known_account_ids.update(
         p.jira_account_id
         for p in db.query(models.Person).filter(models.Person.jira_account_id.isnot(None))
-    )
+    }
 
     gespeichert = 0
     unzugeordnet = 0
@@ -116,8 +112,8 @@ def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:
     """Ist-FTE je Monat aus dem Worklog-Cache.
 
     Formel (CONCEPT.md Abschnitt 4, Punkt 4):
-    Ist_FTE(Monat) = Summe_Stunden / (Wochenstunden_MA × Arbeitswochen_Monat), je MA berechnet
-    und je Projekt/Monat aufsummiert.
+    Ist_FTE(Monat) = Summe_Stunden / (Wochenstunden_Person × Arbeitswochen_Monat), je Person
+    berechnet und je Projekt/Monat aufsummiert.
     """
     if project.jira_component is None:
         return {}
@@ -130,19 +126,17 @@ def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:
     if not rows:
         return {}
 
+    # Alleinige Quelle für Wochenstunden ist seit dem Legacy Cutover (Phase 26.9)
+    # Person.jira_account_id + ResourceProfile.weekly_hours. Unbekannte Autoren werden unten
+    # mit dem 40h-Standardwert berechnet (siehe Kommentar dort).
     wochenstunden_by_account = {
-        m.jira_account_id: m.wochenstunden
-        for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
+        person.jira_account_id: profile.weekly_hours
+        for person, profile in (
+            db.query(models.Person, models.ResourceProfile)
+            .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
+            .filter(models.Person.jira_account_id.isnot(None))
+        )
     }
-    # Person/ResourceProfile remains the canonical source after phase 26.9. Merge it with the
-    # legacy TeamMember bridge so existing worklogs also load directly after upgrading a DB
-    # that had already dropped team_members.
-    for person, profile in (
-        db.query(models.Person, models.ResourceProfile)
-        .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
-        .filter(models.Person.jira_account_id.isnot(None))
-    ):
-        wochenstunden_by_account[person.jira_account_id] = profile.weekly_hours
 
     stunden_je_ma_monat: dict[tuple[str, str], float] = {}
     for row in rows:

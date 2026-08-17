@@ -2,12 +2,14 @@
 
 import datetime
 
-# Referenz-Wochenstunden für "1.0 FTE" - TeamMember.wochenstunden/ResourceProfile.weekly_hours/
-# WorkingTime.weekly_hours default ist 40. Kapazität einer Person wird durchgängig als
-# wochenstunden / VOLLZEIT_WOCHENSTUNDEN ausgedrückt (siehe routers/team.py, routers/
-# real_capacity.py).
+# Referenz-Wochenstunden für "1.0 FTE" - ResourceProfile.weekly_hours/WorkingTime.weekly_hours
+# default ist 40. Kapazität einer Person wird durchgängig als wochenstunden /
+# VOLLZEIT_WOCHENSTUNDEN ausgedrückt (siehe routers/real_capacity.py, capacity_calc.py).
 VOLLZEIT_WOCHENSTUNDEN = 40
 
+# Labels der ehemaligen Gantt-Phasencodes - seit dem Legacy Cutover (Phase 26.9) nicht mehr
+# das Eingabe-Vokabular, sondern nur noch die Rückrichtung für den PPTX-Export
+# (routers/export.py rekonstruiert das alte Kürzel-Raster aus PlanPhase.phase_type).
 PHASE_LABELS = {
     "p": "Pflichtenheft",
     "k": "Konfiguration",
@@ -16,8 +18,6 @@ PHASE_LABELS = {
     "g": "GoLive",
     "?": "Meilenstein",
 }
-
-PHASE_CODES = list(PHASE_LABELS.keys())
 
 # Für die Ist-FTE-Umrechnung (Jira-Integration, siehe CONCEPT.md Abschnitt 4):
 # Stunden -> FTE über einen pauschalen Wert für Arbeitswochen pro Monat (52 / 12).

@@ -53,8 +53,11 @@ export default function ProjectSettingsTab() {
     reload();
   };
 
-  const handleProjektleiterChange = async (personId: number | null) => {
-    await api.updateProject(project.id, { projektleiter_person_id: personId });
+  // Schreibt projektleiter_person_id (Phase 26.1) UND den Freitext projektleiter mit -
+  // Portfolio-Karten und das Cockpit lesen bis zur Cockpit-Integration (26.6) noch den
+  // Freitext direkt, siehe CONCEPT.md Abschnitt 12.3.
+  const handleProjektleiterChange = async (personId: number | null, displayName: string | null) => {
+    await api.updateProject(project.id, { projektleiter_person_id: personId, projektleiter: displayName });
     reload();
   };
 
@@ -82,7 +85,13 @@ export default function ProjectSettingsTab() {
           </label>
           <label>
             Projektleiter
-            <PersonPicker value={project.projektleiter_person_id} onChange={handleProjektleiterChange} />
+            <PersonPicker
+              value={project.projektleiter_person_id}
+              onChange={() => {
+                /* Speichern erfolgt in onPersonChange, sobald der display_name feststeht. */
+              }}
+              onPersonChange={(person) => handleProjektleiterChange(person?.id ?? null, person?.display_name ?? null)}
+            />
           </label>
         </div>
       </div>

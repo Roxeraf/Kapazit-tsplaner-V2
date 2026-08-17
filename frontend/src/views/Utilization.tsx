@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { PortfolioUtilizationEntry } from "../types";
+import type { MemberUtilization } from "../types";
 
 function levelColor(pct: number | null): string {
   if (pct === null) return "var(--grau)";
@@ -11,7 +11,7 @@ function levelColor(pct: number | null): string {
 }
 
 export default function Utilization() {
-  const [rows, setRows] = useState<PortfolioUtilizationEntry[]>([]);
+  const [rows, setRows] = useState<MemberUtilization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,8 +29,8 @@ export default function Utilization() {
         Auslastung
       </h2>
       <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-        Über ResourceAssignment zugeordnetes FTE der aktuellen Periode im Verhältnis zur individuellen
-        Kapazität je Teammitglied.
+        Zugeordnetes FTE (Summe über alle Projekt-Zuordnungen) im Verhältnis zur individuellen Kapazität je
+        Teammitglied.
       </p>
 
       {loading && <p>Lade Auslastung …</p>}
@@ -53,8 +53,8 @@ export default function Utilization() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.person_id}>
-                <td className="label">{r.person_name}</td>
+              <tr key={r.member_id}>
+                <td className="label">{r.member_name}</td>
                 <td className="label">{r.team_name ?? "Ohne Team"}</td>
                 <td>{r.kapazitaet_fte.toFixed(2)}</td>
                 <td>{r.zugeordnet_fte.toFixed(2)}</td>

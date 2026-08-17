@@ -183,14 +183,11 @@ def get_project_cockpit(project_id: int, db: Session = Depends(get_db)):
         .order_by(models.Milestone.baseline_date, models.Milestone.id)
         .all()
     )
-    projektleiter_person = (
-        db.get(models.Person, project.projektleiter_person_id) if project.projektleiter_person_id else None
-    )
     return schemas.ProjectControlCockpitOut(
         project_id=project.id,
         project_name=project.name,
         kunde=project.kunde,
-        projektleiter=projektleiter_person.display_name if projektleiter_person else None,
+        projektleiter=project.projektleiter,
         health=health_calc.compute_project_health(db, project),
         current_phase=_current_phase(db, project_id),
         forecast_end=_forecast_end(db, project_id),

@@ -1,7 +1,7 @@
 """PlanPhase & Milestone (Project Planning Core, Phase 17, siehe CONCEPT.md Abschnitt 12 /
-Master-MD Abschnitt 8/9/10). Seit dem Legacy Cutover (Phase 26.9) die alleinige
-Planungswahrheit - das ehemals parallele Gantt-Grid (GanttPhase/ProjectGanttPhase) ist
-entfallen. Folgt demselben CRUD-Muster wie routers/communication.py."""
+Master-MD Abschnitt 8/9/10). Additiv und unabhängig vom bestehenden Gantt-Grid
+(GanttPhase/ProjectGanttPhase in routers/projects.py) - kein Sync in diesem Durchgang, siehe
+CONCEPT.md Abschnitt 12.3 Frage 5. Folgt demselben CRUD-Muster wie routers/communication.py."""
 
 from datetime import datetime, timezone
 

@@ -685,3 +685,80 @@ class BaselineEntry(Base):
     entity_id: Mapped[int] = mapped_column()
     field: Mapped[str] = mapped_column(String(50))
     value: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Capacity Planning Core (Phase 19 der Kapazitätsplaner-v2-Zielarchitektur, siehe CONCEPT.md
+# Abschnitt 12). Grundsatz "Demand ≠ Assignment": ResourceDemand/ResourceAssignment sind
+# komplett neu und unabhängig vom bestehenden Assignment-Modell (TeamMember<->Project, siehe
+# routers/team.py) - keine Migration, keine Bridge, beide Systeme laufen parallel.
+# ---------------------------------------------------------------------------
+
+
+class ResourceRole(Base):
+    """Rollenbasierter Ressourcenbedarf (z.B. Projektleitung, Consulting, Integration,
+    Development, Support), siehe Master-MD Abschnitt 15. Getrennt von Skill (Abschnitt 16) -
+    Rolle und Skill sind unterschiedliche Dimensionen."""
+
+    __tablename__ = "resource_roles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class PersonSkill(Base):
+    __tablename__ = "person_skills"
+    __table_args__ = (UniqueConstraint("person_id", "skill_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
+    skill_id: Mapped[int] = mapped_column(ForeignKey("skills.id"))
+    # Freitext (wie Blocker.severity) - Master-MD gibt keine feste Werteliste vor, z.B.
+    # "grundkenntnisse"/"fortgeschritten"/"experte".
+    level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+
+class ResourceDemand(Base):
+    """Ressourcenbedarf, zunächst unabhängig von konkreten Personen geplant (Master-MD
+    Abschnitt 17) - erst ResourceAssignment ordnet ihn Personen zu."""
+
+    __tablename__ = "resource_demands"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    plan_phase_id: Mapped[int | None] = mapped_column(ForeignKey("plan_phases.id"), nullable=True)
+    resource_role_id: Mapped[int] = mapped_column(ForeignKey("resource_roles.id"))
+    # Gleiches "Apr 26"-Format wie GanttPhase.monat/FtePlan.monat (siehe
+    # constants.berechne_monate) - "Capacity Bucket = MONTH" laut Master-MD Abschnitt 17.
+    period: Mapped[str] = mapped_column(String(10))
+    fte: Mapped[float] = mapped_column(Float, default=0)
+    # FIX/TENTATIVE/SCENARIO, fester Wertebereich laut Master-MD Abschnitt 19.
+    commitment_level: Mapped[str] = mapped_column(String(20), default="TENTATIVE")
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+    aktualisiert_am: Mapped[str] = mapped_column(String(40))
+
+
+class ResourceAssignment(Base):
+    """Ordnet einen ResourceDemand konkreten Personen zu (Master-MD Abschnitt 18) - getrennt
+    vom bestehenden Assignment-Modell (TeamMember<->Project), siehe Klassendoku oben."""
+
+    __tablename__ = "resource_assignments"
+    __table_args__ = (UniqueConstraint("resource_demand_id", "person_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    resource_demand_id: Mapped[int] = mapped_column(ForeignKey("resource_demands.id"))
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
+    fte: Mapped[float] = mapped_column(Float, default=0)
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+    aktualisiert_am: Mapped[str] = mapped_column(String(40))

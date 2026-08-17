@@ -310,6 +310,18 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
         )
     db.query(models.BaselineSnapshot).filter(models.BaselineSnapshot.project_id == project_id).delete()
 
+    # ResourceDemand/ResourceAssignment (Phase 19): Assignments zuerst über resource_demand_id,
+    # dann die Demands selbst - ResourceAssignment hat keine direkte project_id-Spalte.
+    # ResourceRole/Skill/PersonSkill sind projektunabhängige Stammdaten und bleiben unangetastet.
+    demand_ids = [
+        d[0] for d in db.query(models.ResourceDemand.id).filter(models.ResourceDemand.project_id == project_id).all()
+    ]
+    if demand_ids:
+        db.query(models.ResourceAssignment).filter(models.ResourceAssignment.resource_demand_id.in_(demand_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(models.ResourceDemand).filter(models.ResourceDemand.project_id == project_id).delete()
+
     # Dokumente: Datei + Document-Zeile + eigene TagLink-Zeilen (als "document" getaggt) +
     # DocumentLink-Zeilen, bei denen dieses Dokument die verlinkte Datei ist.
     documents = db.query(models.Document).filter(models.Document.project_id == project_id).all()

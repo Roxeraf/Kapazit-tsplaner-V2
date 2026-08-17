@@ -619,6 +619,97 @@ class BaselineDeviationOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Capacity Planning Core (Phase 19, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt
+# 14-19). Grundsatz "Demand ≠ Assignment" - komplett unabhängig vom bestehenden
+# Assignment-Modell (TeamMember<->Project, siehe TeamMemberOut/AssignmentOut oben).
+# ---------------------------------------------------------------------------
+
+CommitmentLevel = Literal["FIX", "TENTATIVE", "SCENARIO"]
+
+
+class ResourceRoleCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class ResourceRoleOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    active: bool
+
+
+class SkillCreate(BaseModel):
+    name: str
+    category: str | None = None
+
+
+class SkillOut(BaseModel):
+    id: int
+    name: str
+    category: str | None
+    active: bool
+
+
+class PersonSkillCreate(BaseModel):
+    skill_id: int
+    level: str | None = None
+
+
+class PersonSkillOut(BaseModel):
+    id: int
+    person_id: int
+    skill_id: int
+    skill_name: str
+    level: str | None
+
+
+class ResourceDemandCreate(BaseModel):
+    plan_phase_id: int | None = None
+    resource_role_id: int
+    period: str
+    fte: float = 0
+    commitment_level: CommitmentLevel = "TENTATIVE"
+
+
+class ResourceDemandUpdate(BaseModel):
+    plan_phase_id: int | None = None
+    resource_role_id: int | None = None
+    period: str | None = None
+    fte: float | None = None
+    commitment_level: CommitmentLevel | None = None
+
+
+class ResourceDemandOut(BaseModel):
+    id: int
+    project_id: int
+    plan_phase_id: int | None
+    resource_role_id: int
+    resource_role_name: str
+    period: str
+    fte: float
+    commitment_level: str
+    erstellt_am: str
+    aktualisiert_am: str
+    assigned_fte: float  # Summe der ResourceAssignment.fte - reine Aggregation, kein Gap
+
+
+class ResourceAssignmentCreate(BaseModel):
+    person_id: int
+    fte: float = 0
+
+
+class ResourceAssignmentOut(BaseModel):
+    id: int
+    resource_demand_id: int
+    person_id: int
+    person_name: str
+    fte: float
+    erstellt_am: str
+    aktualisiert_am: str
+
+
+# ---------------------------------------------------------------------------
 # Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
 # chronologische Aggregation bestehender Endpunkte, keine neue Tabelle.
 # ---------------------------------------------------------------------------

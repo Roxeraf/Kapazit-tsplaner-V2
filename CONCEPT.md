@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.9 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–18 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.10 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–19 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -554,7 +554,47 @@ Dieses Repo enthält:
     regressionsfrei. Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 18 als erledigt
     markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–18 der Zielarchitektur (Abschnitt 12) umgesetzt.
+19. **Phase 19 (Capacity Planning Core, Kapazitätsplaner-v2-Zielarchitektur):** Migration
+    `0008` (additiv, fünf neue Tabellen, keine Änderung an bestehenden Tabellen). Grundsatz
+    **"Demand ≠ Assignment"** (Master-MD Abschnitt 14): Ressourcenbedarf wird zunächst
+    unabhängig von konkreten Personen geplant, erst danach zugeordnet. Neue Modelle:
+    **`ResourceRole`** (rollenbasierter Bedarf, z.B. Consulting/Development), **`Skill`** +
+    **`PersonSkill`** (Rolle und Skill sind unterschiedliche Dimensionen, Master-MD Abschnitt
+    16 — `level` bewusst Freitext, keine feste Werteliste vorgegeben), **`ResourceDemand`**
+    (`project_id`, `plan_phase_id` nullable, `resource_role_id`, `period` im gleichen
+    `"Apr 26"`-Format wie `GanttPhase.monat`/`FtePlan.monat` — "Capacity Bucket = MONTH" laut
+    Master-MD Abschnitt 17 —, `fte`, `commitment_level` ∈ {`FIX`,`TENTATIVE`,`SCENARIO`}) und
+    **`ResourceAssignment`** (`resource_demand_id`, `person_id`, `fte` — ordnet einen
+    `ResourceDemand` konkreten Personen zu). **Bewusste Abgrenzung vom bestehenden
+    `Assignment`-Modell** (`TeamMember`↔`Project`, direkter FTE-Wert, `routers/team.py`):
+    keine Migration, keine Bridge, beide Systeme laufen komplett parallel — das ist exakt der
+    geforderte Grundsatz, nicht ein Versehen. `ResourceRole`/`Skill`/`ResourceDemand`/
+    `ResourceAssignment` sind bewusst **nicht** in `schemas.EntityType`/`entity_links`-Registry
+    aufgenommen (keine Tag-/Relation-/Knowledge-Layer-Anbindung in diesem Durchgang) — anders
+    als `PlanPhase`/`Milestone`/`Blocker` fehlt `ResourceDemand` ein natürliches
+    Text-Label-Feld für das bestehende Registry-Muster, und es ist nicht Teil der expliziten
+    Phase-19-Checkliste der Master-MD (analog zu `Team`, ebenfalls nicht im Vokabular). Neuer
+    Router `backend/app/routers/capacity.py`: `GET/POST /resource-roles`, `GET/POST /skills`
+    (je 409 bei Namens-Duplikat), `GET/POST /people/{id}/skills` + `DELETE
+    /person-skills/{id}` (409 bei Duplikat), `GET/POST /projects/{id}/resource-demands` +
+    `PUT/DELETE /projects/resource-demands/{id}` (`plan_phase_id` wird gegen das Projekt
+    validiert, 404/422 analog `planning.py`), `GET/POST /resource-demands/{id}/assignments` +
+    `DELETE /resource-assignments/{id}` (409 bei Duplikat-Zuordnung). `ResourceDemandOut`
+    liefert zusätzlich `assigned_fte` (reine Summe der zugehörigen `ResourceAssignment.fte` —
+    keine GAP-Berechnung, das bleibt Phase 21). Lösch-Kaskade in `delete_project` ergänzt
+    (Assignments vor Demands); `ResourceRole`/`Skill`/`PersonSkill` sind projektunabhängige
+    Stammdaten und bleiben beim Projekt-Löschen unangetastet (verifiziert). Verifiziert per
+    curl: exakt das Master-MD-Beispiel nachgestellt (Consulting-Bedarf Oktober 0,8 FTE, Person
+    A 0,5 + Person B 0,2 zugeordnet → `assigned_fte=0.7`), Namens-/Zuordnungs-Duplikate (409),
+    unbekannte Rolle/Person/Skill (404), projektübergreifende `plan_phase_id` korrekt mit 422
+    abgelehnt, Lösch-Kaskaden (Demand→Assignments, Projekt→Demands, Stammdaten bleiben
+    bestehen). Migration gegen frische DB und simulierte bestehende DB (mit befülltem
+    `plan_phases`) getestet — kein Datenverlust, Downgrade/Upgrade-Round-Trip sauber.
+    Bestehende Endpunkte (`/team`, `/gap`, `/knowledge/*`, Activity Feed, `/people`)
+    regressionsfrei. Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 19 als erledigt
+    markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–19 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -636,11 +676,11 @@ Knowledge Query Layer (`/knowledge/*`, siehe Abschnitt 11 Punkt 15). Phase 16: `
 `Decision.begruendung` (Decision Context), Activity Feed (siehe Abschnitt 11 Punkt 16). Phase
 17: `PlanPhase`, `Milestone`, Dependencies über `EntityRelation` (siehe Abschnitt 11 Punkt
 17). Phase 18: `BaselineSnapshot`, `BaselineEntry`, Schedule-/Milestone-Deviations (siehe
-Abschnitt 11 Punkt 18). Alle übrigen aus der Master-MD (`ResourceRole`, `Skill`/
-`PersonSkill`, `ResourceDemand`,
-`CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte GAP-Engine,
-mehrdimensionales Project Health, Administration-UI) bleiben für die jeweils zugeordnete
-spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht umgesetzt**.
+Abschnitt 11 Punkt 18). Phase 19: `ResourceRole`, `Skill`, `PersonSkill`, `ResourceDemand`,
+`ResourceAssignment`, Commitment-Level (siehe Abschnitt 11 Punkt 19). Alle übrigen aus der
+Master-MD (`CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte
+GAP-Engine, mehrdimensionales Project Health, Administration-UI) bleiben für die jeweils
+zugeordnete spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht umgesetzt**.
 
 **D — bewusst später (unverändert aus der Master-MD):**
 KI Project Agent, Vector-/Embedding-Layer, Enterprise-SSO, vollständiger Enterprise-Sync,
@@ -712,7 +752,7 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–18 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18). Phasen 19–26 sind
+Phase 13–19 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19). Phasen 20–26 sind
 Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
@@ -723,7 +763,7 @@ Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 | 16 | Activity & Blocker Core | ✅ Blocker (caused_by/waiting_for), Discussion Threading, Decision Context, Activity Feed |
 | 17 | Project Planning Core | ✅ PlanPhase, Milestone, Dependencies (Gantt bleibt unverändert UI) |
 | 18 | Baseline Management | ✅ BaselineSnapshot, BaselineEntry, Baseline vs Forecast, Deviations |
-| 19 | Capacity Planning Core | ResourceRole, Skill, PersonSkill, ResourceDemand, Commitment-Level |
+| 19 | Capacity Planning Core | ✅ ResourceRole, Skill, PersonSkill, ResourceDemand, ResourceAssignment, Commitment-Level |
 | 20 | Real Capacity | CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation |
 | 21 | GAP Engine | Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Drill-down |
 | 22 | Project Control & Health | mehrdimensionales Project Health, Project Control Cockpit |

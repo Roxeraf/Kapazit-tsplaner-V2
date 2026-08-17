@@ -95,7 +95,7 @@ export default function Reporting() {
       downloadCsv("auslastung.csv", [
         ["Teammitglied", "Team", "Kapazität (FTE)", "Zugeordnet (FTE)", "Auslastung %"],
         ...rows.map((r) => [
-          r.member_name,
+          r.person_name,
           r.team_name ?? "Ohne Team",
           r.kapazitaet_fte,
           r.zugeordnet_fte,

@@ -1,8 +1,7 @@
 """Personen, Organisation & Permissions (Phase 14 der Kapazitätsplaner-v2-Zielarchitektur,
-siehe CONCEPT.md Abschnitt 12). Person ist bewusst schlank (kein Auth/Login) und getrennt von
-TeamMember (Kapazitätsressource, siehe routers/team.py) - Migrationspfad TeamMember->Person
-ist Best-Effort und additiv (siehe alembic/versions/0003_*.py), keine der beiden Tabellen
-wird hier ersetzt."""
+siehe CONCEPT.md Abschnitt 12). Person ist bewusst schlank (kein Auth/Login); ResourceProfile
+(siehe unten) macht sie kapazitätsplanbar/teamzugehörig - seit dem Legacy Cutover (Phase
+26.9) die alleinige Quelle für Kapazitätsressourcen, TeamMember ist entfallen."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session

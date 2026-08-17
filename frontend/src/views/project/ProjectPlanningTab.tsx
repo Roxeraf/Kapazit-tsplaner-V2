@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { useUnsavedChanges } from "../../unsavedChanges";
-import type { ProjectDetail as ProjectDetailT, TeamMember } from "../../types";
+import type { ProjectDetail as ProjectDetailT } from "../../types";
 import BaselineList from "./components/BaselineList";
 import MilestoneList from "./components/MilestoneList";
 import PlanPhaseList from "./components/PlanPhaseList";
@@ -23,9 +23,6 @@ export default function ProjectPlanningTab() {
 
   const [newSubprojectName, setNewSubprojectName] = useState("");
   const [subprojectToDelete, setSubprojectToDelete] = useState<{ id: number; name: string } | null>(null);
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [newAssignmentMemberId, setNewAssignmentMemberId] = useState("");
-  const [newAssignmentFte, setNewAssignmentFte] = useState(0.5);
 
   const load = () => {
     api
@@ -37,10 +34,6 @@ export default function ProjectPlanningTab() {
       })
       .catch((e) => setError(String(e)));
   };
-
-  useEffect(() => {
-    api.listMembers().then(setMembers).catch((e) => setError(String(e)));
-  }, []);
 
   useEffect(load, [projectId]);
 
@@ -134,19 +127,6 @@ export default function ProjectPlanningTab() {
     reloadWorkspace();
   };
 
-  const handleAddTeamAssignment = async () => {
-    if (!draft || !newAssignmentMemberId || !confirmDiscardIfDirty()) return;
-    await api.createAssignment(Number(newAssignmentMemberId), draft.id, newAssignmentFte);
-    setNewAssignmentMemberId("");
-    load();
-  };
-
-  const handleDeleteTeamAssignment = async (assignmentId: number) => {
-    if (!confirmDiscardIfDirty()) return;
-    await api.deleteAssignment(assignmentId);
-    load();
-  };
-
   if (!draft) return <p>Lade Planung …</p>;
 
   return (
@@ -237,54 +217,6 @@ export default function ProjectPlanningTab() {
 
       <div className="card" style={{ marginBottom: "1.25rem" }}>
         <BaselineList projectId={projectId} />
-      </div>
-
-      <div className="card" style={{ marginBottom: "1.25rem" }}>
-        <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Team-Zuordnung</h3>
-        {draft.team_assignments.length === 0 && (
-          <p style={{ color: "var(--text-muted)", margin: 0 }}>Noch niemand zugeordnet.</p>
-        )}
-        {draft.team_assignments.map((a) => (
-          <span key={a.id} className="legend-chip" style={{ marginRight: "0.5rem" }}>
-            {a.member_name} ({a.fte} FTE)
-            <button
-              type="button"
-              onClick={() => handleDeleteTeamAssignment(a.id)}
-              style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <div className="field-row">
-          <label>
-            Teammitglied
-            <select value={newAssignmentMemberId} onChange={(e) => setNewAssignmentMemberId(e.target.value)}>
-              <option value="">— wählen —</option>
-              {members
-                .filter((m) => !draft.team_assignments.some((a) => a.team_member_id === m.id))
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            FTE
-            <input
-              type="number"
-              min={0.1}
-              max={2}
-              step={0.1}
-              value={newAssignmentFte}
-              onChange={(e) => setNewAssignmentFte(Number(e.target.value))}
-            />
-          </label>
-          <button type="button" className="btn secondary" style={{ alignSelf: "flex-end" }} onClick={handleAddTeamAssignment}>
-            + Zuordnen
-          </button>
-        </div>
       </div>
 
       {draft.subprojects.length > 0 && (

@@ -15,9 +15,7 @@ class ProjectCreate(BaseModel):
     start_monat: str  # "MM.YYYY"
     anzahl_monate: int = 14
     jira_component: str | None = None
-    projektleiter: str | None = None
-    # Nullable Bridge auf das Personen-Verzeichnis (Phase 14) - projektleiter (Freitext)
-    # bleibt bestehen, siehe CONCEPT.md Abschnitt 12.
+    # Nullable Bridge auf das Personen-Verzeichnis (Phase 14, siehe CONCEPT.md Abschnitt 12).
     projektleiter_person_id: int | None = None
 
 
@@ -28,7 +26,6 @@ class ProjectUpdate(BaseModel):
     anzahl_monate: int | None = None
     jira_component: str | None = None
     status: ProjectStatus | None = None
-    projektleiter: str | None = None
     projektleiter_person_id: int | None = None
     # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht am Projekt persistiert.
     kommentar_id: int | None = None
@@ -45,7 +42,6 @@ class ProjectSummary(BaseModel):
     anzahl_monate: int
     reihenfolge: int
     status: ProjectStatus
-    projektleiter: str | None
     projektleiter_person_id: int | None = None
     monate: list[str]
 
@@ -70,8 +66,6 @@ class SubprojectDetail(BaseModel):
     id: int
     name: str
     reihenfolge: int
-    phasen: dict[str, list[str]]  # monat -> Phasencodes
-    fte: dict[str, float]  # monat -> Soll-FTE
 
 
 class SubprojectListItem(BaseModel):
@@ -83,40 +77,11 @@ class SubprojectListItem(BaseModel):
     project_name: str
 
 
-class ProjectAssignmentOut(BaseModel):
-    """Team-Zuordnung aus Sicht des Projekts (Gegenstück zu AssignmentOut aus MA-Sicht)."""
-
-    id: int
-    team_member_id: int
-    member_name: str
-    fte: float
-
-
 class ProjectDetail(ProjectSummary):
     jira_component: str | None
     jira_project_key: str | None  # gesetzt, wenn aus dem Jira-Projekt-Katalog automatisch angelegt
-    phasen: dict[str, list[str]]  # monat -> Phasencodes (Grundplanung direkt am Projekt)
-    fte: dict[str, float]  # monat -> Soll-FTE (Summe aus Teilprojekten, falls vorhanden)
-    aus_teilprojekten: bool  # true = phasen/fte sind aus Teilprojekten zusammengefasst (read-only)
     ist: dict[str, float]  # monat -> Ist-FTE aus Jira-Worklogs (siehe CONCEPT.md Abschnitt 4)
-    team_assignments: list[ProjectAssignmentOut]
     subprojects: list[SubprojectDetail]
-
-
-class PhasenUpdate(BaseModel):
-    monat: str
-    codes: list[str]  # z.B. ["p"] oder ["k", "t"]; leer = Zelle löschen
-    # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht persistiert.
-    kommentar_id: int | None = None
-    batch_id: str | None = None
-
-
-class FteUpdate(BaseModel):
-    monat: str
-    wert_soll: float
-    # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht persistiert.
-    kommentar_id: int | None = None
-    batch_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -981,49 +946,9 @@ class TeamOut(BaseModel):
     name: str
 
 
-class TeamMemberCreate(BaseModel):
-    name: str
-    jira_account_id: str | None = None
-    wochenstunden: float = 40
-    team_id: int | None = None
-
-
-class TeamMemberUpdate(BaseModel):
-    name: str | None = None
-    jira_account_id: str | None = None
-    wochenstunden: float | None = None
-    team_id: int | None = None
-
-
-class AssignmentCreate(BaseModel):
-    project_id: int
-    fte: float = 0
-
-
-class AssignmentOut(BaseModel):
-    id: int
-    project_id: int
-    project_name: str
-    fte: float
-
-
-class TeamMemberOut(BaseModel):
-    id: int
-    name: str
-    jira_account_id: str | None
-    wochenstunden: float
-    team_id: int | None
-    team_name: str | None
-    assignments: list[AssignmentOut]
-
-
 class UnassignedAuthorOut(BaseModel):
     account_id: str
     display_name: str
-
-
-class TeamWithMembers(TeamOut):
-    members: list[TeamMemberOut]
 
 
 # ---------------------------------------------------------------------------
@@ -1040,12 +965,14 @@ class PersonCreate(BaseModel):
     external_id: str | None = None
     source: PersonSource = "LOCAL"
     active: bool = True
+    jira_account_id: str | None = None
 
 
 class PersonUpdate(BaseModel):
     display_name: str | None = None
     email: str | None = None
     active: bool | None = None
+    jira_account_id: str | None = None
 
 
 class PersonOut(BaseModel):
@@ -1057,6 +984,7 @@ class PersonOut(BaseModel):
     email: str | None
     source: PersonSource
     active: bool
+    jira_account_id: str | None
 
 
 class ResourceProfileCreate(BaseModel):
@@ -1150,14 +1078,20 @@ class AppRoleOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class MemberUtilizationOut(BaseModel):
-    member_id: int
-    member_name: str
+class PortfolioUtilizationEntry(BaseModel):
+    """Ersetzt MemberUtilizationOut (Phase 26.9 Legacy Cutover) - Person/ResourceProfile
+    statt TeamMember als Quelle, periodenscharf statt statisch (siehe
+    capacity_calc.compute_portfolio_utilization)."""
+
+    person_id: int
+    person_name: str
     team_id: int | None
     team_name: str | None
+    jira_account_id: str | None
+    weekly_hours: float
     kapazitaet_fte: float
     zugeordnet_fte: float
-    auslastung_pct: float | None  # None = keine Kapazität hinterlegt (wochenstunden = 0)
+    auslastung_pct: float | None  # None = keine Kapazität hinterlegt (weekly_hours = 0)
 
 
 class KpiSummary(BaseModel):

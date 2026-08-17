@@ -36,6 +36,7 @@ export interface ProjectSummary {
   reihenfolge: number;
   status: ProjectStatus;
   projektleiter: string | null;
+  projektleiter_person_id: number | null;
   monate: string[];
 }
 
@@ -257,7 +258,7 @@ export interface Decision {
   titel: string;
   beschreibung: string | null;
   status: DecisionStatus;
-  entschieden_von: string | null;
+  entschieden_von_person_id: number | null;
   entschieden_am: string | null;
   erstellt_am: string;
   tags: string[];
@@ -288,7 +289,7 @@ export interface Risk {
   wahrscheinlichkeit: RiskLevel;
   auswirkung: RiskLevel;
   status: RiskStatus;
-  owner: string | null;
+  owner_person_id: number | null;
   faellig_am: string | null;
   erstellt_am: string;
   aktualisiert_am: string;
@@ -344,7 +345,7 @@ export interface Task {
   titel: string;
   beschreibung: string | null;
   status: TaskStatus;
-  zustaendig: string | null;
+  zustaendig_person_id: number | null;
   faellig_am: string | null;
   erstellt_am: string;
   aktualisiert_am: string;
@@ -354,6 +355,20 @@ export interface Task {
 
 // Fachliche Administration (Phase 25)
 export interface AdminPerson { id: number; external_id: string | null; display_name: string; email: string | null; source: "LOCAL" | "ENTERPRISE_PLATFORM"; active: boolean }
+// Phase 26.1: Person ist auch außerhalb der Administration die Grundlage für den
+// projektweiten PersonPicker (Projektleiter/Owner-Felder/Projektteam) - gleiche Form wie
+// AdminPerson, eigener Alias statt Import aus dem Administration-Kontext.
+export type Person = AdminPerson;
+
+export interface ProjectMembership {
+  id: number;
+  project_id: number;
+  person_id: number;
+  person_name: string;
+  project_role_id: number;
+  project_role_name: string;
+}
+
 export interface AdminProjectRole { id: number; name: string; description: string | null; active: boolean }
 export interface AdminPermission { id: number; name: string; description: string | null }
 export interface AdminAppRole { id: number; name: string; description: string | null; permissions: string[] }

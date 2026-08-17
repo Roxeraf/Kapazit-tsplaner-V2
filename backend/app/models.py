@@ -518,7 +518,8 @@ class Decision(Base):
     # Master-MD Abschnitt 35: decision_text vs. reason). Additiv/nullable.
     begruendung: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/entschieden/verworfen
-    entschieden_von: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Phase 26.1: FK auf Person statt Freitext - Personenverzeichnis existiert seit Phase 14.
+    entschieden_von_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     entschieden_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
 
@@ -535,7 +536,8 @@ class Risk(Base):
     wahrscheinlichkeit: Mapped[str] = mapped_column(String(10), default="mittel")  # niedrig/mittel/hoch
     auswirkung: Mapped[str] = mapped_column(String(10), default="mittel")  # niedrig/mittel/hoch
     status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/in_bearbeitung/geschlossen
-    owner: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Phase 26.1: FK auf Person statt Freitext - Personenverzeichnis existiert seit Phase 14.
+    owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     faellig_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
     aktualisiert_am: Mapped[str] = mapped_column(String(40))
@@ -567,9 +569,8 @@ class Task(Base):
     titel: Mapped[str] = mapped_column(String(200))
     beschreibung: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/in_bearbeitung/erledigt
-    # Freitext (wie Risk.owner) - kein FK auf TeamMember, da es kein Personen-/User-
-    # Verzeichnis für Zuweisungen im Repo gibt (siehe CONCEPT.md Abschnitt 10).
-    zustaendig: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Phase 26.1: FK auf Person statt Freitext - Personenverzeichnis existiert seit Phase 14.
+    zustaendig_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     faellig_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
     aktualisiert_am: Mapped[str] = mapped_column(String(40))

@@ -3,7 +3,9 @@ import { api } from "../../../api/client";
 import AttachmentList from "../../../components/AttachmentList";
 import AttachmentPicker from "../../../components/AttachmentPicker";
 import ConfirmDialog from "../../../components/ConfirmDialog";
+import PersonPicker from "../../../components/PersonPicker";
 import TagInput from "../../../components/TagInput";
+import usePeopleMap from "../../../hooks/usePeopleMap";
 import { RISK_LEVEL_LABELS, RISK_STATUS_LABELS, type Risk, type RiskLevel, type RiskStatus } from "../../../types";
 
 const LEVEL_COLOR: Record<RiskLevel, string> = { niedrig: "var(--gruen)", mittel: "var(--gelb)", hoch: "var(--rot)" };
@@ -21,12 +23,13 @@ export default function RiskList({
   const [beschreibung, setBeschreibung] = useState("");
   const [wahrscheinlichkeit, setWahrscheinlichkeit] = useState<RiskLevel>("mittel");
   const [auswirkung, setAuswirkung] = useState<RiskLevel>("mittel");
-  const [owner, setOwner] = useState("");
+  const [ownerPersonId, setOwnerPersonId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Risk | null>(null);
+  const people = usePeopleMap();
 
   const handleAdd = async () => {
     if (!titel.trim()) return;
@@ -38,7 +41,7 @@ export default function RiskList({
         beschreibung: beschreibung.trim() || null,
         wahrscheinlichkeit,
         auswirkung,
-        owner: owner.trim() || null,
+        owner_person_id: ownerPersonId,
         tags,
       });
       for (const file of files) {
@@ -46,7 +49,7 @@ export default function RiskList({
       }
       setTitel("");
       setBeschreibung("");
-      setOwner("");
+      setOwnerPersonId(null);
       setTags([]);
       setFiles([]);
       onChanged();
@@ -116,7 +119,7 @@ export default function RiskList({
             {r.beschreibung && <p style={{ margin: "0.35rem 0" }}>{r.beschreibung}</p>}
             <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: 0 }}>
               Wahrscheinlichkeit: {RISK_LEVEL_LABELS[r.wahrscheinlichkeit]} · Auswirkung: {RISK_LEVEL_LABELS[r.auswirkung]}
-              {r.owner && ` · Owner: ${r.owner}`}
+              {r.owner_person_id != null && ` · Owner: ${people.get(r.owner_person_id) ?? "…"}`}
             </p>
             {r.tags.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
@@ -164,7 +167,7 @@ export default function RiskList({
           </label>
           <label>
             Owner
-            <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="optional" />
+            <PersonPicker value={ownerPersonId} onChange={setOwnerPersonId} />
           </label>
         </div>
         <TagInput value={tags} onChange={setTags} />

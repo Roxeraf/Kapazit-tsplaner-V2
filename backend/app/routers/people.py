@@ -33,10 +33,12 @@ def _get_project_or_404(db: Session, project_id: int) -> models.Project:
 
 
 @router.get("/people", response_model=list[schemas.PersonOut])
-def list_people(active: bool | None = None, db: Session = Depends(get_db)):
+def list_people(active: bool | None = None, search: str | None = None, db: Session = Depends(get_db)):
     query = db.query(models.Person)
     if active is not None:
         query = query.filter(models.Person.active == active)
+    if search:
+        query = query.filter(models.Person.display_name.ilike(f"%{search}%"))
     return query.order_by(models.Person.display_name).all()
 
 

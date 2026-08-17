@@ -1,5 +1,13 @@
 """Phasencodes und FTE-Heatmap-Schwellen 1:1 aus dem Excel-Tool (siehe CONCEPT.md, Abschnitt 3)."""
 
+import datetime
+
+# Referenz-Wochenstunden für "1.0 FTE" - TeamMember.wochenstunden/ResourceProfile.weekly_hours/
+# WorkingTime.weekly_hours default ist 40. Kapazität einer Person wird durchgängig als
+# wochenstunden / VOLLZEIT_WOCHENSTUNDEN ausgedrückt (siehe routers/team.py, routers/
+# real_capacity.py).
+VOLLZEIT_WOCHENSTUNDEN = 40
+
 PHASE_LABELS = {
     "p": "Pflichtenheft",
     "k": "Konfiguration",
@@ -45,3 +53,30 @@ def berechne_monate(start_monat: str, anzahl_monate: int) -> list[str]:
         j = jahr + (monat_idx + i) // 12
         monate.append(f"{MONAT_NAMEN[m]} {j % 100:02d}")
     return monate
+
+
+def parse_period(period: str) -> tuple[int, int]:
+    """Kehrt berechne_monate() um: 'Apr 26' -> (2026, 4) (Jahr, Monat). Für die
+    Available-Capacity-Berechnung (Phase 20) benötigt, um Kalendergrenzen eines
+    Perioden-Buckets (ResourceDemand.period/InternalAllocation.period) zu bestimmen.
+    Nimmt wie berechne_monate() ein Jahrhundert von 2000 an."""
+    name, jahr_str = period.split()
+    monat = MONAT_NAMEN.index(name) + 1
+    jahr = 2000 + int(jahr_str)
+    return jahr, monat
+
+
+def current_period() -> str:
+    """Heutiges Perioden-Bucket im 'Apr 26'-Format (siehe berechne_monate). Für die
+    Capacity Health (Phase 22) benötigt, um den aktuellen ResourceDemand-Zeitraum eines
+    Projekts zu bestimmen."""
+    today = datetime.date.today()
+    return f"{MONAT_NAMEN[today.month - 1]} {today.year % 100:02d}"
+
+
+def periods_from(period: str, count: int) -> list[str]:
+    """Wie berechne_monate(), aber ausgehend von einem bereits im 'Apr 26'-Format
+    vorliegenden Perioden-Bucket statt 'MM.YYYY' (nutzt parse_period() zum Umrechnen). Für
+    die Capacity Heatmap (Phase 23) benötigt, um count Folgeperioden ab period zu erzeugen."""
+    jahr, monat = parse_period(period)
+    return berechne_monate(f"{monat:02d}.{jahr}", count)

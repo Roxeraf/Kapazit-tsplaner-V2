@@ -1,6 +1,7 @@
-"""Entscheidungen/Risiken/Meetingprotokolle (Kommunikation-Tab, siehe CONCEPT.md Abschnitt
-6a). GET /tags lebt in routers/documents.py, da es eng an entity_links.py gekoppelt ist,
-das auch die Dokument-Verknüpfungen verwaltet."""
+"""Entscheidungen/Risiken/Meetingprotokolle/Blocker (Kommunikation-Tab, siehe CONCEPT.md
+Abschnitt 6a/12) sowie der projektweite Activity Feed (Phase 16). GET /tags lebt in
+routers/documents.py, da es eng an entity_links.py gekoppelt ist, das auch die
+Dokument-Verknüpfungen verwaltet."""
 
 from datetime import datetime, timezone
 
@@ -23,6 +24,7 @@ def _decision_out(db: Session, d: models.Decision) -> schemas.DecisionOut:
         project_id=d.project_id,
         titel=d.titel,
         beschreibung=d.beschreibung,
+        begruendung=d.begruendung,
         status=d.status,
         entschieden_von=d.entschieden_von,
         entschieden_am=d.entschieden_am,
@@ -115,6 +117,35 @@ def _get_task_or_404(db: Session, task_id: int) -> models.Task:
     return t
 
 
+def _blocker_out(db: Session, b: models.Blocker) -> schemas.BlockerOut:
+    return schemas.BlockerOut(
+        id=b.id,
+        project_id=b.project_id,
+        title=b.title,
+        description=b.description,
+        status=b.status,
+        severity=b.severity,
+        active_since=b.active_since,
+        caused_by_party=b.caused_by_party,
+        waiting_for_party=b.waiting_for_party,
+        owner_person_id=b.owner_person_id,
+        owner_team_id=b.owner_team_id,
+        next_action=b.next_action,
+        impact=b.impact,
+        erstellt_am=b.erstellt_am,
+        aktualisiert_am=b.aktualisiert_am,
+        tags=entity_links.tags_for(db, "blocker", b.id),
+        documents=entity_links.documents_for(db, "blocker", b.id),
+    )
+
+
+def _get_blocker_or_404(db: Session, blocker_id: int) -> models.Blocker:
+    b = db.get(models.Blocker, blocker_id)
+    if b is None:
+        raise HTTPException(status_code=404, detail="Blocker nicht gefunden")
+    return b
+
+
 # ---------------------------------------------------------------------------
 # Entscheidungen
 # ---------------------------------------------------------------------------
@@ -139,6 +170,7 @@ def create_decision(project_id: int, payload: schemas.DecisionCreate, db: Sessio
         project_id=project_id,
         titel=payload.titel,
         beschreibung=payload.beschreibung,
+        begruendung=payload.begruendung,
         status=payload.status,
         entschieden_von=payload.entschieden_von,
         entschieden_am=payload.entschieden_am,
@@ -170,6 +202,7 @@ def update_decision(decision_id: int, payload: schemas.DecisionUpdate, db: Sessi
 def delete_decision(decision_id: int, db: Session = Depends(get_db)):
     decision = _get_decision_or_404(db, decision_id)
     entity_links.delete_links_for_entity(db, "decision", decision_id)
+    entity_links.delete_relations_for_entity(db, "decision", decision_id)
     db.delete(decision)
     db.commit()
 
@@ -235,6 +268,7 @@ def update_risk(risk_id: int, payload: schemas.RiskUpdate, db: Session = Depends
 def delete_risk(risk_id: int, db: Session = Depends(get_db)):
     risk = _get_risk_or_404(db, risk_id)
     entity_links.delete_links_for_entity(db, "risk", risk_id)
+    entity_links.delete_relations_for_entity(db, "risk", risk_id)
     db.delete(risk)
     db.commit()
 
@@ -293,6 +327,7 @@ def update_meeting_minutes(meeting_id: int, payload: schemas.MeetingMinutesUpdat
 def delete_meeting_minutes(meeting_id: int, db: Session = Depends(get_db)):
     meeting = _get_meeting_or_404(db, meeting_id)
     entity_links.delete_links_for_entity(db, "meeting_minutes", meeting_id)
+    entity_links.delete_relations_for_entity(db, "meeting_minutes", meeting_id)
     db.delete(meeting)
     db.commit()
 
@@ -356,5 +391,116 @@ def update_task(task_id: int, payload: schemas.TaskUpdate, db: Session = Depends
 def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = _get_task_or_404(db, task_id)
     entity_links.delete_links_for_entity(db, "task", task_id)
+    entity_links.delete_relations_for_entity(db, "task", task_id)
     db.delete(task)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Blocker (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 37/38)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/blockers", response_model=list[schemas.BlockerOut])
+def list_blockers(project_id: int, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    rows = (
+        db.query(models.Blocker)
+        .filter(models.Blocker.project_id == project_id)
+        .order_by(models.Blocker.erstellt_am.desc())
+        .all()
+    )
+    return [_blocker_out(db, b) for b in rows]
+
+
+@router.post("/{project_id}/blockers", response_model=schemas.BlockerOut, status_code=201)
+def create_blocker(project_id: int, payload: schemas.BlockerCreate, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    if payload.owner_person_id is not None and db.get(models.Person, payload.owner_person_id) is None:
+        raise HTTPException(status_code=404, detail="Person (owner_person_id) nicht gefunden")
+    if payload.owner_team_id is not None and db.get(models.Team, payload.owner_team_id) is None:
+        raise HTTPException(status_code=404, detail="Team (owner_team_id) nicht gefunden")
+    now = _now()
+    blocker = models.Blocker(
+        project_id=project_id,
+        title=payload.title,
+        description=payload.description,
+        status=payload.status,
+        severity=payload.severity,
+        active_since=payload.active_since,
+        caused_by_party=payload.caused_by_party,
+        waiting_for_party=payload.waiting_for_party,
+        owner_person_id=payload.owner_person_id,
+        owner_team_id=payload.owner_team_id,
+        next_action=payload.next_action,
+        impact=payload.impact,
+        erstellt_am=now,
+        aktualisiert_am=now,
+    )
+    db.add(blocker)
+    db.flush()
+    if payload.tags:
+        entity_links.sync_tags(db, "blocker", blocker.id, payload.tags)
+    db.commit()
+    db.refresh(blocker)
+    return _blocker_out(db, blocker)
+
+
+@router.put("/blockers/{blocker_id}", response_model=schemas.BlockerOut)
+def update_blocker(blocker_id: int, payload: schemas.BlockerUpdate, db: Session = Depends(get_db)):
+    blocker = _get_blocker_or_404(db, blocker_id)
+    changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    if "owner_person_id" in changes and changes["owner_person_id"] is not None:
+        if db.get(models.Person, changes["owner_person_id"]) is None:
+            raise HTTPException(status_code=404, detail="Person (owner_person_id) nicht gefunden")
+    if "owner_team_id" in changes and changes["owner_team_id"] is not None:
+        if db.get(models.Team, changes["owner_team_id"]) is None:
+            raise HTTPException(status_code=404, detail="Team (owner_team_id) nicht gefunden")
+    if changes:
+        for field, value in changes.items():
+            setattr(blocker, field, value)
+        blocker.aktualisiert_am = _now()
+    if payload.tags is not None:
+        entity_links.sync_tags(db, "blocker", blocker.id, payload.tags)
+    db.commit()
+    db.refresh(blocker)
+    return _blocker_out(db, blocker)
+
+
+@router.delete("/blockers/{blocker_id}", status_code=204)
+def delete_blocker(blocker_id: int, db: Session = Depends(get_db)):
+    blocker = _get_blocker_or_404(db, blocker_id)
+    entity_links.delete_links_for_entity(db, "blocker", blocker_id)
+    entity_links.delete_relations_for_entity(db, "blocker", blocker_id)
+    db.delete(blocker)
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
+# chronologische Aggregation, keine neue Tabelle. Nutzt dieselbe Zeitstempel-Registry wie
+# die Tag-Dossiers aus Phase 24 (entity_links.ACTIVITY_ENTITY_TYPES/timestamp_for) - "document"
+# fehlt bewusst (Dateien sind keine Aktivität).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/activity", response_model=list[schemas.ActivityItemOut])
+def get_project_activity(project_id: int, limit: int = 50, db: Session = Depends(get_db)):
+    _get_project_or_404(db, project_id)
+    items: list[schemas.ActivityItemOut] = []
+    for entity_type in entity_links.ACTIVITY_ENTITY_TYPES:
+        for summary in entity_links.list_entity_summaries(db, entity_type, project_id):
+            timestamp = entity_links.timestamp_for(db, entity_type, summary["entity_id"])
+            if timestamp is None:
+                continue
+            items.append(
+                schemas.ActivityItemOut(
+                    entity_type=entity_type,
+                    entity_id=summary["entity_id"],
+                    label=summary["label"],
+                    timestamp=timestamp,
+                    tags=summary["tags"],
+                )
+            )
+    items.sort(key=lambda item: item.timestamp, reverse=True)
+    return items[:limit]

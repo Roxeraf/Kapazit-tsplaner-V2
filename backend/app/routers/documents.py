@@ -130,10 +130,78 @@ def delete_document_link(link_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+def _tag_out(t: models.Tag) -> schemas.TagOut:
+    return schemas.TagOut(
+        id=t.id,
+        name=t.name,
+        category_id=t.category_id,
+        description=t.description,
+        color=t.color,
+        active=t.active,
+        ai_relevant=t.ai_relevant,
+        ai_description=t.ai_description,
+        synonyms=[s.strip() for s in t.synonyms.split(",")] if t.synonyms else [],
+    )
+
+
 @router.get("/tags", response_model=list[schemas.TagOut])
 def list_tags(search: str | None = None, db: Session = Depends(get_db)):
     query = db.query(models.Tag)
     if search:
         query = query.filter(models.Tag.name.ilike(f"%{search}%"))
     tags = query.order_by(models.Tag.name).limit(50).all()
-    return [schemas.TagOut(id=t.id, name=t.name) for t in tags]
+    return [_tag_out(t) for t in tags]
+
+
+@router.post("/tags", response_model=schemas.TagOut, status_code=201)
+def create_tag(payload: schemas.TagCreate, db: Session = Depends(get_db)):
+    if db.query(models.Tag).filter(models.Tag.name == payload.name).first() is not None:
+        raise HTTPException(status_code=409, detail="Tag mit diesem Namen existiert bereits")
+    if payload.category_id is not None and db.get(models.TagCategory, payload.category_id) is None:
+        raise HTTPException(status_code=404, detail="Tag-Kategorie nicht gefunden")
+    values = payload.model_dump(exclude={"synonyms"})
+    values["synonyms"] = ", ".join(value.strip() for value in payload.synonyms if value.strip()) or None
+    tag = models.Tag(**values)
+    db.add(tag)
+    db.commit()
+    db.refresh(tag)
+    return _tag_out(tag)
+
+
+@router.patch("/tags/{tag_id}", response_model=schemas.TagOut)
+def update_tag(tag_id: int, payload: schemas.TagUpdate, db: Session = Depends(get_db)):
+    tag = db.get(models.Tag, tag_id)
+    if tag is None:
+        raise HTTPException(status_code=404, detail="Tag nicht gefunden")
+    changes = payload.model_dump(exclude_unset=True)
+    if "category_id" in changes and changes["category_id"] is not None:
+        if db.get(models.TagCategory, changes["category_id"]) is None:
+            raise HTTPException(status_code=404, detail="Tag-Kategorie nicht gefunden")
+    if "synonyms" in changes:
+        synonyms = changes.pop("synonyms")
+        tag.synonyms = ", ".join(s.strip() for s in synonyms if s.strip()) if synonyms else None
+    for field, value in changes.items():
+        setattr(tag, field, value)
+    db.commit()
+    db.refresh(tag)
+    return _tag_out(tag)
+
+
+@router.get("/tag-categories", response_model=list[schemas.TagCategoryOut])
+def list_tag_categories(db: Session = Depends(get_db)):
+    categories = db.query(models.TagCategory).order_by(models.TagCategory.name).all()
+    return [
+        schemas.TagCategoryOut(id=c.id, name=c.name, description=c.description) for c in categories
+    ]
+
+
+@router.post("/tag-categories", response_model=schemas.TagCategoryOut, status_code=201)
+def create_tag_category(payload: schemas.TagCategoryCreate, db: Session = Depends(get_db)):
+    existing = db.query(models.TagCategory).filter(models.TagCategory.name == payload.name).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Tag-Kategorie mit diesem Namen existiert bereits")
+    category = models.TagCategory(name=payload.name, description=payload.description)
+    db.add(category)
+    db.commit()
+    db.refresh(category)
+    return schemas.TagCategoryOut(id=category.id, name=category.name, description=category.description)

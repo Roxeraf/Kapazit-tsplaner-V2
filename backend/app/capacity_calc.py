@@ -105,3 +105,39 @@ def compute_person_capacity(db: Session, person_id: int, period: str) -> schemas
         holiday_days=holiday_days,
         absence_days=absence_days,
     )
+
+
+def compute_capacity_gap(db: Session, period: str, resource_role_id: int | None = None) -> schemas.CapacityGapOut:
+    """Demand/Capacity Gap = Available Capacity - Resource Demand (Master-MD Abschnitt 22).
+    Portfolioweit über alle kapazitätsrelevanten Personen, da es keine Person<->ResourceRole-
+    Zuordnung im Datenmodell gibt (siehe CONCEPT.md Abschnitt 12.3) - resource_role_id
+    filtert nur die Bedarfsseite, nicht die Kapazitätsseite. Aus routers/gap_engine.py (Phase
+    21) extrahiert, damit routers/controlling.py (Phase 23) dieselbe Berechnung für die
+    Capacity Heatmap über mehrere Perioden hinweg wiederverwenden kann."""
+    demand_query = db.query(models.ResourceDemand).filter(models.ResourceDemand.period == period)
+    if resource_role_id is not None:
+        demand_query = demand_query.filter(models.ResourceDemand.resource_role_id == resource_role_id)
+    demand_fte = round(sum(d.fte for d in demand_query.all()), 2)
+
+    persons = (
+        db.query(models.Person)
+        .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
+        .filter(models.Person.active.is_(True), models.ResourceProfile.capacity_relevant.is_(True))
+        .all()
+    )
+    available_fte = 0.0
+    considered = 0
+    for person in persons:
+        result = compute_person_capacity(db, person.id, period)
+        if result is not None:
+            available_fte += result.available_fte
+            considered += 1
+
+    return schemas.CapacityGapOut(
+        period=period,
+        resource_role_id=resource_role_id,
+        demand_fte=demand_fte,
+        available_fte=round(available_fte, 2),
+        capacity_gap_fte=round(available_fte - demand_fte, 2),
+        persons_considered=considered,
+    )

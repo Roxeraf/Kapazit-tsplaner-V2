@@ -72,3 +72,11 @@ def current_period() -> str:
     Projekts zu bestimmen."""
     today = datetime.date.today()
     return f"{MONAT_NAMEN[today.month - 1]} {today.year % 100:02d}"
+
+
+def periods_from(period: str, count: int) -> list[str]:
+    """Wie berechne_monate(), aber ausgehend von einem bereits im 'Apr 26'-Format
+    vorliegenden Perioden-Bucket statt 'MM.YYYY' (nutzt parse_period() zum Umrechnen). Für
+    die Capacity Heatmap (Phase 23) benötigt, um count Folgeperioden ab period zu erzeugen."""
+    jahr, monat = parse_period(period)
+    return berechne_monate(f"{monat:02d}.{jahr}", count)

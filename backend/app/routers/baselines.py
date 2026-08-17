@@ -3,12 +3,12 @@ Friert die aktuellen PlanPhase-/Milestone-Felder eines Projekts als benannten Ba
 ein, damit spätere Forecasts dagegen verglichen werden können (Schedule-/Milestone-
 Abweichungen). Folgt demselben CRUD-Muster wie routers/planning.py/communication.py."""
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import entity_links, models, schemas
+from .. import baseline_calc, models, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["baselines"])
@@ -21,10 +21,6 @@ _SNAPSHOT_FIELDS: dict[str, list[str]] = {
     "plan_phase": ["phase_type", "baseline_start", "baseline_end", "forecast_start", "forecast_end", "status", "progress"],
     "milestone": ["name", "baseline_date", "forecast_date", "status"],
 }
-
-# Datumsfelder, für die Deviations (Tages-Differenz aktueller Wert vs. eingefrorener Wert)
-# berechnet werden können.
-_DATE_FIELDS = {"baseline_start", "baseline_end", "forecast_start", "forecast_end", "baseline_date", "forecast_date"}
 
 
 def _now() -> str:
@@ -147,46 +143,9 @@ def delete_baseline(baseline_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
-def _parse_date(value: str | None) -> date | None:
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
-
-
 @router.get("/baselines/{baseline_id}/deviations", response_model=list[schemas.BaselineDeviationOut])
 def get_baseline_deviations(baseline_id: int, db: Session = Depends(get_db)):
-    """Schedule-/Milestone-Abweichungen: vergleicht die eingefrorenen Datumsfelder mit dem
-    aktuellen Live-Wert der referenzierten PlanPhase/Milestone (Master-MD Phase 18). Kein
-    generischer Multi-Dimensions-GAP - das bleibt Phase 21 (GAP Engine)."""
+    """Berechnung in baseline_calc.py (Phase 23, dort auch von routers/controlling.py für die
+    portfolioweiten Baseline Deviations genutzt)."""
     _get_baseline_or_404(db, baseline_id)
-    entries = (
-        db.query(models.BaselineEntry)
-        .filter(models.BaselineEntry.baseline_id == baseline_id, models.BaselineEntry.field.in_(_DATE_FIELDS))
-        .all()
-    )
-    deviations = []
-    for entry in entries:
-        model = entity_links.model_for(entry.entity_type)
-        if model is None:
-            continue
-        row = db.get(model, entry.entity_id)
-        current_value = getattr(row, entry.field, None) if row is not None else None
-        baseline_date = _parse_date(entry.value)
-        current_date = _parse_date(current_value)
-        delta_days = (current_date - baseline_date).days if baseline_date and current_date else None
-        summary = entity_links.entity_summary(db, entry.entity_type, entry.entity_id)
-        deviations.append(
-            schemas.BaselineDeviationOut(
-                entity_type=entry.entity_type,
-                entity_id=entry.entity_id,
-                label=summary["label"] if summary else None,
-                field=entry.field,
-                baseline_value=entry.value,
-                current_value=current_value,
-                delta_days=delta_days,
-            )
-        )
-    return deviations
+    return baseline_calc.compute_deviations(db, baseline_id)

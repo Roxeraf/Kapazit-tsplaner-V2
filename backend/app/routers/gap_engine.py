@@ -37,34 +37,9 @@ def _get_person_or_404(db: Session, person_id: int) -> models.Person:
 def get_capacity_gap(period: str, resource_role_id: int | None = None, db: Session = Depends(get_db)):
     """Portfolioweit über alle kapazitätsrelevanten Personen, da es keine
     Person<->ResourceRole-Zuordnung im Datenmodell gibt - resource_role_id filtert nur die
-    Bedarfsseite (siehe schemas.CapacityGapOut)."""
-    demand_query = db.query(models.ResourceDemand).filter(models.ResourceDemand.period == period)
-    if resource_role_id is not None:
-        demand_query = demand_query.filter(models.ResourceDemand.resource_role_id == resource_role_id)
-    demand_fte = round(sum(d.fte for d in demand_query.all()), 2)
-
-    persons = (
-        db.query(models.Person)
-        .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
-        .filter(models.Person.active.is_(True), models.ResourceProfile.capacity_relevant.is_(True))
-        .all()
-    )
-    available_fte = 0.0
-    considered = 0
-    for person in persons:
-        result = capacity_calc.compute_person_capacity(db, person.id, period)
-        if result is not None:
-            available_fte += result.available_fte
-            considered += 1
-
-    return schemas.CapacityGapOut(
-        period=period,
-        resource_role_id=resource_role_id,
-        demand_fte=demand_fte,
-        available_fte=round(available_fte, 2),
-        capacity_gap_fte=round(available_fte - demand_fte, 2),
-        persons_considered=considered,
-    )
+    Bedarfsseite. Berechnung in capacity_calc.py (Phase 23, dort auch von
+    routers/controlling.py für die Capacity Heatmap genutzt)."""
+    return capacity_calc.compute_capacity_gap(db, period, resource_role_id)
 
 
 # ---------------------------------------------------------------------------

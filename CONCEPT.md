@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.13 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–22 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine, Project Control & Health) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.14 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–23 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine, Project Control & Health, Controlling & Capacity Intelligence) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -787,7 +787,82 @@ Dieses Repo enthält:
     `/projects/{id}/resource-demands` (inkl. `allocation_gap`) unverändert funktionsfähig.
     Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 22 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–22 der Zielarchitektur (Abschnitt 12) umgesetzt.
+23. **Phase 23 (Controlling & Capacity Intelligence, Kapazitätsplaner-v2-Zielarchitektur):**
+    **Keine neue Migration** — wie die GAP Engine (Phase 21) ist auch dieser Durchgang rein
+    berechnend: er aggregiert die bereits bestehenden, projekt-/personenscharfen GAP-/Health-/
+    Capacity-Berechnungen aus Phase 19–22 **portfolioweit** über alle Projekte/Perioden/Rollen
+    hinweg (Master-MD Abschnitt 23), ohne eine der zugrunde liegenden Berechnungen zu
+    verändern. Neuer Router `routers/controlling.py` (Prefix `/controlling`). Zwei
+    Refactorings vorab, im selben Muster wie `capacity_calc.py`/`gap_calc.py` aus Phase
+    21/22: die inline-Berechnung aus `routers/gap_engine.py:get_capacity_gap` wurde zu
+    `capacity_calc.compute_capacity_gap(db, period, resource_role_id=None)` extrahiert (die
+    Capacity Heatmap braucht dieselbe Berechnung über mehrere Perioden hinweg), und die
+    inline-Berechnung aus `routers/baselines.py:get_baseline_deviations` wurde in ein neues
+    gemeinsames Modul `backend/app/baseline_calc.py` (`latest_snapshot()`/
+    `compute_deviations()`) ausgelagert. Neuer Helper `constants.periods_from(period, count)`
+    (analog `berechne_monate()`, aber ausgehend von einem bereits im "Apr 26"-Format
+    vorliegenden Startwert) für die Heatmap. Alle Endpunkte iterieren über die bestehende
+    Portfolio-Projektliste `gap_analysis.projekte_fuer_team(db, None)` (on_hold/archiviert
+    ausgeblendet, abgeschlossen bleibt sichtbar) statt einen neuen Filter zu erfinden.
+    - **Capacity Heatmap / Demand vs Capacity** (`GET /controlling/capacity-heatmap?period=&
+      periods=6&resource_role_id=`): Matrix über `periods` Folgeperioden, je Periode
+      `capacity_calc.compute_capacity_gap()` — liefert dasselbe Schema
+      (`schemas.CapacityGapOut`) wie der bereits bestehende Einzelperioden-Endpoint aus
+      Phase 21, nur als Liste über die Zeit.
+    - **Allocation Gap** (`GET /controlling/allocation-gaps?period=`): alle
+      `ResourceDemand`-Zeilen projektübergreifend für eine Periode, mit `assigned_fte`/
+      `allocation_gap`.
+    - **Schedule Gap** (`GET /controlling/schedule-gaps`) / **Progress Gap**
+      (`GET /controlling/progress-gaps`): `gap_calc.schedule_gap_entries()`/
+      `progress_gap_entries()` je Projekt, geflattet mit Projektkontext.
+    - **Baseline Deviations** (`GET /controlling/baseline-deviations`): je Projekt der
+      neueste `BaselineSnapshot` (`baseline_calc.latest_snapshot()`), dessen Deviations
+      (`baseline_calc.compute_deviations()`), nur Einträge mit berechenbarem `delta_days`;
+      Projekte ohne Snapshot werden sauber übersprungen.
+    - **Portfolio Health** (`GET /controlling/portfolio-health`): `health_calc.
+      compute_project_health()` je Projekt, liefert exakt dasselbe `ProjectHealthOut` wie
+      `GET /projects/{id}/health` (Phase 22), hier als Liste über alle Projekte.
+    - **Blocker Portfolio** (`GET /controlling/blockers?party=&severity=`) /
+      **Milestone Portfolio** (`GET /controlling/milestones?status=`): offene Blocker bzw.
+      alle Milestones projektübergreifend, mit optionalen Filtern. Bewusst **schlanke**
+      Portfolio-Schemas (`BlockerPortfolioEntry`/`MilestonePortfolioEntry`) statt der
+      volleren `BlockerOut`/`MilestoneOut` — vermeidet N+1-Tag-/Dokument-Abfragen bei einer
+      projektübergreifenden Liste, analog zu `CockpitMilestoneEntry` aus Phase 22.
+    - **Team-/Rollenanalyse** (`GET /controlling/roles?period=`): `ResourceDemand`/
+      `ResourceAssignment` gruppiert nach `resource_role_id` über alle Projekte einer
+      Periode.
+    - **Bewusst nicht neu gebaut** (Scope-Entscheidungen, analog zu den in Phase 21/22
+      dokumentierten Vereinfachungen): **Effort Gap** portfolioweit ist bereits vollständig
+      durch das bestehende `GET /gap` (unverändert seit Phase 3) abgedeckt — kein
+      `/controlling/effort-gaps`-Alias, um keine zweite Quelle für dieselbe Berechnung zu
+      schaffen. Der **volle hierarchische Drill-down** (Master-MD Abschnitt 52,
+      Portfolio→Team→Projekt→Phase) wird nicht als neuer Endpoint gebaut — die
+      Zielobjekte jeder Drill-down-Ebene existieren bereits (`/projects/{id}/cockpit`,
+      `/projects/{id}/gaps`, `/projects/{id}/health`, `/projects/{id}/resource-demands`),
+      Phase 23 liefert nur die bis dahin fehlende Portfolio-Einstiegsebene
+      (`/controlling/portfolio-health` u.a.); der Rest ist UI-Komposition, kein
+      Backend-Neubau.
+    Verifiziert per curl an einem Zwei-Projekte-Szenario ("Spedition Frankenfeld" mit
+    verzögerter PlanPhase/verpasstem Milestone/kritischem Kunden-Blocker/Risiko/
+    Ressourcenbedarf/Baseline-Snapshot wie in Phase 22, plus "Logistik Muster AG" als
+    schlankes zweites Projekt mit gefährdetem Milestone, internem Blocker und unzugeordnetem
+    Ressourcenbedarf): Capacity Heatmap für "Aug 26" liefert `demand_fte=3.4` (2,4 + 1,0 aus
+    beiden Projekten), identisch zur Summe der Allocation-Gap-Liste; Schedule-/Progress-Gap-
+    Portfolio-Listen liefern exakt dieselben Werte wie die bereits verifizierten
+    `/projects/{id}/gaps/schedule`/`/progress`; Portfolio Health liefert für Projekt 1
+    exakt denselben `overall`-Status wie `/projects/1/health` (Regressionsvergleich, beide
+    "rot"); Rollenanalyse aggregiert korrekt über beide Projekte (`demand_fte=3.4`,
+    `assigned_fte=2.1`, `gap_fte=-1.3`); Baseline-Deviations überspringt das Projekt ohne
+    Snapshot sauber (kein 404/500); Blocker-/Milestone-Portfolio-Filter (`party`, `severity`,
+    `status`) korrekt getestet; Jahresüberlauf in der Heatmap (Dez 26 → Jan 27) korrekt.
+    Regressionscheck: `/gap-engine/capacity` (nach `capacity_calc`-Extraktion identisch),
+    `/projects/{id}/baselines/.../deviations` (nach `baseline_calc`-Extraktion identisch),
+    `/gap`, `/kpis`, `/team/utilization`, `/projects/{id}/cockpit` unverändert
+    funktionsfähig. `alembic check` bestätigt keine Drift (keine Modelländerung in diesem
+    Durchgang). Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 23 als erledigt
+    markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–23 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -878,9 +953,11 @@ Schedule-, Progress- und Utilization-Gap sowie einem Bündel-Endpoint `/projects
 (siehe Abschnitt 11 Punkt 21). Phase 22: `HealthThreshold`, mehrdimensionales Project Health
 (`GET /projects/{id}/health`) mit neun Dimensionen, konfigurierbare Schwellwerte
 (`/health-thresholds`), Project Control Cockpit (`GET /projects/{id}/cockpit`, siehe
-Abschnitt 11 Punkt 22). Alle übrigen aus der Master-MD (Administration-UI) bleiben für die
-jeweils zugeordnete spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht
-umgesetzt**.
+Abschnitt 11 Punkt 22). Phase 23: `routers/controlling.py` mit Capacity Heatmap,
+Allocation-/Schedule-/Progress-Gap und Baseline Deviations portfolioweit, Portfolio Health,
+Blocker-/Milestone-Portfolio, Team-/Rollenanalyse (siehe Abschnitt 11 Punkt 23). Alle übrigen
+aus der Master-MD (Administration-UI) bleiben für die jeweils zugeordnete spätere Phase
+vorgemerkt (siehe Phasenplan unten) — **noch nicht umgesetzt**.
 
 **D — bewusst später (unverändert aus der Master-MD):**
 KI Project Agent, Vector-/Embedding-Layer, Enterprise-SSO, vollständiger Enterprise-Sync,
@@ -952,8 +1029,8 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–22 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/21/22). Phasen
-23–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
+Phase 13–23 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/21/22/23). Phasen
+24–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
@@ -967,7 +1044,7 @@ Phase 13–22 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/2
 | 20 | Real Capacity | ✅ CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation, Available Capacity |
 | 21 | GAP Engine | ✅ Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Bündel-Endpoint |
 | 22 | Project Control & Health | ✅ mehrdimensionales Project Health, konfigurierbare Schwellwerte, Project Control Cockpit |
-| 23 | Controlling & Capacity Intelligence | Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio |
+| 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | Tag-Dossiers, kombinierte Tags, semantische Suche |
 | 25 | Administration UX | UI für Personen/Teams/Rollen/Permissions/Skills/Tags |
 | 26 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |

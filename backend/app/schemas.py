@@ -1344,3 +1344,78 @@ class ProjectControlCockpitOut(BaseModel):
     blockers: CockpitBlockers
     tasks: CockpitTasks
     tags: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Controlling & Capacity Intelligence (Phase 23, siehe CONCEPT.md Abschnitt 12 / Master-MD
+# Abschnitt 23). Portfolioweite Aggregation der bereits bestehenden GAP-/Health-/Capacity-
+# Berechnungen (Phase 19-22) über alle Projekte hinweg - Komposition statt Duplikation:
+# bestehende Item-Schemas werden um project_id/project_name ergänzt, nicht neu gebaut.
+# ---------------------------------------------------------------------------
+
+
+class PortfolioAllocationGapEntry(BaseModel):
+    project_id: int
+    project_name: str
+    resource_demand_id: int
+    resource_role_id: int
+    resource_role_name: str
+    period: str
+    fte: float
+    assigned_fte: float
+    allocation_gap: float
+
+
+class PortfolioScheduleGapEntry(BaseModel):
+    project_id: int
+    project_name: str
+    entry: ScheduleGapEntry
+
+
+class PortfolioProgressGapEntry(BaseModel):
+    project_id: int
+    project_name: str
+    entry: ProgressGapEntry
+
+
+class PortfolioBaselineDeviationEntry(BaseModel):
+    project_id: int
+    project_name: str
+    baseline_id: int
+    baseline_name: str
+    deviation: BaselineDeviationOut
+
+
+class BlockerPortfolioEntry(BaseModel):
+    """Bewusst schlank (kein tags/documents wie BlockerOut) - vermeidet N+1-Abfragen bei
+    einer projektübergreifenden Liste, analog zu CockpitMilestoneEntry (Phase 22)."""
+
+    project_id: int
+    project_name: str
+    id: int
+    title: str
+    status: str
+    severity: str
+    caused_by_party: str
+    waiting_for_party: str
+    active_since: str | None
+
+
+class MilestonePortfolioEntry(BaseModel):
+    project_id: int
+    project_name: str
+    id: int
+    name: str
+    baseline_date: str | None
+    forecast_date: str | None
+    actual_date: str | None
+    status: str
+
+
+class RoleAnalysisEntry(BaseModel):
+    resource_role_id: int
+    resource_role_name: str
+    period: str
+    demand_fte: float
+    assigned_fte: float
+    gap_fte: float

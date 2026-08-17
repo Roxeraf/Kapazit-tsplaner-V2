@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import documents_storage, entity_links, jira_sync, models, schemas
-from ..constants import berechne_monate
+from ..constants import PHASE_CODES, berechne_monate
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -48,8 +48,56 @@ def _log_change(
     )
 
 
+def _phasen_dict(gantt_phases) -> dict[str, list[str]]:
+    phasen: dict[str, list[str]] = {}
+    for gp in gantt_phases:
+        phasen.setdefault(gp.monat, []).append(gp.phase_code)
+    return phasen
+
+
 def _subproject_detail(sp: models.Subproject) -> schemas.SubprojectDetail:
-    return schemas.SubprojectDetail(id=sp.id, name=sp.name, reihenfolge=sp.reihenfolge)
+    fte = {f.monat: f.wert_soll for f in sp.fte_plan}
+    return schemas.SubprojectDetail(
+        id=sp.id,
+        name=sp.name,
+        reihenfolge=sp.reihenfolge,
+        phasen=_phasen_dict(sp.gantt_phases),
+        fte=fte,
+    )
+
+
+def _project_phasen(p: models.Project) -> dict[str, list[str]]:
+    """Gantt-Phasen auf Projekt-Ebene.
+
+    Hat das Projekt Teilprojekte, ist die Projekt-Zeile die Zusammenfassung daraus (ein Monat
+    zeigt Phase X, wenn mindestens ein Teilprojekt sie hat) statt einer eigenen, unabhängigen
+    Eintragung — konsistent zur FTE-Summe in _project_fte(). Ohne Teilprojekte bleibt die direkt
+    am Projekt gepflegte Phasenliste (project_gantt_phases) maßgeblich.
+    """
+    if p.subprojects:
+        union: dict[str, set[str]] = {}
+        for sp in p.subprojects:
+            for gp in sp.gantt_phases:
+                union.setdefault(gp.monat, set()).add(gp.phase_code)
+        return {monat: sorted(codes) for monat, codes in union.items()}
+    return _phasen_dict(p.gantt_phases)
+
+
+def _project_fte(p: models.Project) -> dict[str, float]:
+    """FTE-Soll auf Projekt-Ebene.
+
+    Hat das Projekt Teilprojekte (Feinplanung), ist die Projekt-Zeile die Summe daraus statt
+    eines eigenen manuellen Werts — sonst könnten Projekt- und Teilprojekt-Ebene auseinanderlaufen.
+    Ohne Teilprojekte bleibt der manuell auf Projekt-Ebene eingetragene Wert (project_fte_plan)
+    maßgeblich (siehe PUT /projects/{id}/fte).
+    """
+    if p.subprojects:
+        summe: dict[str, float] = {}
+        for sp in p.subprojects:
+            for f in sp.fte_plan:
+                summe[f.monat] = summe.get(f.monat, 0) + f.wert_soll
+        return {monat: round(wert, 2) for monat, wert in summe.items()}
+    return {f.monat: f.wert_soll for f in p.fte_plan}
 
 
 def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
@@ -61,12 +109,22 @@ def _project_detail(db: Session, p: models.Project) -> schemas.ProjectDetail:
         anzahl_monate=p.anzahl_monate,
         reihenfolge=p.reihenfolge,
         status=p.status,
+        projektleiter=p.projektleiter,
         projektleiter_person_id=p.projektleiter_person_id,
         monate=berechne_monate(p.start_monat, p.anzahl_monate),
         jira_component=p.jira_component,
         jira_project_key=p.jira_project_key,
+        phasen=_project_phasen(p),
+        fte=_project_fte(p),
+        aus_teilprojekten=bool(p.subprojects),
         ist=jira_sync.berechne_ist_fte(db, p),
         subprojects=[_subproject_detail(sp) for sp in p.subprojects],
+        team_assignments=[
+            schemas.ProjectAssignmentOut(
+                id=a.id, team_member_id=a.team_member_id, member_name=a.team_member.name, fte=a.fte
+            )
+            for a in p.assignments
+        ],
     )
 
 
@@ -103,6 +161,7 @@ def list_projects(db: Session = Depends(get_db)):
             anzahl_monate=p.anzahl_monate,
             reihenfolge=p.reihenfolge,
             status=p.status,
+            projektleiter=p.projektleiter,
             projektleiter_person_id=p.projektleiter_person_id,
             monate=berechne_monate(p.start_monat, p.anzahl_monate),
         )
@@ -282,6 +341,92 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+@router.put("/{project_id}/phasen", response_model=schemas.ProjectDetail)
+def set_project_phasen(project_id: int, payload: schemas.PhasenUpdate, db: Session = Depends(get_db)):
+    project = _get_project_or_404(db, project_id)
+
+    invalid = [c for c in payload.codes if c not in PHASE_CODES]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Ungültige Phasencodes: {invalid}")
+
+    bisherige_codes = {
+        gp.phase_code
+        for gp in db.query(models.ProjectGanttPhase).filter(
+            models.ProjectGanttPhase.project_id == project_id,
+            models.ProjectGanttPhase.monat == payload.monat,
+        )
+    }
+    neue_codes = set(dict.fromkeys(payload.codes))
+    for code in neue_codes - bisherige_codes:
+        _log_change(
+            db,
+            project_id=project_id,
+            subproject_id=None,
+            bereich="phase",
+            monat=payload.monat,
+            feld=code,
+            alt="inaktiv",
+            neu="aktiv",
+            kommentar_id=payload.kommentar_id,
+            batch_id=payload.batch_id,
+        )
+    for code in bisherige_codes - neue_codes:
+        _log_change(
+            db,
+            project_id=project_id,
+            subproject_id=None,
+            bereich="phase",
+            monat=payload.monat,
+            feld=code,
+            alt="aktiv",
+            neu="inaktiv",
+            kommentar_id=payload.kommentar_id,
+            batch_id=payload.batch_id,
+        )
+
+    db.query(models.ProjectGanttPhase).filter(
+        models.ProjectGanttPhase.project_id == project_id,
+        models.ProjectGanttPhase.monat == payload.monat,
+    ).delete()
+    for code in neue_codes:  # dedupe, siehe oben
+        db.add(models.ProjectGanttPhase(project_id=project_id, monat=payload.monat, phase_code=code))
+    db.commit()
+    db.refresh(project)
+    return _project_detail(db, project)
+
+
+@router.put("/{project_id}/fte", response_model=schemas.ProjectDetail)
+def set_project_fte(project_id: int, payload: schemas.FteUpdate, db: Session = Depends(get_db)):
+    project = _get_project_or_404(db, project_id)
+
+    entry = (
+        db.query(models.ProjectFtePlan)
+        .filter(models.ProjectFtePlan.project_id == project_id, models.ProjectFtePlan.monat == payload.monat)
+        .first()
+    )
+    alter_wert = entry.wert_soll if entry is not None else None
+    _log_change(
+        db,
+        project_id=project_id,
+        subproject_id=None,
+        bereich="fte",
+        monat=payload.monat,
+        feld="fte_soll",
+        alt=str(alter_wert) if alter_wert is not None else None,
+        neu=str(payload.wert_soll),
+        kommentar_id=payload.kommentar_id,
+        batch_id=payload.batch_id,
+    )
+    if entry is None:
+        entry = models.ProjectFtePlan(project_id=project_id, monat=payload.monat, wert_soll=payload.wert_soll)
+        db.add(entry)
+    else:
+        entry.wert_soll = payload.wert_soll
+    db.commit()
+    db.refresh(project)
+    return _project_detail(db, project)
+
+
 @router.get("/subprojects/all", response_model=list[schemas.SubprojectListItem])
 def list_all_subprojects(db: Session = Depends(get_db)):
     """Flache Liste aller Teilprojekte (für die Zuordnung MA <-> Teilprojekt, siehe /team)."""
@@ -366,6 +511,92 @@ def delete_subproject(subproject_id: int, db: Session = Depends(get_db)):
 
     db.delete(sp)
     db.commit()
+
+
+@router.put("/subprojects/{subproject_id}/phasen", response_model=schemas.SubprojectDetail)
+def set_phasen(subproject_id: int, payload: schemas.PhasenUpdate, db: Session = Depends(get_db)):
+    sp = _get_subproject_or_404(db, subproject_id)
+
+    invalid = [c for c in payload.codes if c not in PHASE_CODES]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Ungültige Phasencodes: {invalid}")
+
+    bisherige_codes = {
+        gp.phase_code
+        for gp in db.query(models.GanttPhase).filter(
+            models.GanttPhase.subproject_id == subproject_id,
+            models.GanttPhase.monat == payload.monat,
+        )
+    }
+    neue_codes = set(dict.fromkeys(payload.codes))
+    for code in neue_codes - bisherige_codes:
+        _log_change(
+            db,
+            project_id=sp.project_id,
+            subproject_id=subproject_id,
+            bereich="phase",
+            monat=payload.monat,
+            feld=code,
+            alt="inaktiv",
+            neu="aktiv",
+            kommentar_id=payload.kommentar_id,
+            batch_id=payload.batch_id,
+        )
+    for code in bisherige_codes - neue_codes:
+        _log_change(
+            db,
+            project_id=sp.project_id,
+            subproject_id=subproject_id,
+            bereich="phase",
+            monat=payload.monat,
+            feld=code,
+            alt="aktiv",
+            neu="inaktiv",
+            kommentar_id=payload.kommentar_id,
+            batch_id=payload.batch_id,
+        )
+
+    db.query(models.GanttPhase).filter(
+        models.GanttPhase.subproject_id == subproject_id,
+        models.GanttPhase.monat == payload.monat,
+    ).delete()
+    for code in neue_codes:  # dedupe, siehe oben
+        db.add(models.GanttPhase(subproject_id=subproject_id, monat=payload.monat, phase_code=code))
+    db.commit()
+    db.refresh(sp)
+    return _subproject_detail(sp)
+
+
+@router.put("/subprojects/{subproject_id}/fte", response_model=schemas.SubprojectDetail)
+def set_fte(subproject_id: int, payload: schemas.FteUpdate, db: Session = Depends(get_db)):
+    sp = _get_subproject_or_404(db, subproject_id)
+
+    entry = (
+        db.query(models.FtePlan)
+        .filter(models.FtePlan.subproject_id == subproject_id, models.FtePlan.monat == payload.monat)
+        .first()
+    )
+    alter_wert = entry.wert_soll if entry is not None else None
+    _log_change(
+        db,
+        project_id=sp.project_id,
+        subproject_id=subproject_id,
+        bereich="fte",
+        monat=payload.monat,
+        feld="fte_soll",
+        alt=str(alter_wert) if alter_wert is not None else None,
+        neu=str(payload.wert_soll),
+        kommentar_id=payload.kommentar_id,
+        batch_id=payload.batch_id,
+    )
+    if entry is None:
+        entry = models.FtePlan(subproject_id=subproject_id, monat=payload.monat, wert_soll=payload.wert_soll)
+        db.add(entry)
+    else:
+        entry.wert_soll = payload.wert_soll
+    db.commit()
+    db.refresh(sp)
+    return _subproject_detail(sp)
 
 
 # ---------------------------------------------------------------------------

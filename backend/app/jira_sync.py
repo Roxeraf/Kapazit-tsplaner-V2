@@ -23,8 +23,9 @@ MAX_UNBEKANNTE_BEISPIELE = 5
 def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[dict]]:
     """Holt Worklogs aus Jira für die Component/Label des Projekts und cached sie.
 
-    Nur Buchungen von Personen mit bekanntem `jira_account_id` (siehe models.Person, Phase
-    26.9) werden übernommen, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
+    Alle Buchungen werden übernommen. Für noch nicht zugeordnete Accounts verwendet die
+    Ist-FTE-Berechnung 40 Wochenstunden als transparenten Standardwert. Damit verschwinden
+    Tempo-/Jira-Daten nicht nur deshalb, weil die Personenpflege noch nicht abgeschlossen ist.
 
     Rückgabe: (Anzahl gecachter Worklogs, Anzahl unzugeordneter Buchungen, Beispiele
     unbekannter Autoren als {"account_id", "display_name"} — zum Abgleich mit den in den
@@ -50,9 +51,13 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
     raw_worklogs = list(aggregiert.values())
 
     known_account_ids = {
+        m.jira_account_id
+        for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
+    }
+    known_account_ids.update(
         p.jira_account_id
         for p in db.query(models.Person).filter(models.Person.jira_account_id.isnot(None))
-    }
+    )
 
     gespeichert = 0
     unzugeordnet = 0
@@ -64,7 +69,6 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
             unzugeordnete_accounts.setdefault(wl["author_account_id"], wl["author_display_name"])
             if len(unbekannte_beispiele) < MAX_UNBEKANNTE_BEISPIELE:
                 unbekannte_beispiele.setdefault(wl["author_account_id"], wl["author_display_name"])
-            continue
 
         entry = (
             db.query(models.JiraWorklogCache)
@@ -125,25 +129,30 @@ def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:
         return {}
 
     wochenstunden_by_account = {
-        person.jira_account_id: profile.weekly_hours
-        for person, profile in (
-            db.query(models.Person, models.ResourceProfile)
-            .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
-            .filter(models.Person.jira_account_id.isnot(None))
-            .all()
-        )
+        m.jira_account_id: m.wochenstunden
+        for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
     }
+    # Person/ResourceProfile remains the canonical source after phase 26.9. Merge it with the
+    # legacy TeamMember bridge so existing worklogs also load directly after upgrading a DB
+    # that had already dropped team_members.
+    for person, profile in (
+        db.query(models.Person, models.ResourceProfile)
+        .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
+        .filter(models.Person.jira_account_id.isnot(None))
+    ):
+        wochenstunden_by_account[person.jira_account_id] = profile.weekly_hours
 
     stunden_je_ma_monat: dict[tuple[str, str], float] = {}
     for row in rows:
-        if row.jira_account_id not in wochenstunden_by_account:
-            continue  # MA nicht (mehr) in den Stammdaten -> keine Wochenstunden bekannt
         key = (row.jira_account_id, _monat_label(row.datum))
         stunden_je_ma_monat[key] = stunden_je_ma_monat.get(key, 0) + row.stunden
 
     ist: dict[str, float] = {}
     for (account_id, monat), stunden in stunden_je_ma_monat.items():
-        fte_anteil = stunden / (wochenstunden_by_account[account_id] * ARBEITSWOCHEN_PRO_MONAT)
+        # Unbekannte Jira-/Tempo-Autoren dürfen die Ist-Daten nicht vollständig ausblenden.
+        # Sobald der Account einer Person zugeordnet wird, gilt automatisch deren echtes Profil.
+        wochenstunden = wochenstunden_by_account.get(account_id, 40)
+        fte_anteil = stunden / (wochenstunden * ARBEITSWOCHEN_PRO_MONAT)
         ist[monat] = ist.get(monat, 0) + fte_anteil
 
     return {monat: round(wert, 2) for monat, wert in ist.items()}

@@ -1,21 +1,21 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import type { JiraSyncResult } from "../../types";
+import type { JiraStatus, JiraSyncResult } from "../../types";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
 export default function ProjectJiraTab() {
   const { project, reload } = useProjectWorkspace();
   const [error, setError] = useState<string | null>(null);
-  const [jiraConfigured, setJiraConfigured] = useState(false);
+  const [jiraStatus, setJiraStatus] = useState<JiraStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<JiraSyncResult | null>(null);
 
   useEffect(() => {
     api
       .jiraStatus()
-      .then((status) => setJiraConfigured(status.configured))
-      .catch(() => setJiraConfigured(false));
+      .then(setJiraStatus)
+      .catch((e) => setError(`Integrationsstatus konnte nicht geladen werden: ${String(e)}`));
   }, []);
 
   const handleSync = async () => {
@@ -33,13 +33,25 @@ export default function ProjectJiraTab() {
   };
 
   const monateMitIst = Object.keys(project.ist);
+  const jiraConfigured = jiraStatus?.configured === true;
+  const syncErrors = lastSyncResult?.ergebnisse.filter((result) => result.error) ?? [];
 
   return (
     <div>
       {error && <p style={{ color: "var(--rot)" }}>{error}</p>}
       {!jiraConfigured && (
         <div className="stub-view">
-          Jira-Integration ist nicht konfiguriert (siehe <code>JIRA_BASE_URL</code>/<code>JIRA_API_TOKEN</code> im Backend).
+          {jiraStatus?.hinweis ?? "Jira-/Tempo-Integrationsstatus wird geladen …"}
+        </div>
+      )}
+
+      {jiraStatus && jiraConfigured && (
+        <div className="card" style={{ marginBottom: "1.25rem" }}>
+          <strong>Integration:</strong> Jira verbunden
+          {jiraStatus.tempo_configured ? " · Tempo verbunden" : " · native Jira-Worklogs"}
+          <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.25rem" }}>
+            {jiraStatus.hinweis}
+          </div>
         </div>
       )}
 
@@ -88,9 +100,19 @@ export default function ProjectJiraTab() {
           </button>
         )}
         {lastSyncResult && (
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
-            Letzter Sync: {lastSyncResult.ergebnisse.reduce((sum, r) => sum + r.worklogs_synced, 0)} Worklogs übernommen.
-          </p>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+            <p>Letzter Sync: {lastSyncResult.ergebnisse.reduce((sum, r) => sum + r.worklogs_synced, 0)} Worklogs übernommen.</p>
+            {syncErrors.map((result) => (
+              <p key={result.project_id} style={{ color: "var(--rot)" }}>
+                {result.project_name}: {result.error}
+              </p>
+            ))}
+            {lastSyncResult.ergebnisse.map((result) => result.unzugeordnete_buchungen > 0 && (
+              <p key={`unknown-${result.project_id}`} style={{ color: "var(--orange, #a65b00)" }}>
+                {result.unzugeordnete_buchungen} Buchungen sind noch keiner Person zugeordnet und werden vorläufig mit 40 Wochenstunden berechnet.
+              </p>
+            ))}
+          </div>
         )}
       </div>
     </div>

@@ -106,6 +106,7 @@ npm run dev
 | `GET /projects/{id}/documents`, `GET /documents/{id}/download` | Dokumente eines Projekts auflisten/herunterladen |
 | `POST/DELETE /document-links(/{id})` | Bestehendes Dokument mit einer weiteren Notiz/Entscheidung/Risiko/Meeting verknüpfen/entfernen |
 | `GET /tags` | Systemweite Tag-Autocomplete |
+| `GET /knowledge/readiness` | Phase-26-Review: maschinenlesbare KI-Readiness inklusive Datenqualität und Freigabeblockern |
 | `GET /projects/{id}/history`, `/projects/subprojects/{id}/history` | Änderungshistorie, gruppiert nach Revision (`batch_id`) |
 
 ## Migration bestehender Excel-Daten

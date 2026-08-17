@@ -48,6 +48,18 @@ def create_capacity_calendar(payload: schemas.CapacityCalendarCreate, db: Sessio
     return calendar
 
 
+@router.put("/capacity-calendars/{calendar_id}", response_model=schemas.CapacityCalendarOut)
+def update_capacity_calendar(
+    calendar_id: int, payload: schemas.CapacityCalendarUpdate, db: Session = Depends(get_db)
+):
+    calendar = _get_calendar_or_404(db, calendar_id)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(calendar, field, value)
+    db.commit()
+    db.refresh(calendar)
+    return calendar
+
+
 @router.delete("/capacity-calendars/{calendar_id}", status_code=204)
 def delete_capacity_calendar(calendar_id: int, db: Session = Depends(get_db)):
     _get_calendar_or_404(db, calendar_id)

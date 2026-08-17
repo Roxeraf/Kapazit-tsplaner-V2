@@ -7,6 +7,7 @@ import Utilization from "./views/Utilization";
 import Kpis from "./views/Kpis";
 import Reporting from "./views/Reporting";
 import JiraProjects from "./views/JiraProjects";
+import Administration from "./views/Administration";
 import ProjectWorkspace from "./views/project/ProjectWorkspace";
 import ProjectOverviewTab from "./views/project/ProjectOverviewTab";
 import ProjectPlanningTab from "./views/project/ProjectPlanningTab";
@@ -66,6 +67,9 @@ function AppShell() {
             <NavLink to="/jira-projekte" onClick={guardedNavigate("/jira-projekte")}>
               Jira-Projekte
             </NavLink>
+            <NavLink to="/administration" onClick={guardedNavigate("/administration")}>
+              Administration
+            </NavLink>
           </div>
         </nav>
       </header>
@@ -89,6 +93,7 @@ function AppShell() {
           <Route path="/auslastung" element={<Utilization />} />
           <Route path="/kpis" element={<Kpis />} />
           <Route path="/reporting" element={<Reporting />} />
+          <Route path="/administration" element={<Administration />} />
         </Routes>
       </main>
     </div>

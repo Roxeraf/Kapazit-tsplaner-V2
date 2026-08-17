@@ -118,6 +118,18 @@ def create_project_role(payload: schemas.ProjectRoleCreate, db: Session = Depend
     return role
 
 
+@router.put("/project-roles/{role_id}", response_model=schemas.ProjectRoleOut)
+def update_project_role(role_id: int, payload: schemas.ProjectRoleUpdate, db: Session = Depends(get_db)):
+    role = db.get(models.ProjectRole, role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail="Projektrolle nicht gefunden")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(role, field, value)
+    db.commit()
+    db.refresh(role)
+    return role
+
+
 # ---------------------------------------------------------------------------
 # ProjectMembership
 # ---------------------------------------------------------------------------
@@ -215,6 +227,18 @@ def create_app_role(payload: schemas.AppRoleCreate, db: Session = Depends(get_db
         raise HTTPException(status_code=409, detail="App-Rolle mit diesem Namen existiert bereits")
     role = models.AppRole(**payload.model_dump())
     db.add(role)
+    db.commit()
+    db.refresh(role)
+    return _app_role_out(db, role)
+
+
+@router.put("/app-roles/{role_id}", response_model=schemas.AppRoleOut)
+def update_app_role(role_id: int, payload: schemas.AppRoleUpdate, db: Session = Depends(get_db)):
+    role = db.get(models.AppRole, role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail="App-Rolle nicht gefunden")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(role, field, value)
     db.commit()
     db.refresh(role)
     return _app_role_out(db, role)

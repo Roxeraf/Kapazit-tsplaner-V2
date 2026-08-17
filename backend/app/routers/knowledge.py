@@ -4,10 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from .. import entity_links, models, schemas
+from .. import ai_readiness, entity_links, models, schemas
 from ..database import get_db
 
 router = APIRouter(tags=["knowledge"])
+
+
+@router.get("/knowledge/readiness", response_model=schemas.AiReadinessReport)
+def get_ai_readiness(db: Session = Depends(get_db)):
+    """Phase-26-Audit: maschinenlesbare, read-only Bewertung der Voraussetzungen für einen
+    späteren KI-Agenten. `productive_agent_enabled` bleibt bis zur Zugriffskontrolle false."""
+    return ai_readiness.build_report(db)
 
 
 def _get_project_or_404(db: Session, project_id: int) -> models.Project:

@@ -128,6 +128,41 @@ a {
   margin: 0 auto;
 }
 
+/* Administration UX (Phase 25) */
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
+.page-header h2 { color: var(--navy); margin: 0.1rem 0 0.25rem; font-size: 1.65rem; }
+.page-header p { color: var(--text-muted); margin: 0; }
+.eyebrow { color: var(--blau) !important; text-transform: uppercase; letter-spacing: .08em; font-size: .72rem; font-weight: 700; }
+.admin-phase-badge, .admin-readonly { background: #e6f2fa; color: var(--navy); border-radius: 999px; padding: .35rem .7rem; font-size: .75rem; font-weight: 700; white-space: nowrap; }
+.admin-section-nav { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: .75rem; margin-bottom: .5rem; }
+.admin-section-nav button { border: 1px solid var(--border); background: white; color: var(--text-muted); border-radius: 6px; padding: .55rem .75rem; cursor: pointer; white-space: nowrap; }
+.admin-section-nav button.active { color: white; background: var(--navy); border-color: var(--navy); }
+.admin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+.admin-card h3 { color: var(--navy); margin: 0 0 .35rem; }
+.admin-card--wide { grid-column: 1 / -1; }
+.admin-help, .admin-card > p { color: var(--text-muted); font-size: .85rem; }
+.admin-inline-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: .5rem; align-items: end; border-radius: 6px; background: var(--bg); padding: .75rem; margin: .85rem 0; }
+.admin-inline-form label, .admin-threshold-grid label { color: var(--text-muted); font-size: .72rem; display: grid; gap: .2rem; }
+.admin-inline-form input, .admin-row select, .admin-threshold-grid input { width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: .45rem; background: white; color: var(--text); }
+.admin-inline-form button, .admin-threshold-grid button, .button-link { border: 0; border-radius: 4px; background: var(--blau); color: white; padding: .5rem .75rem; cursor: pointer; text-decoration: none; font-size: .82rem; display: inline-block; }
+.admin-list { display: grid; max-height: 390px; overflow: auto; }
+.admin-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .65rem .15rem; border-top: 1px solid var(--border); }
+.admin-row > div { min-width: 0; display: grid; gap: .15rem; }
+.admin-row small, .integration-tile small { color: var(--text-muted); display: block; }
+.admin-switch { display: flex; align-items: center; gap: .35rem; color: var(--text-muted); font-size: .78rem; white-space: nowrap; }
+.admin-count { color: var(--text-muted); font-size: .78rem; }
+.admin-role-matrix details { border-top: 1px solid var(--border); padding: .65rem 0; }
+.admin-role-matrix summary { display: flex; justify-content: space-between; cursor: pointer; color: var(--navy); }
+.admin-role-matrix summary span { color: var(--text-muted); font-size: .78rem; }
+.admin-permissions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; padding: .75rem; margin-top: .5rem; background: var(--bg); border-radius: 6px; }
+.admin-permissions label { font-family: ui-monospace, monospace; font-size: .72rem; display: flex; gap: .35rem; }
+.admin-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.admin-threshold-grid form { display: grid; gap: .5rem; padding: .75rem; background: var(--bg); border-radius: 6px; }
+.integration-tile { display: flex; justify-content: space-between; gap: 1rem; padding: .75rem 0; border-bottom: 1px solid var(--border); }
+.status-ok { color: var(--gruen); font-weight: 700; font-size: .78rem; }.status-off { color: var(--grau); font-size: .78rem; }
+.admin-alert { color: var(--rot); background: #fff0ef; border: 1px solid #f2c2bf; border-radius: 6px; padding: .75rem; margin-bottom: 1rem; }
+@media (max-width: 800px) { .admin-grid { grid-template-columns: 1fr; }.admin-inline-form { grid-template-columns: 1fr; }.admin-threshold-grid { grid-template-columns: 1fr 1fr; }.app-header { align-items: flex-start; flex-direction: column; } }
+
 .card {
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -507,3 +542,17 @@ table.planner input.fte-input {
   color: var(--text-muted);
   white-space: nowrap;
 }
+.readiness-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.readiness-status { border-radius: 999px; padding: .35rem .7rem; font-size: .75rem; font-weight: 700; }
+.readiness-status--ready { color: var(--gruen); background: #e5f4ec; }
+.readiness-status--partial { color: #805c00; background: #fff4d6; }
+.readiness-status--blocked { color: var(--rot); background: #fff0ef; }
+.readiness-summary { display: flex; align-items: baseline; gap: .5rem; padding: 1rem; margin: .75rem 0; background: var(--bg); border-radius: 6px; }
+.readiness-summary strong { color: var(--navy); font-size: 1.5rem; }.readiness-summary small { color: var(--text-muted); margin-left: auto; }
+.readiness-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+.readiness-check { display: grid; grid-template-columns: auto 1fr; gap: .65rem; border: 1px solid var(--border); border-radius: 6px; padding: .75rem; }
+.readiness-check p { color: var(--text-muted); font-size: .82rem; margin: .25rem 0; }.readiness-check small { color: var(--navy); display: block; margin-top: .4rem; }
+.readiness-dot { width: .65rem; height: .65rem; border-radius: 50%; margin-top: .25rem; }.readiness-dot--ready { background: var(--gruen); }.readiness-dot--partial { background: var(--gelb); }.readiness-dot--blocked { background: var(--rot); }
+.readiness-metrics { display: flex; flex-wrap: wrap; gap: .35rem; }.readiness-metrics span { font-size: .7rem; padding: .15rem .4rem; border-radius: 999px; background: #e6f2fa; color: var(--navy); }
+.readiness-blocker { margin-top: .75rem; border-left: 4px solid var(--rot); background: #fff0ef; padding: .75rem; }.readiness-blocker p { margin: .25rem 0 0; font-size: .85rem; }
+@media (max-width: 800px) { .readiness-list { grid-template-columns: 1fr; }.readiness-summary { flex-wrap: wrap; }.readiness-summary small { margin-left: 0; width: 100%; } }

@@ -210,7 +210,7 @@ export interface PlanHistoryEntry {
 
 // entity_type-Vokabular, geteilt zwischen Tags und Document-Verknüpfungen (siehe
 // CONCEPT.md Abschnitt 6a). "document" nur für Tags relevant.
-export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document";
+export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document" | "blocker" | "plan_phase" | "milestone";
 
 export interface DocumentUsage {
   entity_type: string;
@@ -351,3 +351,18 @@ export interface Task {
   tags: string[];
   documents: Document[];
 }
+
+// Fachliche Administration (Phase 25)
+export interface AdminPerson { id: number; external_id: string | null; display_name: string; email: string | null; source: "LOCAL" | "ENTERPRISE_PLATFORM"; active: boolean }
+export interface AdminProjectRole { id: number; name: string; description: string | null; active: boolean }
+export interface AdminPermission { id: number; name: string; description: string | null }
+export interface AdminAppRole { id: number; name: string; description: string | null; permissions: string[] }
+export interface AdminResourceRole { id: number; name: string; description: string | null; active: boolean }
+export interface AdminSkill { id: number; name: string; category: string | null; active: boolean }
+export interface AdminTagCategory { id: number; name: string; description: string | null }
+export interface AdminTag { id: number; name: string; category_id: number | null; description: string | null; color: string | null; active: boolean; ai_relevant: boolean; ai_description: string | null; synonyms: string[] }
+export interface AdminHealthThreshold { metric: string; yellow: number; red: number }
+export interface AdminCapacityCalendar { id: number; name: string; description: string | null; active: boolean }
+export interface AiReadinessMetric { key: string; value: number | string | boolean; unit: string | null }
+export interface AiReadinessCheck { key: string; label: string; status: "READY" | "PARTIAL" | "BLOCKED"; evidence: string; recommendation: string | null; metrics: AiReadinessMetric[] }
+export interface AiReadinessReport { phase: number; overall_status: "READY" | "PARTIAL" | "BLOCKED"; generated_at: string; productive_agent_enabled: boolean; checks: AiReadinessCheck[]; blockers: string[] }

@@ -1,6 +1,9 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.15 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–24 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine, Project Control & Health, Controlling & Capacity Intelligence, Knowledge Experience) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.16 — Phasen 13–26 der Kapazitätsplaner-v2-Zielarchitektur umgesetzt. Der
+KI-Readiness-Review ist abgeschlossen; ein produktiver KI-Agent bleibt bewusst deaktiviert,
+bis Identity, projektbezogene Autorisierung und Agent-Auditierung vorhanden sind (siehe
+Abschnitt 11 für den vollständigen Umsetzungsstand und Abschnitt 12.5 für das Review-Ergebnis).
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -918,8 +921,15 @@ Dieses Repo enthält:
     die AND/OR-/Projekt-Filter-/Synonym-Fallpfade von `entities_by_tags()` und
     `related_entities()` isoliert verifiziert (17 Einzelchecks). Kein Frontend-Umbau. Details
     siehe Abschnitt 12.4 (Phase 24 als erledigt markiert).
+25. **Phase 25 (Administration UX, Kapazitätsplaner-v2-Zielarchitektur):** Eine globale
+    Administrationsoberfläche bündelt Personen/Teams, Projekt- und App-Rollen inklusive
+    Permission-Matrix, Resource Roles/Skills, Tags/Tag-Kategorien, Project-Health-
+    Schwellwerte, Capacity-Kalender und Integrationsstatus. Sie verwendet direkt die APIs
+    der Phasen 13–22; fehlende Update-Operationen wurden additiv ergänzt. Extern verwaltete
+    Personen bleiben read-only, Jira/Tempo-Credentials bleiben in der Laufzeitumgebung.
+    Details siehe Abschnitt 12.4 (Phase 25 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–24 der Zielarchitektur (Abschnitt 12) umgesetzt.
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–25 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -1086,8 +1096,8 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–24 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/21/22/23/24).
-Phasen 25–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
+Phase 13–26 sind umgesetzt. Phase 26 ist dabei ein Review und ausdrücklich keine
+Implementierung eines produktiven KI-Agenten:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
@@ -1103,8 +1113,50 @@ Phasen 25–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 | 22 | Project Control & Health | ✅ mehrdimensionales Project Health, konfigurierbare Schwellwerte, Project Control Cockpit |
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
-| 25 | Administration UX | UI für Personen/Teams/Rollen/Permissions/Skills/Tags |
-| 26 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
+| 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
+| 26 | KI-Readiness Review | ✅ maschinenlesbarer Audit; produktiver Agent bis zur Autorisierung gesperrt |
+
+**Phase-25-Architekturentscheidung:** Die Administration ist eine eigene globale Route
+`/administration` und bündelt vorhandene fachliche Sources of Truth, statt Stammdaten im
+Frontend zu duplizieren. Lokale Personen können angelegt und aktiviert/deaktiviert werden;
+Enterprise-Personen werden sichtbar als extern verwaltet und bleiben read-only. App-Rollen
+nutzen die geseedeten Permissions als Capability-Matrix. Resource Roles, Skills, Tags,
+Tag-Kategorien, Health-Schwellwerte und Capacity-Kalender schreiben direkt in die Modelle
+der Phasen 13–22. Team-Kapazitätsressourcen bleiben über die bestehende Teamverwaltung
+erreichbar, solange `TeamMember` und `Person + ResourceProfile` parallel existieren.
+Jira/Tempo-Zugangsdaten werden aus Sicherheitsgründen weiterhin ausschließlich über
+Umgebungsvariablen konfiguriert; die Administration zeigt nur den Verbindungsstatus.
+Blocker-Severity und Risikolevel bleiben vorerst systemverwaltetes Fachvokabular: Eigene
+Kategorie-Modelle werden nicht allein für eine UI erfunden, bevor ihr Domänenverhalten und
+ihre Migration entschieden sind.
+
+### 12.5 Phase 26 – KI-Readiness Review
+
+Der Review ist als read-only `GET /knowledge/readiness` reproduzierbar. Er liefert für jeden
+Prüfpunkt `READY`, `PARTIAL` oder `BLOCKED`, konkrete Evidenz, Datenqualitätsmetriken und eine
+Handlungsempfehlung. Die Auswertung ist zusätzlich in der Administration sichtbar. Sie
+verändert keine Daten, ruft kein Sprachmodell auf und aktiviert keinen Agenten.
+
+| Prüffrage | Ergebnis | Begründung |
+|---|---|---|
+| Relevante Entities strukturiert erreichbar? | READY | Knowledge Registry und `/knowledge/entities`, `/knowledge/project/{id}`, `/knowledge/context` decken neun fachliche Typen ab. |
+| Beziehungen maschinenlesbar? | READY | `EntityRelation` besitzt typisierte, gerichtete Quelle/Ziel-Beziehungen. |
+| Tags semantisch beschrieben? | datenabhängig | Coverage aus aktiven Tags mit `ai_description` oder Synonymen; unter 80 % wird `PARTIAL` gemeldet. |
+| Plan/Baseline/Forecast/Actual eindeutig? | strukturell READY, datenabhängig | Eigene Felder sind vorhanden; unvollständige Baseline-/Forecast-Pflege wird als `PARTIAL` sichtbar. |
+| GAPs berechenbar und erklärbar? | READY | Sechs GAP-Arten sowie Projekt-/Portfolio-Drill-downs referenzieren ihre fachlichen Ursachen. |
+| Blocker und Ownership nachvollziehbar? | datenabhängig | Owner-, Waiting-for-, Next-Action- und Impact-Coverage werden über offene Blocker gemessen. |
+| Capacity Gaps drill-down-fähig? | READY | Demand und Assignment sind getrennt, Aggregate enthalten Projekt-, Rollen- und Demand-IDs. |
+| Project Health Scores erklärbar? | READY | Jede Dimension liefert Wert und Erklärung; Schwellenwerte sind konfigurierbar. |
+| Knowledge Layer liefert Fachkontext? | READY | Tags, Dokumente, Relationen und Related Entities werden gebündelt. |
+| Berechtigungen für Agent-Zugriffe vorbereitet? | BLOCKED | Capabilities existieren, aber es gibt noch keine Identity→AppRole-Zuordnung, Request-Autorisierung, read-only Agent-Rolle, Projekt-Scope oder Agent-Auditierung. |
+
+**Freigabeentscheidung:** Die fachliche Datenbasis ist grundsätzlich agentenfähig, aber ein
+produktiver Agent ist sicherheitstechnisch **noch nicht freigegeben**. Vor der späteren
+Agent-Implementierung sind mindestens Enterprise Identity/SSO, eine Zuordnung von Identitäten
+zu App-Rollen, projektbezogene Zugriffsscopes, dedizierte read-only Agent-Capabilities und ein
+Audit-Trail für Agent-Zugriffe umzusetzen. `productive_agent_enabled` bleibt deshalb im
+Readiness-Report fest auf `false`. Vector-/Embedding-RAG, autonome Schreibaktionen und
+automatische Ressourcenoptimierung bleiben weiterhin bewusst außerhalb des Scopes.
 
 Details zu Vision, Gesamtmodell und Steuerungskreislauf siehe die Master-Architektur-MD
 ("Kapazitätsplaner v2 – Gesamtarchitektur- und Umsetzungsplan").

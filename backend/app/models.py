@@ -183,6 +183,9 @@ class Person(Base):
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     display_name: Mapped[str] = mapped_column(String(200))
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Used by Jira/Tempo worklog synchronization. TeamMember keeps the same value only as a
+    # compatibility bridge for the restored legacy planning UI.
+    jira_account_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source: Mapped[str] = mapped_column(String(30), default="LOCAL")  # LOCAL | ENTERPRISE_PLATFORM
     active: Mapped[bool] = mapped_column(default=True)
 

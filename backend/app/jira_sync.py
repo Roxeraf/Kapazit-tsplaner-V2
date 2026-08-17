@@ -128,6 +128,15 @@ def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:
         m.jira_account_id: m.wochenstunden
         for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
     }
+    # Person/ResourceProfile remains the canonical source after phase 26.9. Merge it with the
+    # legacy TeamMember bridge so existing worklogs also load directly after upgrading a DB
+    # that had already dropped team_members.
+    for person, profile in (
+        db.query(models.Person, models.ResourceProfile)
+        .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
+        .filter(models.Person.jira_account_id.isnot(None))
+    ):
+        wochenstunden_by_account[person.jira_account_id] = profile.weekly_hours
 
     stunden_je_ma_monat: dict[tuple[str, str], float] = {}
     for row in rows:

@@ -26,10 +26,16 @@ import type {
   KpiSummary,
   MeetingMinutes,
   MemberUtilization,
+  ActivityItem,
   BaselineSnapshot,
   BaselineSnapshotSummary,
+  Blocker,
+  BlockerParty,
+  BlockerStatus,
+  BlockerSeverity,
   CandidatePerson,
   CommitmentLevel,
+  EntityRelation,
   Milestone,
   MilestoneStatus,
   PlanHistoryEntry,
@@ -39,6 +45,7 @@ import type {
   ProjectMembership,
   ProjectStatus,
   ProjectSummary,
+  RelationType,
   ResourceAssignment,
   ResourceDemand,
   Risk,
@@ -267,6 +274,55 @@ export const api = {
     request<ResourceAssignment>(`/resource-demands/${demandId}/assignments`, { method: "POST", body: JSON.stringify(payload) }),
   deleteResourceAssignment: (assignmentId: number) => request<void>(`/resource-assignments/${assignmentId}`, { method: "DELETE" }),
   getResourceDemandCandidates: (demandId: number) => request<CandidatePerson[]>(`/resource-demands/${demandId}/candidates`),
+
+  // Blocker (Phase 26.4, backend/app/routers/communication.py)
+  listBlockers: (projectId: number) => request<Blocker[]>(`/projects/${projectId}/blockers`),
+  createBlocker: (
+    projectId: number,
+    payload: {
+      title: string;
+      description?: string | null;
+      status?: BlockerStatus;
+      severity?: BlockerSeverity;
+      active_since?: string | null;
+      caused_by_party?: BlockerParty;
+      waiting_for_party?: BlockerParty;
+      owner_person_id?: number | null;
+      owner_team_id?: number | null;
+      next_action?: string | null;
+      impact?: string | null;
+      tags?: string[];
+    },
+  ) => request<Blocker>(`/projects/${projectId}/blockers`, { method: "POST", body: JSON.stringify(payload) }),
+  updateBlocker: (
+    blockerId: number,
+    payload: Partial<{
+      title: string;
+      description: string | null;
+      status: BlockerStatus;
+      severity: BlockerSeverity;
+      active_since: string | null;
+      caused_by_party: BlockerParty;
+      waiting_for_party: BlockerParty;
+      owner_person_id: number | null;
+      owner_team_id: number | null;
+      next_action: string | null;
+      impact: string | null;
+      tags: string[];
+    }>,
+  ) => request<Blocker>(`/projects/blockers/${blockerId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteBlocker: (blockerId: number) => request<void>(`/projects/blockers/${blockerId}`, { method: "DELETE" }),
+
+  // Activity Feed + EntityRelation (Phase 26.4, backend/app/routers/communication.py,knowledge.py)
+  getActivity: (projectId: number, limit?: number) =>
+    request<ActivityItem[]>(`/projects/${projectId}/activity${limit ? `?limit=${limit}` : ""}`),
+  createEntityRelation: (payload: {
+    source_entity_type: EntityType;
+    source_entity_id: number;
+    target_entity_type: EntityType;
+    target_entity_id: number;
+    relation_type: RelationType;
+  }) => request<EntityRelation>("/entity-relations", { method: "POST", body: JSON.stringify(payload) }),
 
   exportPptxUrl: (projectId: number) => `${API_BASE}/projects/${projectId}/export/pptx`,
   exportPortfolioPptxUrl: () => `${API_BASE}/projects/export/pptx/portfolio`,

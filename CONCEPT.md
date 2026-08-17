@@ -1025,7 +1025,33 @@ Dieses Repo enthält:
       gegen echten Dev-Server (Rolle hinzufügen, FTE-Zelle befüllen, Detail-Panel öffnen,
       Kandidat mit freier Kapazität zuordnen) — `POST .../assignments` mit korrektem Payload
       bestätigt, `allocation_gap` aktualisiert sich sofort, keine Konsolenfehler.
-    - **26.4–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
+    - **26.4 (Activity Integration) — ✅ erledigt.** `ProjectCommunicationTab.tsx` hat jetzt
+      "Aktivität" als Standard-Unteransicht (`ActivityFeed.tsx`, `GET /projects/{id}/activity`
+      chronologisch, Filterleiste nach Entitätstyp inkl. Blocker) statt direkt in eine der
+      fünf Einzellisten zu starten — die Einzellisten bleiben als eigene Unteransichten
+      erreichbar (Klick auf den Titel eines Activity-Items springt dorthin). Kein neuer
+      Backend-Endpoint nötig: Blocker-CRUD war seit Phase 16 vollständig vorhanden und
+      ungenutzt (neue `BlockerList.tsx`, Vorbild `RiskList.tsx`, zeigt `caused_by_party`/
+      `waiting_for_party`/`next_action` prominent samt "Tage seit `active_since`"-Berechnung).
+      `entity_links.delete_relations_for_entity`/`delete_links_for_entity` waren für
+      `plan_phase`/`milestone`-Löschungen bereits verdrahtet (Prüfung ergab keine Lücke, anders
+      als ursprünglich vermutet). **"Aus Objekt erstellen"** (Diskussion → Entscheidung/
+      Aufgabe/Risiko/Blocker; Entscheidung → Folgeaufgabe/Blocker; Blocker → Aufgabe/"Als
+      gelöst markieren") ist reine Frontend-Orchestrierung ohne neuen Endpoint: legt zuerst die
+      Folge-Entität über den bestehenden Create-Endpoint an, danach eine `EntityRelation`
+      (`relation_type="resulted_in"` einheitlich für alle "X entstand aus Y"-Fälle) über
+      `POST /entity-relations`. `EntityType` in `frontend/src/types.ts` um `"blocker"`
+      erweitert (analog zur `"plan_phase"`/`"milestone"`-Erweiterung aus 26.2) — damit ist die
+      in 26.8 geplante `EntityType`-Erweiterung bereits vollständig, 26.8 reduziert sich auf
+      das Verdrahten der `AttachmentPicker`/`AttachmentList`-Komponenten in `BlockerList.tsx`
+      (bereits in diesem Durchgang mit erledigt) und den "Verwendet in"-Check im
+      Dokumente-Tab. Verifiziert: curl-Szenario Diskussion → Entscheidung → `EntityRelation`
+      (`resulted_in`) → im Activity Feed sichtbar; Blocker-CRUD inkl. Statuswechsel; `npm run
+      build` fehlerfrei; Playwright-Durchlauf gegen echten Dev-Server ("+ Entscheidung" auf
+      einer Diskussions-Karte erzeugt korrekt zwei Requests — `POST .../decisions` dann
+      `POST /entity-relations` mit `target_entity_id` der neuen Entscheidung —, Blocker-
+      Unteransicht zeigt korrekte Partei-/Tage-Anzeige), keine Konsolenfehler.
+    - **26.5–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
 
 Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit Unterschritt 26.1 begonnen, siehe Punkt 26 oben.
 
@@ -1212,7 +1238,7 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
+| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
 | 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
 | 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
 | 29 | AI Project Agent | später, siehe Bucket D unten |

@@ -210,10 +210,10 @@ export interface PlanHistoryEntry {
 }
 
 // entity_type-Vokabular, geteilt zwischen Tags und Document-Verknüpfungen (siehe
-// CONCEPT.md Abschnitt 6a). "document" nur für Tags relevant. "plan_phase"/"milestone"
-// seit Phase 26.2 genutzt (Backend unterstützt sie bereits seit Phase 16/17,
-// entity_links-Registry) - Rest der Phase-26.8-Erweiterung ("blocker") folgt separat.
-export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document" | "plan_phase" | "milestone";
+// CONCEPT.md Abschnitt 6a). "document" nur für Tags relevant. "plan_phase"/"milestone" seit
+// Phase 26.2 genutzt, "blocker" seit Phase 26.4 - Backend unterstützt alle drei bereits seit
+// Phase 16/17 (entity_links-Registry).
+export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document" | "plan_phase" | "milestone" | "blocker";
 
 export interface DocumentUsage {
   entity_type: string;
@@ -353,6 +353,90 @@ export interface Task {
   aktualisiert_am: string;
   tags: string[];
   documents: Document[];
+}
+
+// Phase 26.4: Blocker (Phase 16 der Zielarchitektur, backend/app/routers/communication.py) -
+// caused_by_party/waiting_for_party trennen bewusst "wer hat verursacht" von "bei wem liegt
+// aktuell der Ball".
+export type BlockerParty = "INTERNAL" | "CUSTOMER" | "THIRD_PARTY" | "UNKNOWN";
+
+export const BLOCKER_PARTY_LABELS: Record<BlockerParty, string> = {
+  INTERNAL: "Intern",
+  CUSTOMER: "Kunde",
+  THIRD_PARTY: "Drittpartei",
+  UNKNOWN: "Unbekannt",
+};
+
+export type BlockerStatus = "offen" | "in_bearbeitung" | "geloest";
+
+export const BLOCKER_STATUS_LABELS: Record<BlockerStatus, string> = {
+  offen: "Offen",
+  in_bearbeitung: "In Bearbeitung",
+  geloest: "Gelöst",
+};
+
+export type BlockerSeverity = "niedrig" | "mittel" | "hoch" | "kritisch";
+
+export const BLOCKER_SEVERITY_LABELS: Record<BlockerSeverity, string> = {
+  niedrig: "Niedrig",
+  mittel: "Mittel",
+  hoch: "Hoch",
+  kritisch: "Kritisch",
+};
+
+export interface Blocker {
+  id: number;
+  project_id: number;
+  title: string;
+  description: string | null;
+  status: BlockerStatus;
+  severity: BlockerSeverity;
+  active_since: string | null;
+  caused_by_party: BlockerParty;
+  waiting_for_party: BlockerParty;
+  owner_person_id: number | null;
+  owner_team_id: number | null;
+  next_action: string | null;
+  impact: string | null;
+  erstellt_am: string;
+  aktualisiert_am: string;
+  tags: string[];
+  documents: Document[];
+}
+
+// Phase 26.4: Activity Feed (Phase 16, backend/app/routers/communication.py) - reine
+// chronologische Aggregation, keine neue Tabelle.
+export interface ActivityItem {
+  entity_type: EntityType;
+  entity_id: number;
+  label: string | null;
+  timestamp: string;
+  tags: string[];
+}
+
+// relation_type-Vokabular für EntityRelation (siehe backend/app/schemas.py). "resulted_in"
+// wird für alle "aus diesem Objekt erstellt"-Aktionen verwendet (Phase 26.4) - deckt sowohl
+// "Diskussion resultierte in Entscheidung" als auch "Blocker resultierte in Folgeaufgabe".
+export type RelationType =
+  | "related_to"
+  | "resulted_in"
+  | "based_on"
+  | "follow_up"
+  | "blocks"
+  | "resolves"
+  | "depends_on"
+  | "supports"
+  | "caused_by";
+
+export interface EntityRelation {
+  id: number;
+  source_entity_type: string;
+  source_entity_id: number;
+  target_entity_type: string;
+  target_entity_id: number;
+  relation_type: RelationType;
+  created_at: string;
+  created_by_person_id: number | null;
 }
 
 // Phase 26.2: PlanPhase/Milestone (Phase 17 der Zielarchitektur, backend/app/routers/planning.py)

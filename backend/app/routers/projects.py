@@ -246,12 +246,14 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
         m[0] for m in db.query(models.MeetingMinutes.id).filter(models.MeetingMinutes.project_id == project_id).all()
     ]
     task_ids = [t[0] for t in db.query(models.Task.id).filter(models.Task.project_id == project_id).all()]
+    blocker_ids = [b[0] for b in db.query(models.Blocker.id).filter(models.Blocker.project_id == project_id).all()]
     for entity_type, ids in (
         ("comment", comment_ids),
         ("decision", decision_ids),
         ("risk", risk_ids),
         ("meeting_minutes", meeting_ids),
         ("task", task_ids),
+        ("blocker", blocker_ids),
     ):
         if not ids:
             continue
@@ -261,9 +263,22 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
         db.query(models.DocumentLink).filter(
             models.DocumentLink.entity_type == entity_type, models.DocumentLink.entity_id.in_(ids)
         ).delete(synchronize_session=False)
+        # EntityRelation-Zeilen dieser Entitäten entfernen (Phase 16, siehe CONCEPT.md
+        # Abschnitt 12.3 Frage 11) - sonst blieben Waisen-Relationen auf gelöschte Entitäten
+        # zurück.
+        db.query(models.EntityRelation).filter(
+            (
+                (models.EntityRelation.source_entity_type == entity_type)
+                & (models.EntityRelation.source_entity_id.in_(ids))
+            )
+            | (
+                (models.EntityRelation.target_entity_type == entity_type)
+                & (models.EntityRelation.target_entity_id.in_(ids))
+            )
+        ).delete(synchronize_session=False)
 
-    # GapSnapshot, PlanHistory, Comment, Decision, Risk, MeetingMinutes, Task haben eine FK
-    # auf project_id, aber keine Cascade-Relationship am Project-Modell (siehe models.py).
+    # GapSnapshot, PlanHistory, Comment, Decision, Risk, MeetingMinutes, Task, Blocker haben
+    # eine FK auf project_id, aber keine Cascade-Relationship am Project-Modell (siehe models.py).
     db.query(models.GapSnapshot).filter(models.GapSnapshot.project_id == project_id).delete()
     db.query(models.PlanHistory).filter(models.PlanHistory.project_id == project_id).delete()
     db.query(models.Comment).filter(models.Comment.project_id == project_id).delete()
@@ -271,6 +286,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.query(models.Risk).filter(models.Risk.project_id == project_id).delete()
     db.query(models.MeetingMinutes).filter(models.MeetingMinutes.project_id == project_id).delete()
     db.query(models.Task).filter(models.Task.project_id == project_id).delete()
+    db.query(models.Blocker).filter(models.Blocker.project_id == project_id).delete()
 
     # Dokumente: Datei + Document-Zeile + eigene TagLink-Zeilen (als "document" getaggt) +
     # DocumentLink-Zeilen, bei denen dieses Dokument die verlinkte Datei ist.
@@ -539,6 +555,7 @@ def _comment_out(db: Session, comment: models.Comment) -> schemas.CommentOut:
         phase_code=comment.phase_code,
         text=comment.text,
         erstellt_am=comment.erstellt_am,
+        parent_id=comment.parent_id,
         tags=entity_links.tags_for(db, "comment", comment.id),
         documents=entity_links.documents_for(db, "comment", comment.id),
     )
@@ -549,6 +566,8 @@ def create_comment(project_id: int, payload: schemas.CommentCreate, db: Session 
     _get_project_or_404(db, project_id)
     if payload.subproject_id is not None:
         _get_subproject_or_404(db, payload.subproject_id)
+    if payload.parent_id is not None and _get_comment_or_404(db, payload.parent_id).project_id != project_id:
+        raise HTTPException(status_code=422, detail="parent_id muss zum selben Projekt gehören")
     comment = models.Comment(
         project_id=project_id,
         subproject_id=payload.subproject_id,
@@ -556,6 +575,7 @@ def create_comment(project_id: int, payload: schemas.CommentCreate, db: Session 
         phase_code=payload.phase_code,
         text=payload.text,
         erstellt_am=datetime.now(timezone.utc).isoformat(),
+        parent_id=payload.parent_id,
     )
     db.add(comment)
     db.flush()
@@ -589,9 +609,13 @@ def delete_comment(comment_id: int, db: Session = Depends(get_db)):
     db.query(models.PlanHistory).filter(models.PlanHistory.kommentar_id == comment_id).update(
         {"kommentar_id": None}
     )
+    # Antworten auf diesen Kommentar bleiben als eigenständige (dann Wurzel-)Beiträge
+    # bestehen, statt den ganzen Thread mitzulöschen (Discussion Threading, Phase 16).
+    db.query(models.Comment).filter(models.Comment.parent_id == comment_id).update({"parent_id": None})
     # Tags/Anhänge der Notiz entfernen - die verlinkten Document-Zeilen bleiben in der
     # zentralen Ablage bestehen (siehe CONCEPT.md Abschnitt 6a).
     entity_links.delete_links_for_entity(db, "comment", comment_id)
+    entity_links.delete_relations_for_entity(db, "comment", comment_id)
     db.delete(comment)
     db.commit()
 

@@ -126,7 +126,7 @@ class FteUpdate(BaseModel):
 # entity_type-Vokabular, geteilt zwischen TagLink, DocumentLink und EntityRelation.
 # "document" nur für TagLink relevant (Dokumente sind selbst taggbar, aber nie Ziel eines
 # DocumentLink). Siehe Kapazitätsplaner-v2-Zielarchitektur, CONCEPT.md Abschnitt 12.
-EntityType = Literal["comment", "decision", "risk", "meeting_minutes", "task", "document"]
+EntityType = Literal["comment", "decision", "risk", "meeting_minutes", "task", "document", "blocker"]
 
 # relation_type-Vokabular für EntityRelation (Master-MD Abschnitt 45, "Knowledge Layer").
 RelationType = Literal[
@@ -277,6 +277,9 @@ class KnowledgeProjectContextOut(BaseModel):
 class DecisionCreate(BaseModel):
     titel: str
     beschreibung: str | None = None
+    # Trennt WAS entschieden wurde (beschreibung) von WARUM (Decision Context, Phase 16,
+    # siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 35: decision_text vs. reason).
+    begruendung: str | None = None
     status: str = "offen"
     entschieden_von: str | None = None
     entschieden_am: str | None = None
@@ -286,6 +289,7 @@ class DecisionCreate(BaseModel):
 class DecisionUpdate(BaseModel):
     titel: str | None = None
     beschreibung: str | None = None
+    begruendung: str | None = None
     status: str | None = None
     entschieden_von: str | None = None
     entschieden_am: str | None = None
@@ -297,6 +301,7 @@ class DecisionOut(BaseModel):
     project_id: int
     titel: str
     beschreibung: str | None
+    begruendung: str | None = None
     status: str
     entschieden_von: str | None
     entschieden_am: str | None
@@ -404,6 +409,79 @@ class TaskOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Blocker (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 37/38). Englische
+# Feldnamen wie Person/ResourceProfile (Zielarchitektur-native Entität), im Unterschied zu
+# den aus dem Excel-Tool abgeleiteten Kommunikation-Tab-Modellen oberhalb.
+# ---------------------------------------------------------------------------
+
+BlockerParty = Literal["INTERNAL", "CUSTOMER", "THIRD_PARTY", "UNKNOWN"]
+
+
+class BlockerCreate(BaseModel):
+    title: str
+    description: str | None = None
+    status: str = "offen"  # offen/in_bearbeitung/geloest
+    severity: str = "mittel"  # niedrig/mittel/hoch/kritisch
+    active_since: str | None = None
+    caused_by_party: BlockerParty = "UNKNOWN"
+    waiting_for_party: BlockerParty = "UNKNOWN"
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    next_action: str | None = None
+    impact: str | None = None
+    tags: list[str] = []
+
+
+class BlockerUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: str | None = None
+    severity: str | None = None
+    active_since: str | None = None
+    caused_by_party: BlockerParty | None = None
+    waiting_for_party: BlockerParty | None = None
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    next_action: str | None = None
+    impact: str | None = None
+    tags: list[str] | None = None
+
+
+class BlockerOut(BaseModel):
+    id: int
+    project_id: int
+    title: str
+    description: str | None
+    status: str
+    severity: str
+    active_since: str | None
+    caused_by_party: str
+    waiting_for_party: str
+    owner_person_id: int | None
+    owner_team_id: int | None
+    next_action: str | None
+    impact: str | None
+    erstellt_am: str
+    aktualisiert_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+# ---------------------------------------------------------------------------
+# Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
+# chronologische Aggregation bestehender Endpunkte, keine neue Tabelle.
+# ---------------------------------------------------------------------------
+
+
+class ActivityItemOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    label: str | None
+    timestamp: str
+    tags: list[str] = []
+
+
+# ---------------------------------------------------------------------------
 # Kommentare & Änderungshistorie (Speichern-Button/Entwurfsmodus)
 # ---------------------------------------------------------------------------
 
@@ -416,6 +494,9 @@ class CommentCreate(BaseModel):
     # Nur für allgemeine Notizen relevant (monat/phase_code=None) - Zell-Kommentare bleiben
     # reiner Text, siehe CONCEPT.md Abschnitt 6a.
     tags: list[str] = []
+    # Gesetzt = Antwort auf einen anderen Kommentar (Discussion Threading, Phase 16, siehe
+    # CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 34).
+    parent_id: int | None = None
 
 
 class CommentUpdate(BaseModel):
@@ -433,6 +514,7 @@ class CommentOut(BaseModel):
     phase_code: str | None
     text: str
     erstellt_am: str
+    parent_id: int | None = None
     tags: list[str] = []
     documents: list[DocumentOut] = []
 

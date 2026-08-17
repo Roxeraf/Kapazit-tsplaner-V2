@@ -355,6 +355,9 @@ class Comment(Base):
     # 40 statt 30 Zeichen: datetime.isoformat() mit Mikrosekunden + UTC-Offset kann bis zu
     # 32 Zeichen lang werden (z.B. "2026-07-28T10:05:52.407714+00:00").
     erstellt_am: Mapped[str] = mapped_column(String(40))
+    # Nullable Self-FK für Diskussions-Threads (Phase 16, siehe CONCEPT.md Abschnitt 12) -
+    # None = eigenständige Notiz/Wurzel eines Threads, gesetzt = Antwort auf comments.id.
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id"), nullable=True)
 
 
 class PlanHistory(Base):
@@ -511,6 +514,9 @@ class Decision(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     titel: Mapped[str] = mapped_column(String(200))
     beschreibung: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    # Trennt WAS entschieden wurde (beschreibung) von WARUM (Decision Context, Phase 16,
+    # Master-MD Abschnitt 35: decision_text vs. reason). Additiv/nullable.
+    begruendung: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/entschieden/verworfen
     entschieden_von: Mapped[str | None] = mapped_column(String(200), nullable=True)
     entschieden_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -565,5 +571,32 @@ class Task(Base):
     # Verzeichnis für Zuweisungen im Repo gibt (siehe CONCEPT.md Abschnitt 10).
     zustaendig: Mapped[str | None] = mapped_column(String(200), nullable=True)
     faellig_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+    aktualisiert_am: Mapped[str] = mapped_column(String(40))
+
+
+class Blocker(Base):
+    """Etwas verhindert oder verzögert aktuell den Projektfortschritt (Phase 16, Master-MD
+    Abschnitt 37/38). Zielarchitektur-native Entität - englische Feldnamen wie Person/
+    ResourceProfile (Phase 14), im Unterschied zu den aus dem Excel-Tool abgeleiteten
+    Kommunikation-Tab-Modellen (Decision/Risk/Task/MeetingMinutes/Comment), siehe CONCEPT.md
+    Abschnitt 12. caused_by_party und waiting_for_party werden bewusst getrennt geführt: wer
+    hat den Blocker verursacht vs. bei wem liegt aktuell der Ball."""
+
+    __tablename__ = "blockers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/in_bearbeitung/geloest
+    severity: Mapped[str] = mapped_column(String(10), default="mittel")  # niedrig/mittel/hoch/kritisch
+    active_since: Mapped[str | None] = mapped_column(String(10), nullable=True)  # ISO "YYYY-MM-DD"
+    caused_by_party: Mapped[str] = mapped_column(String(20), default="UNKNOWN")
+    waiting_for_party: Mapped[str] = mapped_column(String(20), default="UNKNOWN")
+    owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
+    owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    next_action: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    impact: Mapped[str | None] = mapped_column(String(500), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
     aktualisiert_am: Mapped[str] = mapped_column(String(40))

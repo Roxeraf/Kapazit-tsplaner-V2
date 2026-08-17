@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.6 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–15 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.7 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–16 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -431,7 +431,51 @@ Dieses Repo enthält:
     Datenverlust. Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 15 als erledigt
     markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13/14/15 der Zielarchitektur (Abschnitt 12) umgesetzt.
+16. **Phase 16 (Activity & Blocker Core, Kapazitätsplaner-v2-Zielarchitektur):** Migration
+    `0005` (additiv). Neues Modell **`Blocker`** (`backend/app/models.py`, Master-MD Abschnitt
+    37/38) — englische Feldnamen (`title`, `description`, `status`, `severity`,
+    `active_since`, `caused_by_party`, `waiting_for_party`, `owner_person_id`,
+    `owner_team_id`, `next_action`, `impact`) wie bei den Phase-14-Modellen: Zielarchitektur-
+    native Entitäten übernehmen die Feldnamen 1:1 aus der Master-MD, während die aus dem
+    Excel-Tool abgeleiteten Kommunikation-Tab-Modelle (Decision/Risk/Task/MeetingMinutes/
+    Comment) bei ihrer bestehenden deutschen Namenskonvention bleiben — diese Konvention gilt
+    ab jetzt projektweit. `caused_by_party`/`waiting_for_party` trennen bewusst "wer hat den
+    Blocker verursacht" von "bei wem liegt aktuell der Ball" (`BlockerParty` = `INTERNAL`/
+    `CUSTOMER`/`THIRD_PARTY`/`UNKNOWN`). CRUD unter `/projects/{id}/blockers` bzw.
+    `/projects/blockers/{id}` (`backend/app/routers/communication.py`, exakt das
+    Decision/Risk/Task-Muster kopiert), `owner_person_id`/`owner_team_id` werden gegen
+    `Person`/`Team` validiert (404 bei unbekannter Referenz). Blocker ist taggbar,
+    dokumentverknüpfbar, relationsfähig und im Knowledge Layer sichtbar (`EntityType` um
+    `"blocker"` erweitert, `entity_links._ENTITY_REGISTRY`/`_ENTITY_LABEL_PREFIX` ergänzt).
+    **Discussion Threading:** `Comment` bekommt ein nullable, selbstreferenzierendes
+    `parent_id` (Master-MD Abschnitt 34) — `POST /projects/{id}/comments` validiert, dass
+    `parent_id` zum selben Projekt gehört (sonst 422); löschen eines Elternkommentars nullt
+    `parent_id` der Antworten statt den ganzen Thread zu löschen. **Decision Context:**
+    `Decision` bekommt ein nullable `begruendung`-Feld, trennt WAS entschieden wurde
+    (`beschreibung`) von WARUM (Master-MD Abschnitt 35: `decision_text` vs. `reason`).
+    **Task Origins:** bewusst **keine** neue Spalte — die "fachliche Quelle" einer Aufgabe
+    (aus Diskussion/Entscheidung/Meeting/Risiko/Blocker entstanden) wird über das bestehende
+    `EntityRelation`-Modell ausgedrückt (z.B. `decision` `resulted_in` `task`, bereits in
+    Phase 15 verifiziert) statt eine zweite, konkurrierende Source of Truth einzuführen.
+    **Relations zwischen Activity-Objekten:** funktionieren jetzt vollständig, weil eine in
+    Phase 13 offen gelassene Lücke geschlossen wurde (siehe Abschnitt 12.3 Frage 11):
+    `entity_links.delete_relations_for_entity` wird jetzt in allen Lösch-Handlern
+    (Decision/Risk/MeetingMinutes/Task/Comment/Blocker, einzeln und im Bulk-Delete von
+    `delete_project`) aufgerufen, damit keine Waisen-Relationen auf gelöschte Entitäten
+    zurückbleiben. **Activity Feed:** `GET /projects/{id}/activity` (`backend/app/routers/
+    communication.py`) aggregiert Comment/Decision/Risk/MeetingMinutes/Task/Blocker
+    chronologisch absteigend zu einem Feed (Master-MD Abschnitt 32) — reine Aggregation
+    bestehender Endpunkte, keine neue Tabelle. Verifiziert per curl: Blocker-CRUD inkl.
+    404-Validierung von `owner_person_id`/`owner_team_id`, Thread-Antwort erstellen und
+    Cross-Projekt-`parent_id` ablehnen (422), Decision mit `begruendung`, Relation
+    Task→`resolves`→Blocker im Knowledge-Context sichtbar und nach Task-Löschung korrekt
+    entfernt, Activity Feed liefert alle sechs Entity-Typen chronologisch sortiert, Löschen
+    eines Elternkommentars lässt die Antwort (mit genulltem `parent_id`) bestehen. Migration
+    gegen frische und simulierte bestehende DB (mit Comments/Decisions ohne die neuen
+    Spalten) getestet — kein Datenverlust. Kein Frontend-Umbau. Details siehe Abschnitt 12.4
+    (Phase 16 als erledigt markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–16 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -506,8 +550,10 @@ Phase 13: `TagCategory`, `EntityRelation`, Entity-/Relation-Type-Vokabular (sieh
 Punkt 13). Phase 14: `Person`, `ResourceProfile`, `ProjectRole`, `ProjectMembership`,
 `Permission`, `AppRole`, `RolePermission` (siehe Abschnitt 11 Punkt 14). Phase 15: Tag-AI-
 Metadata (`description`/`color`/`active`/`ai_relevant`/`ai_description`/`synonyms`),
-Knowledge Query Layer (`/knowledge/*`, siehe Abschnitt 11 Punkt 15). Alle übrigen aus der
-Master-MD (`Blocker`, `PlanPhase`, `Milestone`, `BaselineSnapshot`/`BaselineEntry`,
+Knowledge Query Layer (`/knowledge/*`, siehe Abschnitt 11 Punkt 15). Phase 16: `Blocker`
+(`caused_by_party`/`waiting_for_party`), `Comment.parent_id` (Discussion Threading),
+`Decision.begruendung` (Decision Context), Activity Feed (siehe Abschnitt 11 Punkt 16). Alle
+übrigen aus der Master-MD (`PlanPhase`, `Milestone`, `BaselineSnapshot`/`BaselineEntry`,
 `ResourceRole`, `Skill`/`PersonSkill`, `ResourceDemand`,
 `CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte GAP-Engine,
 mehrdimensionales Project Health, Administration-UI) bleiben für die jeweils zugeordnete
@@ -578,7 +624,7 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–15 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15). Phasen 16–26 sind Ausblick
+Phase 13–16 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16). Phasen 17–26 sind Ausblick
 auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
@@ -586,7 +632,7 @@ auf Basis der Master-MD, **noch nicht umgesetzt**:
 | 13 | Technisches Fundament | ✅ Alembic, TagCategory, EntityRelation |
 | 14 | Personen, Organisation & Permissions | ✅ Person, ResourceProfile, ProjectRole, ProjectMembership, Permission, AppRole |
 | 15 | Semantic Knowledge Foundation | ✅ Tag-AI-Metadata, Knowledge Query Layer (`/knowledge/*`) |
-| 16 | Activity & Blocker Core | Blocker (caused_by/waiting_for), Discussion Threading, Decision Context |
+| 16 | Activity & Blocker Core | ✅ Blocker (caused_by/waiting_for), Discussion Threading, Decision Context, Activity Feed |
 | 17 | Project Planning Core | PlanPhase, Milestone, Dependencies (Gantt bleibt UI) |
 | 18 | Baseline Management | BaselineSnapshot, BaselineEntry, Baseline vs Forecast |
 | 19 | Capacity Planning Core | ResourceRole, Skill, PersonSkill, ResourceDemand, Commitment-Level |

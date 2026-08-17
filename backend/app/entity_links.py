@@ -15,6 +15,7 @@ _ENTITY_LABEL_PREFIX = {
     "risk": "Risiko",
     "meeting_minutes": "Meeting",
     "task": "Aufgabe",
+    "blocker": "Blocker",
 }
 
 # Registry für den Knowledge Query Layer (Phase 15, siehe CONCEPT.md Abschnitt 12/46):
@@ -27,11 +28,18 @@ _ENTITY_REGISTRY: dict[str, tuple[type, str]] = {
     "meeting_minutes": (models.MeetingMinutes, "titel"),
     "task": (models.Task, "titel"),
     "document": (models.Document, "dateiname"),
+    "blocker": (models.Blocker, "title"),
 }
 
-# Öffentliches Vokabular für Aufrufer außerhalb dieses Moduls (z.B. routers/knowledge.py),
-# ohne das interne Registry-Dict direkt zu exponieren.
+# Öffentliches Vokabular für Aufrufer außerhalb dieses Moduls (z.B. routers/knowledge.py,
+# routers/communication.py), ohne das interne Registry-Dict direkt zu exponieren.
 ENTITY_TYPES: tuple[str, ...] = tuple(_ENTITY_REGISTRY.keys())
+
+
+def model_for(entity_type: str) -> type | None:
+    """Das SQLAlchemy-Modell eines entity_type, falls im Knowledge-Layer-Vokabular bekannt."""
+    model, _ = _ENTITY_REGISTRY.get(entity_type, (None, None))
+    return model
 
 
 def _now() -> str:
@@ -88,6 +96,9 @@ def _resolve_entity_label(db: Session, entity_type: str, entity_id: int) -> str:
     elif entity_type == "task":
         row = db.get(models.Task, entity_id)
         text = row.titel if row else None
+    elif entity_type == "blocker":
+        row = db.get(models.Blocker, entity_id)
+        text = row.title if row else None
     if text is None:
         return f"{prefix} #{entity_id} (gelöscht)"
     return f"{prefix} „{text}“"

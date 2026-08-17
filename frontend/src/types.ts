@@ -210,8 +210,10 @@ export interface PlanHistoryEntry {
 }
 
 // entity_type-Vokabular, geteilt zwischen Tags und Document-Verknüpfungen (siehe
-// CONCEPT.md Abschnitt 6a). "document" nur für Tags relevant.
-export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document";
+// CONCEPT.md Abschnitt 6a). "document" nur für Tags relevant. "plan_phase"/"milestone"
+// seit Phase 26.2 genutzt (Backend unterstützt sie bereits seit Phase 16/17,
+// entity_links-Registry) - Rest der Phase-26.8-Erweiterung ("blocker") folgt separat.
+export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document" | "plan_phase" | "milestone";
 
 export interface DocumentUsage {
   entity_type: string;
@@ -351,6 +353,97 @@ export interface Task {
   aktualisiert_am: string;
   tags: string[];
   documents: Document[];
+}
+
+// Phase 26.2: PlanPhase/Milestone (Phase 17 der Zielarchitektur, backend/app/routers/planning.py)
+// - Zielarchitektur-native Entitäten, ersetzen ab jetzt das alte Gantt/FTE-Raster als
+// Bedienoberfläche. status ist im Backend bewusst Freitext (kein Enum) - die folgenden
+// Wertelisten sind reine Frontend-Konvention, exakt aus den Code-Kommentaren in
+// backend/app/models.py übernommen (PlanPhase und Milestone haben je eigene Vokabulare).
+export type PlanPhaseStatus = "geplant" | "laufend" | "abgeschlossen" | "verzoegert";
+
+export const PLAN_PHASE_STATUS_LABELS: Record<PlanPhaseStatus, string> = {
+  geplant: "Geplant",
+  laufend: "Laufend",
+  abgeschlossen: "Abgeschlossen",
+  verzoegert: "Verzögert",
+};
+
+// Vorschläge für phase_type (Freitext im Backend) - aus den bisherigen Gantt-Phasencodes
+// übernommen, damit die neue Ansicht für Nutzer:innen des alten Gantt vertraut bleibt.
+export const PLAN_PHASE_TYPE_SUGGESTIONS = ["Pflichtenheft", "Konfiguration", "Test", "Schulung", "GoLive"];
+
+export interface PlanPhase {
+  id: number;
+  project_id: number;
+  subproject_id: number | null;
+  phase_type: string;
+  baseline_start: string | null;
+  baseline_end: string | null;
+  forecast_start: string | null;
+  forecast_end: string | null;
+  actual_start: string | null;
+  actual_end: string | null;
+  status: PlanPhaseStatus;
+  progress: number | null;
+  owner_person_id: number | null;
+  owner_team_id: number | null;
+  erstellt_am: string;
+  aktualisiert_am: string;
+  tags: string[];
+  documents: Document[];
+}
+
+export type MilestoneStatus = "geplant" | "gefaehrdet" | "erreicht" | "verpasst";
+
+export const MILESTONE_STATUS_LABELS: Record<MilestoneStatus, string> = {
+  geplant: "Geplant",
+  gefaehrdet: "Gefährdet",
+  erreicht: "Erreicht",
+  verpasst: "Verpasst",
+};
+
+export interface Milestone {
+  id: number;
+  project_id: number;
+  subproject_id: number | null;
+  name: string;
+  baseline_date: string | null;
+  forecast_date: string | null;
+  actual_date: string | null;
+  status: MilestoneStatus;
+  owner_person_id: number | null;
+  owner_team_id: number | null;
+  erstellt_am: string;
+  aktualisiert_am: string;
+  tags: string[];
+  documents: Document[];
+}
+
+export interface BaselineSnapshotSummary {
+  id: number;
+  project_id: number;
+  name: string;
+  created_at: string;
+  created_by_person_id: number | null;
+  entry_count: number;
+}
+
+export interface BaselineEntry {
+  id: number;
+  entity_type: string;
+  entity_id: number;
+  field: string;
+  value: string | null;
+}
+
+export interface BaselineSnapshot {
+  id: number;
+  project_id: number;
+  name: string;
+  created_at: string;
+  created_by_person_id: number | null;
+  entries: BaselineEntry[];
 }
 
 // Fachliche Administration (Phase 25)

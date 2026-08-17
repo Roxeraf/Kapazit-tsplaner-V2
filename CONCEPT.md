@@ -961,7 +961,47 @@ Dieses Repo enthält:
       Durchlauf gegen echten Dev-Server (Projektleiter setzen, Projektteam-Mitglied
       hinzufügen, Risiko/Aufgabe/Entscheidung jeweils mit Personen-Owner anlegen) — alle vier
       Flows zeigen den aufgelösten Personennamen korrekt an, keine Konsolenfehler.
-    - **26.2–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
+    - **26.2 (Planning Integration) — ✅ erledigt.** Die Planung-Tab-UI schreibt ab sofort
+      ausschließlich gegen `PlanPhase`/`Milestone` (Backend Phase 17, `routers/planning.py`)
+      statt gegen `GanttPhase`/`ProjectGanttPhase`/`FtePlan` — Nutzerentscheidung: ersetzen,
+      nicht parallel bestehen lassen. Kein Backend-Code nötig (CRUD war seit Phase 17/18
+      vollständig vorhanden, nur ungenutzt); eine kleine, bewusste Grenzüberschreitung aus
+      Abschnitt 12.4 Phase 26.8 wurde vorgezogen: `EntityType` in `frontend/src/types.ts` um
+      `"plan_phase"`/`"milestone"` erweitert (Backend unterstützte beide bereits seit Phase
+      16/17 in der `entity_links`-Registry), da sonst der Dokument-Upload beim Anlegen einer
+      Phase/eines Milestones nicht kompiliert hätte. **Bewusst nicht behoben:**
+      `PlanPhase`/`Milestone`-Änderungen erzeugen weiterhin keinen `PlanHistory`-Eintrag (nur
+      die alten Gantt/FTE-Felder werden auditiert) — die neue UI verwendet daher wie
+      `RiskList`/`TaskList`/`DecisionList` sofortiges Speichern pro Feldänderung statt des
+      alten Draft+`batch_id`-Sammel-Speicherns; ein Audit-Trail für Phase/Milestone-Änderungen
+      bleibt offen für einen späteren Durchgang. **Bewusst akzeptierte Übergangslücke:**
+      Gap-Analyse, Forecast, KPIs und der Portfolio-Mini-Gap-Indikator lesen weiterhin
+      ausschließlich `GanttPhase`/`FtePlan` (`gap_analysis.py`) und zeigen für ab jetzt neu
+      geplante Projekte nichts an, bis 26.7 sie auf die GAP-Engine/das Cockpit umstellt und
+      26.9 die alten Tabellen entfernt. Frontend: neue Komponenten
+      `frontend/src/views/project/components/PlanPhaseList.tsx` (Karten-Liste, gruppiert nach
+      Teilprojekt/"Projektweit", alle Felder inkl. Baseline/Forecast/Actual-Daten und Progress
+      sofort per `onBlur`/`onChange` speicherbar, Owner via `PersonPicker`, `phase_type` mit
+      Datalist-Vorschlägen aus den alten Phasencode-Labels), `MilestoneList.tsx` (gleiches
+      Muster), `BaselineList.tsx` (Snapshot-Liste + "Baseline speichern", Werte werden
+      serverseitig automatisch eingefroren). `ProjectPlanningTab.tsx` umgebaut: Gantt/FTE-
+      Karten (Projekt gesamt + pro Teilprojekt, inkl. `PhaseRows`-Nutzung und der daran
+      hängenden Gantt-Zell-Kommentarfunktion) vollständig entfernt und durch die drei neuen
+      Komponenten ersetzt; Stammdaten-Karte (weiterhin Draft+`batch_id`-Speichern über
+      `PlanHistory`) sowie Team-Zuordnung und Teilprojekt-Anlegen/-Löschen unverändert erhalten
+      — Subproject bleibt eine gültige, optionale Gruppierung für `PlanPhase`/`Milestone`
+      (`subproject_id` nullable FK). `PhaseRows.tsx` wird ab jetzt von nichts mehr referenziert,
+      Löschung bewusst erst in 26.9 (siehe dortiger Cutover-Abschnitt). Kein Konvertierungs-
+      skript für bestehende `GanttPhase`-Zellen — Projekte werden über die neue Oberfläche neu
+      geplant. Verifiziert: `alembic`-Migrationen unverändert (kein neuer Migrationsbedarf),
+      curl-Szenario PlanPhase+Milestone+Baseline anlegen, Forecast-Ende einer Phase um 8 Tage
+      verschieben und `GET /projects/baselines/{id}/deviations` liefert exakt
+      `delta_days=8` für das geänderte Feld und `0` für alle unveränderten, 404 bei unbekanntem
+      `owner_person_id`; `npm run build` (TypeScript+Vite) fehlerfrei; Playwright-Durchlauf
+      gegen echten Dev-Server (Phase mit Teilprojekt-Zuordnung und Owner anlegen, Plan-Start-
+      Datum nachträglich ändern, Milestone anlegen, Baseline speichern) — alle Werte korrekt
+      persistiert und anzeigt, keine Konsolenfehler.
+    - **26.3–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
 
 Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit Unterschritt 26.1 begonnen, siehe Punkt 26 oben.
 
@@ -1148,7 +1188,7 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | Functional Integration | 🔶 in Arbeit — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
+| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
 | 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
 | 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
 | 29 | AI Project Agent | später, siehe Bucket D unten |

@@ -26,7 +26,13 @@ import type {
   KpiSummary,
   MeetingMinutes,
   MemberUtilization,
+  BaselineSnapshot,
+  BaselineSnapshotSummary,
+  Milestone,
+  MilestoneStatus,
   PlanHistoryEntry,
+  PlanPhase,
+  PlanPhaseStatus,
   ProjectDetail,
   ProjectMembership,
   ProjectStatus,
@@ -161,6 +167,84 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   listAllSubprojects: () => request<SubprojectListItem[]>("/projects/subprojects/all"),
+
+  // Planung (Phase 26.2): PlanPhase/Milestone/Baseline ersetzen ab jetzt Gantt/FTE als
+  // Bedienoberfläche (backend/app/routers/planning.py, routers/baselines.py)
+  listPlanPhases: (projectId: number) => request<PlanPhase[]>(`/projects/${projectId}/plan-phases`),
+  createPlanPhase: (
+    projectId: number,
+    payload: {
+      subproject_id?: number | null;
+      phase_type: string;
+      baseline_start?: string | null;
+      baseline_end?: string | null;
+      forecast_start?: string | null;
+      forecast_end?: string | null;
+      actual_start?: string | null;
+      actual_end?: string | null;
+      status?: PlanPhaseStatus;
+      progress?: number | null;
+      owner_person_id?: number | null;
+      owner_team_id?: number | null;
+      tags?: string[];
+    },
+  ) => request<PlanPhase>(`/projects/${projectId}/plan-phases`, { method: "POST", body: JSON.stringify(payload) }),
+  updatePlanPhase: (
+    planPhaseId: number,
+    payload: Partial<{
+      subproject_id: number | null;
+      phase_type: string;
+      baseline_start: string | null;
+      baseline_end: string | null;
+      forecast_start: string | null;
+      forecast_end: string | null;
+      actual_start: string | null;
+      actual_end: string | null;
+      status: PlanPhaseStatus;
+      progress: number | null;
+      owner_person_id: number | null;
+      owner_team_id: number | null;
+      tags: string[];
+    }>,
+  ) => request<PlanPhase>(`/projects/plan-phases/${planPhaseId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deletePlanPhase: (planPhaseId: number) => request<void>(`/projects/plan-phases/${planPhaseId}`, { method: "DELETE" }),
+
+  listMilestones: (projectId: number) => request<Milestone[]>(`/projects/${projectId}/milestones`),
+  createMilestone: (
+    projectId: number,
+    payload: {
+      subproject_id?: number | null;
+      name: string;
+      baseline_date?: string | null;
+      forecast_date?: string | null;
+      actual_date?: string | null;
+      status?: MilestoneStatus;
+      owner_person_id?: number | null;
+      owner_team_id?: number | null;
+      tags?: string[];
+    },
+  ) => request<Milestone>(`/projects/${projectId}/milestones`, { method: "POST", body: JSON.stringify(payload) }),
+  updateMilestone: (
+    milestoneId: number,
+    payload: Partial<{
+      subproject_id: number | null;
+      name: string;
+      baseline_date: string | null;
+      forecast_date: string | null;
+      actual_date: string | null;
+      status: MilestoneStatus;
+      owner_person_id: number | null;
+      owner_team_id: number | null;
+      tags: string[];
+    }>,
+  ) => request<Milestone>(`/projects/milestones/${milestoneId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteMilestone: (milestoneId: number) => request<void>(`/projects/milestones/${milestoneId}`, { method: "DELETE" }),
+
+  listBaselines: (projectId: number) => request<BaselineSnapshotSummary[]>(`/projects/${projectId}/baselines`),
+  createBaseline: (projectId: number, payload: { name: string; created_by_person_id?: number | null }) =>
+    request<BaselineSnapshot>(`/projects/${projectId}/baselines`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteBaseline: (baselineId: number) => request<void>(`/projects/baselines/${baselineId}`, { method: "DELETE" }),
+
   exportPptxUrl: (projectId: number) => `${API_BASE}/projects/${projectId}/export/pptx`,
   exportPortfolioPptxUrl: () => `${API_BASE}/projects/export/pptx/portfolio`,
 

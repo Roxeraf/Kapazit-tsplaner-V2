@@ -1134,7 +1134,24 @@ Dieses Repo enthält:
       weiterhin korrekt "Gap -1.20 FTE" mit rotem "Geeignete Ressourcen suchen →"-Link;
       Playwright-Screenshots aller drei Ansichten bestätigen konsistente Rot-Färbung; `npm
       run build` fehlerfrei.
-    - **26.8–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
+    - **26.8 (Document Context) — ✅ erledigt, ohne Code-Änderung.** Die `entity_links`-
+      Registry unterstützt `blocker`/`plan_phase`/`milestone` bereits vollständig seit
+      26.2/26.4: `EntityType` in `frontend/src/types.ts` enthält alle drei seit 26.2
+      (`plan_phase`/`milestone`) bzw. 26.4 (`blocker`); `AttachmentPicker`/`AttachmentList`
+      sind in `BlockerList.tsx`, `PlanPhaseList.tsx` und `MilestoneList.tsx` bereits exakt
+      nach dem Muster aus `DecisionList.tsx`/`RiskList.tsx` eingebunden;
+      `entity_links.py::_resolve_entity_label` löst alle drei Typen bereits mit sprechendem
+      Label auf (`Blocker „…“`/`Planphase „…“`/`Milestone „…“`), und
+      `ProjectDocumentsTab.tsx`s "Verwendet in"-Anzeige ist generisch über `doc.used_in`
+      implementiert, ohne Typ-Sonderfälle im Frontend. Diese Sub-Phase bestand daher nur aus
+      Verifikation, keiner Implementierung. Verifiziert: frisches Testprojekt, je ein
+      Dokument an einen Blocker, eine PlanPhase und einen Milestone gehängt (curl,
+      `POST /projects/{id}/documents` mit `entity_type=blocker|plan_phase|milestone`),
+      `GET /projects/{id}/documents` liefert für alle drei das korrekte `used_in`-Label;
+      Playwright-Screenshot des Dokumente-Tabs bestätigt alle drei Backlinks ("Verwendet in:
+      Milestone „GoLive“" / "Planphase „Konfiguration“" / "Blocker „Zugang fehlt“") korrekt
+      im UI.
+    - **26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung.
 
 Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit den Unterschritten 26.1–26.7 umgesetzt, siehe Punkt 26 oben.
 
@@ -1321,7 +1338,7 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅, 26.5 Knowledge Integration ✅, 26.6 Cockpit Integration ✅, 26.7 Actionable GAPs ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
+| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅, 26.5 Knowledge Integration ✅, 26.6 Cockpit Integration ✅, 26.7 Actionable GAPs ✅, 26.8 Document Context ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
 | 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
 | 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
 | 29 | AI Project Agent | später, siehe Bucket D unten |

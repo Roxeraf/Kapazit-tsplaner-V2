@@ -23,6 +23,9 @@ MAX_UNBEKANNTE_BEISPIELE = 5
 def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[dict]]:
     """Holt Worklogs aus Jira für die Component/Label des Projekts und cached sie.
 
+    Alle Buchungen werden übernommen. Für noch nicht zugeordnete Accounts verwendet die
+    Ist-FTE-Berechnung 40 Wochenstunden als transparenten Standardwert. Damit verschwinden
+    Tempo-/Jira-Daten nicht nur deshalb, weil die Personenpflege noch nicht abgeschlossen ist.
     Nur Buchungen von MA mit bekanntem `jira_account_id` (siehe team_members) werden
     übernommen, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
 
@@ -53,6 +56,10 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
         m.jira_account_id
         for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
     }
+    known_account_ids.update(
+        p.jira_account_id
+        for p in db.query(models.Person).filter(models.Person.jira_account_id.isnot(None))
+    )
 
     gespeichert = 0
     unzugeordnet = 0
@@ -64,7 +71,6 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
             unzugeordnete_accounts.setdefault(wl["author_account_id"], wl["author_display_name"])
             if len(unbekannte_beispiele) < MAX_UNBEKANNTE_BEISPIELE:
                 unbekannte_beispiele.setdefault(wl["author_account_id"], wl["author_display_name"])
-            continue
 
         entry = (
             db.query(models.JiraWorklogCache)
@@ -140,14 +146,15 @@ def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:
 
     stunden_je_ma_monat: dict[tuple[str, str], float] = {}
     for row in rows:
-        if row.jira_account_id not in wochenstunden_by_account:
-            continue  # MA nicht (mehr) in den Stammdaten -> keine Wochenstunden bekannt
         key = (row.jira_account_id, _monat_label(row.datum))
         stunden_je_ma_monat[key] = stunden_je_ma_monat.get(key, 0) + row.stunden
 
     ist: dict[str, float] = {}
     for (account_id, monat), stunden in stunden_je_ma_monat.items():
-        fte_anteil = stunden / (wochenstunden_by_account[account_id] * ARBEITSWOCHEN_PRO_MONAT)
+        # Unbekannte Jira-/Tempo-Autoren dürfen die Ist-Daten nicht vollständig ausblenden.
+        # Sobald der Account einer Person zugeordnet wird, gilt automatisch deren echtes Profil.
+        wochenstunden = wochenstunden_by_account.get(account_id, 40)
+        fte_anteil = stunden / (wochenstunden * ARBEITSWOCHEN_PRO_MONAT)
         ist[monat] = ist.get(monat, 0) + fte_anteil
 
     return {monat: round(wert, 2) for monat, wert in ist.items()}

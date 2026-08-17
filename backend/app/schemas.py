@@ -16,6 +16,9 @@ class ProjectCreate(BaseModel):
     anzahl_monate: int = 14
     jira_component: str | None = None
     projektleiter: str | None = None
+    # Nullable Bridge auf das Personen-Verzeichnis (Phase 14) - projektleiter (Freitext)
+    # bleibt bestehen, siehe CONCEPT.md Abschnitt 12.
+    projektleiter_person_id: int | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -26,6 +29,7 @@ class ProjectUpdate(BaseModel):
     jira_component: str | None = None
     status: ProjectStatus | None = None
     projektleiter: str | None = None
+    projektleiter_person_id: int | None = None
     # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht am Projekt persistiert.
     kommentar_id: int | None = None
     batch_id: str | None = None
@@ -42,6 +46,7 @@ class ProjectSummary(BaseModel):
     reihenfolge: int
     status: ProjectStatus
     projektleiter: str | None
+    projektleiter_person_id: int | None = None
     monate: list[str]
 
 
@@ -454,6 +459,112 @@ class UnassignedAuthorOut(BaseModel):
 
 class TeamWithMembers(TeamOut):
     members: list[TeamMemberOut]
+
+
+# ---------------------------------------------------------------------------
+# Personen, Organisation & Permissions (Phase 14, siehe CONCEPT.md Abschnitt 12). Person ist
+# bewusst schlank (kein Auth/Login) und getrennt von TeamMember (Kapazitätsressource).
+# ---------------------------------------------------------------------------
+
+PersonSource = Literal["LOCAL", "ENTERPRISE_PLATFORM"]
+
+
+class PersonCreate(BaseModel):
+    display_name: str
+    email: str | None = None
+    external_id: str | None = None
+    source: PersonSource = "LOCAL"
+    active: bool = True
+
+
+class PersonUpdate(BaseModel):
+    display_name: str | None = None
+    email: str | None = None
+    active: bool | None = None
+
+
+class PersonOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    external_id: str | None
+    display_name: str
+    email: str | None
+    source: PersonSource
+    active: bool
+
+
+class ResourceProfileCreate(BaseModel):
+    team_id: int | None = None
+    weekly_hours: float = 40
+    capacity_relevant: bool = True
+    active: bool = True
+
+
+class ResourceProfileUpdate(BaseModel):
+    team_id: int | None = None
+    weekly_hours: float | None = None
+    capacity_relevant: bool | None = None
+    active: bool | None = None
+
+
+class ResourceProfileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    person_id: int
+    team_id: int | None
+    weekly_hours: float
+    capacity_relevant: bool
+    active: bool
+
+
+class ProjectRoleCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class ProjectRoleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+    active: bool
+
+
+class ProjectMembershipCreate(BaseModel):
+    person_id: int
+    project_role_id: int
+
+
+class ProjectMembershipOut(BaseModel):
+    id: int
+    project_id: int
+    person_id: int
+    person_name: str
+    project_role_id: int
+    project_role_name: str
+
+
+class PermissionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+
+
+class AppRoleCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class AppRoleOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    permissions: list[str] = []
 
 
 # ---------------------------------------------------------------------------

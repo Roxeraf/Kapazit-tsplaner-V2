@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.4 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung und Phase 13 (Technisches Fundament der Kapazitätsplaner-v2-Zielarchitektur) umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.5 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13+14 (Technisches Fundament, Personen/Organisation/Permissions) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -365,7 +365,41 @@ Dieses Repo enthält:
     "Phase 13 in diesem Durchgang"). Details zur Zielarchitektur und den Folgephasen siehe
     Abschnitt 12.
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13 der Zielarchitektur (Abschnitt 12) umgesetzt.
+14. **Phase 14 (Personen, Organisation & Permissions, Kapazitätsplaner-v2-Zielarchitektur):**
+    Migration `0003` (additiv, keine destruktive Änderung, siehe CONCEPT.md Abschnitt 12.3
+    Frage 4). Neue Modelle: `Person` (kein Auth/Login, `source` ∈ {`LOCAL`,
+    `ENTERPRISE_PLATFORM`}), `ResourceProfile` (höchstens eines je Person, macht sie
+    kapazitätsplanbar), `ProjectRole`/`ProjectMembership` (Person ↔ Projekt mit Rolle,
+    `unique(project_id, person_id)`), `Permission`/`AppRole`/`RolePermission` (App-Rolle
+    bündelt Permissions, kein Auth-System im Repo — reine Vorbereitung für Phase 25/
+    Enterprise-Integration). `Permission` wird per Migration mit dem Grundvokabular aus
+    Master-MD Abschnitt 31 geseedet (`PROJECT_CREATE`, `PROJECT_EDIT`, `PLANNING_EDIT`,
+    `CAPACITY_EDIT`, `TEAM_MANAGE`, `PERSON_MANAGE`, `TAG_MANAGE`, `TAXONOMY_MANAGE`,
+    `TASK_MANAGE`, `DECISION_MANAGE`, `BLOCKER_MANAGE`, `ADMIN_ACCESS`) — keine Default-
+    App-Rollen, da niemandem etwas zugewiesen werden kann. Additive Bridge-Spalten:
+    `team_members.person_id`, `projects.projektleiter_person_id` (Freitextfelder
+    `TeamMember.name`/`Project.projektleiter` bleiben unverändert bestehen). `teams` bekommt
+    `external_id`/`source`/`active` (Master-MD Abschnitt 29).
+    **Best-Effort-Datenmigration** (Teil derselben Alembic-Revision, läuft einmalig beim
+    Hochziehen auf `0003`): für jedes bestehende `TeamMember` wird eine `Person`-Zeile
+    angelegt und `person_id` verknüpft (`display_name` = `TeamMember.name`, `source=LOCAL`);
+    für jedes `Project.projektleiter` (Freitext) wird `projektleiter_person_id` gesetzt, wenn
+    genau eine Person mit exakt (case-insensitive, getrimmt) demselben Namen existiert —
+    mehrdeutige oder fehlende Treffer bleiben bewusst `NULL`, der Freitext bleibt in jedem
+    Fall die verbindliche Anzeige. Neue Endpunkte (`backend/app/routers/people.py`):
+    `GET/POST /people`, `PUT /people/{id}`, `GET/POST/PUT /people/{id}/resource-profile`,
+    `GET/POST /project-roles`, `GET/POST /projects/{id}/memberships`,
+    `DELETE /project-memberships/{id}`, `GET /permissions`, `GET/POST /app-roles`,
+    `POST/DELETE /app-roles/{id}/permissions/{permission_id}`. `ProjectCreate`/`ProjectUpdate`/
+    `ProjectSummary`/`ProjectDetail` um `projektleiter_person_id` ergänzt (additiv, bestehende
+    Frontend-Konsumenten ignorieren das neue Feld). Verifiziert per curl gegen laufenden
+    Server (Person/ResourceProfile/ProjectRole/ProjectMembership/AppRole-CRUD inkl. 409-
+    Konflikte, Berechtigungszuweisung) und per simulierter Alt-DB (zwei TeamMember, ein exakt
+    passender und ein nicht passender Projektleiter-Freitext) — Migration erhält Bestandsdaten,
+    Best-Effort-Mapping traf korrekt/verweigerte korrekt bei Mehrdeutigkeit. Kein
+    Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 14 als erledigt markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13/14 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -431,16 +465,19 @@ vorschlägt — siehe Abschnitt 6a), `PlanHistory` (Audit-Trail), `Comment`, `De
   sondern als ein Fall (Capacity-/Effort-Gap) in das größere Modell integriert.
 - `Assignment`/`FtePlan`/`ProjectFtePlan` (FTE direkt als Zahl, kein getrenntes
   Bedarf/Zuordnung-Konzept) → Basis für `ResourceDemand` + Assignment-Trennung (Phase 19).
-- `Team`/`TeamMember` (siehe unten, Frage 4) → Basis für `Person`+`ResourceProfile` (Phase 14).
+- `Team`/`TeamMember` (siehe unten, Frage 4) → `Person`+`ResourceProfile` existieren seit
+  Phase 14, `TeamMember` bleibt aber vorerst die für Assignment/Utilization maßgebliche
+  Kapazitätsressource (additiv verknüpft über `person_id`, kein Ersatz).
 
-**C — neu, davon in diesem Durchgang (Phase 13) umgesetzt:**
-`TagCategory`, `EntityRelation`, Entity-/Relation-Type-Vokabular (siehe Abschnitt 11 Punkt 13).
-Alle übrigen aus der Master-MD (`Person`, `ResourceProfile`, `ProjectMembership`,
-`ProjectRole`, `Permission`, `AppRole`, `Blocker`, `PlanPhase`, `Milestone`,
-`BaselineSnapshot`/`BaselineEntry`, `ResourceRole`, `Skill`/`PersonSkill`, `ResourceDemand`,
+**C — neu, davon umgesetzt:**
+Phase 13: `TagCategory`, `EntityRelation`, Entity-/Relation-Type-Vokabular (siehe Abschnitt 11
+Punkt 13). Phase 14: `Person`, `ResourceProfile`, `ProjectRole`, `ProjectMembership`,
+`Permission`, `AppRole`, `RolePermission` (siehe Abschnitt 11 Punkt 14). Alle übrigen aus der
+Master-MD (`Blocker`, `PlanPhase`, `Milestone`, `BaselineSnapshot`/`BaselineEntry`,
+`ResourceRole`, `Skill`/`PersonSkill`, `ResourceDemand`,
 `CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte GAP-Engine,
 mehrdimensionales Project Health, Administration-UI) bleiben für die jeweils zugeordnete
-spätere Phase vorgemerkt (siehe Phasenplan unten) — **nicht Teil dieses Durchgangs**.
+spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht umgesetzt**.
 
 **D — bewusst später (unverändert aus der Master-MD):**
 KI Project Agent, Vector-/Embedding-Layer, Enterprise-SSO, vollständiger Enterprise-Sync,
@@ -454,16 +491,20 @@ automatische Ressourcenoptimierung.
 3. **Tatsächlich notwendige neue Modelle (Phase 13):** `TagCategory`, `EntityRelation` — alle
    übrigen neuen Modelle der Master-MD werden erst in ihrer jeweiligen Phase notwendig, nicht
    vorab angelegt (Prinzip "keine destruktive/vorgezogene Migration ohne konkreten Bedarf").
-4. **`TeamMember` → `Person` + `ResourceProfile`:** `TeamMember` vermischt aktuell drei
-   Konzepte (Person, Jira-Identität, Kapazitätsressource). Migrationspfad für Phase 14: neues,
-   schlankes `Person`-Modell (`id`, `display_name`, `email`, `source` ∈
-   {`LOCAL`,`ENTERPRISE_PLATFORM`}) plus `ResourceProfile` (`person_id`, `team_id`,
-   `weekly_hours`, `capacity_relevant`) — `TeamMember` bleibt zunächst als Tabelle bestehen,
-   bekommt aber ein nullable `person_id`-FK; bestehende `TeamMember`-Zeilen werden per
-   Best-Effort-Skript 1:1 in `Person`+`ResourceProfile` gespiegelt (Name → `display_name`,
-   `wochenstunden` → `weekly_hours`, `jira_account_id` bleibt vorerst an `TeamMember`, bis
-   Phase 14 entscheidet, ob es zu `Person` wandert). Keine destruktive Migration:
-   `TeamMember` wird nicht gelöscht, solange Assignment/Jira-Sync noch darauf referenzieren.
+4. **`TeamMember` → `Person` + `ResourceProfile`:** ✅ Umgesetzt in Phase 14 (Migration
+   `0003`). `TeamMember` vermischte drei Konzepte (Person, Jira-Identität,
+   Kapazitätsressource) — aufgelöst über ein schlankes `Person`-Modell (`id`, `external_id`,
+   `display_name`, `email`, `source` ∈ {`LOCAL`,`ENTERPRISE_PLATFORM`}, `active`) plus
+   optionales `ResourceProfile` (`person_id` unique, `team_id`, `weekly_hours`,
+   `capacity_relevant`, `active`). `TeamMember` bleibt bestehen (nicht gelöscht, solange
+   Assignment/Jira-Sync/Auslastungsberechnung noch darauf referenzieren), bekommt aber ein
+   nullable `person_id`-FK. Best-Effort-Migration: pro bestehendem `TeamMember` wird
+   **automatisch eine `Person`-Zeile** angelegt (Name → `display_name`, `source=LOCAL`) und
+   verknüpft — bewusst **kein** automatisch angelegtes `ResourceProfile`, damit
+   `TeamMember.wochenstunden` (weiterhin die für Assignment/Utilization maßgebliche Kapazität)
+   nicht unbeobachtet mit einem zweiten `weekly_hours`-Wert auseinanderlaufen kann;
+   `ResourceProfile` wird erst bei Bedarf explizit angelegt (`POST
+   /people/{id}/resource-profile`). `jira_account_id` bleibt vorerst an `TeamMember`.
 5. **`GanttPhase` → `PlanPhase` ohne zwei Sources of Truth:** Phase 17 führt `PlanPhase` als
    zusätzliches, strukturierteres Modell ein (Baseline/Forecast/Actual-Start/-Ende statt nur
    Monat+Code). Das bestehende Gantt-Grid bleibt die Bedienoberfläche (UI ändert sich nicht);
@@ -503,13 +544,13 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13 ist mit diesem Durchgang umgesetzt (siehe Abschnitt 11 Punkt 13). Phasen 14–26 sind
-Ausblick auf Basis der Master-MD, **kein Bestandteil dieses Durchgangs**:
+Phase 13 und 14 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14). Phasen 15–26 sind Ausblick
+auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
 | 13 | Technisches Fundament | ✅ Alembic, TagCategory, EntityRelation |
-| 14 | Personen, Organisation & Permissions | Person, ResourceProfile, ProjectRole, ProjectMembership, Permission, AppRole |
+| 14 | Personen, Organisation & Permissions | ✅ Person, ResourceProfile, ProjectRole, ProjectMembership, Permission, AppRole |
 | 15 | Semantic Knowledge Foundation | Tag-Taxonomie, standardisierte Entity-/Relation-Types, Knowledge Query Layer |
 | 16 | Activity & Blocker Core | Blocker (caused_by/waiting_for), Discussion Threading, Decision Context |
 | 17 | Project Planning Core | PlanPhase, Milestone, Dependencies (Gantt bleibt UI) |

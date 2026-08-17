@@ -30,9 +30,11 @@ class Project(Base):
     # Jira-Projekt-Key, falls dieses Kapa-Projekt aus dem Jira-Projekt-Katalog (Abschnitt 10 in
     # CONCEPT.md) automatisch angelegt wurde — verhindert Doppelanlage beim erneuten Aktivieren.
     jira_project_key: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)
-    # Projektleitung (freies Textfeld, wie `kunde` — kein FK, da es (noch) keinen
-    # User-/Personen-Verzeichnis-Baustein im Repo gibt, siehe CONCEPT.md Abschnitt 10).
+    # Projektleitung (freies Textfeld, wie `kunde`). Bleibt bestehen (Abwärtskompatibilität) -
+    # projektleiter_person_id ist die additive, nullable Bridge auf das Personen-Verzeichnis
+    # (Phase 14, siehe CONCEPT.md Abschnitt 12), per Best-Effort-Mapping befüllt.
     projektleiter: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    projektleiter_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
 
     subprojects: Mapped[list["Subproject"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Subproject.reihenfolge"
@@ -135,6 +137,11 @@ class Team(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
+    # Additive Felder (Phase 14, siehe CONCEPT.md Abschnitt 12) - lokal verwaltete Teams haben
+    # kein external_id, source bleibt "LOCAL" bis eine Enterprise-Plattform synct.
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), default="LOCAL")
+    active: Mapped[bool] = mapped_column(default=True)
 
     members: Mapped[list["TeamMember"]] = relationship(back_populates="team")
 
@@ -147,9 +154,111 @@ class TeamMember(Base):
     jira_account_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     wochenstunden: Mapped[float] = mapped_column(Float, default=40)
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    # Nullable Bridge auf das Personen-Verzeichnis (Phase 14) - TeamMember bleibt bestehen,
+    # solange Assignment/Jira-Sync noch darauf referenzieren (siehe CONCEPT.md Abschnitt 12.3
+    # Frage 4), per Best-Effort-Mapping befüllt.
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
 
     team: Mapped["Team | None"] = relationship(back_populates="members")
     assignments: Mapped[list["Assignment"]] = relationship(back_populates="team_member")
+
+
+# ---------------------------------------------------------------------------
+# Personen, Organisation & Permissions (Phase 14 der Kapazitätsplaner-v2-Zielarchitektur,
+# siehe CONCEPT.md Abschnitt 12). Person ist bewusst schlank (kein Auth/Login) und getrennt
+# von TeamMember (Kapazitätsressource) - siehe Entwicklungsprinzip 8 der Master-MD.
+# ---------------------------------------------------------------------------
+
+
+class Person(Base):
+    """Fachliche Person, unabhängig davon ob sie kapazitätsplanbar ist (siehe
+    ResourceProfile) oder Zuordnungen/Verantwortlichkeiten trägt (ProjectMembership,
+    Project.projektleiter_person_id, ...). Kein Auth/Login-Konzept."""
+
+    __tablename__ = "persons"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Fremdschlüssel/ID aus einer künftigen Enterprise-Plattform - lokal angelegte Personen
+    # haben keine.
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source: Mapped[str] = mapped_column(String(30), default="LOCAL")  # LOCAL | ENTERPRISE_PLATFORM
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class ResourceProfile(Base):
+    """Macht eine Person kapazitätsplanbar (nicht jede Person muss es sein, z.B. externe
+    Ansprechpartner) - eine Person hat höchstens ein ResourceProfile."""
+
+    __tablename__ = "resource_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), unique=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    weekly_hours: Mapped[float] = mapped_column(Float, default=40)
+    capacity_relevant: Mapped[bool] = mapped_column(default=True)
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class ProjectRole(Base):
+    """Projektbezogene Rolle (z.B. Projektleiter, Consultant) - getrennt von globalen
+    App-Rollen (AppRole), siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 30."""
+
+    __tablename__ = "project_roles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class ProjectMembership(Base):
+    """Verknüpft Person <-> Projekt mit einer Projektrolle."""
+
+    __tablename__ = "project_memberships"
+    __table_args__ = (UniqueConstraint("project_id", "person_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
+    project_role_id: Mapped[int] = mapped_column(ForeignKey("project_roles.id"))
+
+    person: Mapped["Person"] = relationship()
+    project_role: Mapped["ProjectRole"] = relationship()
+
+
+class Permission(Base):
+    """Fachliche App-Berechtigung (z.B. PROJECT_EDIT) - siehe Master-MD Abschnitt 31. Wird
+    per Migration mit dem dort aufgeführten Grundvokabular geseedet; eine künftige
+    Enterprise-Plattform kann ihre eigenen Rollen später auf diese Capabilities mappen."""
+
+    __tablename__ = "permissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class AppRole(Base):
+    """Globale App-Rolle, bündelt Permissions über RolePermission. Kein Auth-System im Repo
+    (siehe CONCEPT.md Abschnitt 7) - AppRole ist reine Vorbereitung für Phase 25/Enterprise-
+    Integration, noch nicht an konkrete Personen vergeben."""
+
+    __tablename__ = "app_roles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+    __table_args__ = (UniqueConstraint("role_id", "permission_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("app_roles.id"))
+    permission_id: Mapped[int] = mapped_column(ForeignKey("permissions.id"))
 
 
 class Assignment(Base):

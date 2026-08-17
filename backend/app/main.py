@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import db_bootstrap
-from .routers import communication, documents, export, gap, jira, knowledge, kpis, projects, team  # noqa: F401
+from .routers import communication, documents, export, gap, jira, knowledge, kpis, people, projects, team  # noqa: F401
 
 # Schema-Aufbau/-Änderungen laufen über Alembic (siehe CONCEPT.md Abschnitt 12.1) statt über
 # create_all()+ad-hoc-ALTER-TABLE. Deckt sowohl frische Dev-SQLite-DBs als auch bestehende,
@@ -31,6 +31,7 @@ app.include_router(documents.router)
 app.include_router(communication.router)
 app.include_router(kpis.router)
 app.include_router(knowledge.router)
+app.include_router(people.router)
 
 
 @app.get("/health")

@@ -710,6 +710,117 @@ class ResourceAssignmentOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Real Capacity (Phase 20, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 20).
+# Grundformel: Nominal Capacity - Holiday - Absence - Internal Allocation = Available Capacity.
+# ---------------------------------------------------------------------------
+
+
+class CapacityCalendarCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class CapacityCalendarOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    active: bool
+
+
+class HolidayCreate(BaseModel):
+    date: str
+    name: str
+
+
+class HolidayOut(BaseModel):
+    id: int
+    capacity_calendar_id: int
+    date: str
+    name: str
+
+
+class WorkingTimeCreate(BaseModel):
+    capacity_calendar_id: int | None = None
+    valid_from: str
+    valid_to: str | None = None
+    weekly_hours: float = 40
+
+
+class WorkingTimeUpdate(BaseModel):
+    capacity_calendar_id: int | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    weekly_hours: float | None = None
+
+
+class WorkingTimeOut(BaseModel):
+    id: int
+    person_id: int
+    capacity_calendar_id: int | None
+    valid_from: str
+    valid_to: str | None
+    weekly_hours: float
+
+
+class AbsenceCreate(BaseModel):
+    absence_type: str = "urlaub"
+    start_date: str
+    end_date: str
+
+
+class AbsenceUpdate(BaseModel):
+    absence_type: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class AbsenceOut(BaseModel):
+    id: int
+    person_id: int
+    absence_type: str
+    start_date: str
+    end_date: str
+
+
+class InternalAllocationCreate(BaseModel):
+    period: str
+    fte: float = 0
+    description: str | None = None
+
+
+class InternalAllocationUpdate(BaseModel):
+    period: str | None = None
+    fte: float | None = None
+    description: str | None = None
+
+
+class InternalAllocationOut(BaseModel):
+    id: int
+    person_id: int
+    period: str
+    fte: float
+    description: str | None
+
+
+class PersonCapacityOut(BaseModel):
+    """Verfügbare Kapazität einer Person in einer Periode (Master-MD Abschnitt 20
+    Grundformel). Holiday/Absence werden über den Werktage-Anteil der Periode proportional
+    in FTE umgerechnet, InternalAllocation wird direkt in FTE abgezogen (bereits so
+    gepflegt)."""
+
+    person_id: int
+    period: str
+    nominal_fte: float
+    holiday_fte: float
+    absence_fte: float
+    internal_fte: float
+    available_fte: float
+    working_days: int
+    holiday_days: int
+    absence_days: int
+
+
+# ---------------------------------------------------------------------------
 # Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
 # chronologische Aggregation bestehender Endpunkte, keine neue Tabelle.
 # ---------------------------------------------------------------------------

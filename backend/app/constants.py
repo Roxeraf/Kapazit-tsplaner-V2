@@ -1,5 +1,11 @@
 """Phasencodes und FTE-Heatmap-Schwellen 1:1 aus dem Excel-Tool (siehe CONCEPT.md, Abschnitt 3)."""
 
+# Referenz-Wochenstunden für "1.0 FTE" - TeamMember.wochenstunden/ResourceProfile.weekly_hours/
+# WorkingTime.weekly_hours default ist 40. Kapazität einer Person wird durchgängig als
+# wochenstunden / VOLLZEIT_WOCHENSTUNDEN ausgedrückt (siehe routers/team.py, routers/
+# real_capacity.py).
+VOLLZEIT_WOCHENSTUNDEN = 40
+
 PHASE_LABELS = {
     "p": "Pflichtenheft",
     "k": "Konfiguration",
@@ -45,3 +51,14 @@ def berechne_monate(start_monat: str, anzahl_monate: int) -> list[str]:
         j = jahr + (monat_idx + i) // 12
         monate.append(f"{MONAT_NAMEN[m]} {j % 100:02d}")
     return monate
+
+
+def parse_period(period: str) -> tuple[int, int]:
+    """Kehrt berechne_monate() um: 'Apr 26' -> (2026, 4) (Jahr, Monat). Für die
+    Available-Capacity-Berechnung (Phase 20) benötigt, um Kalendergrenzen eines
+    Perioden-Buckets (ResourceDemand.period/InternalAllocation.period) zu bestimmen.
+    Nimmt wie berechne_monate() ein Jahrhundert von 2000 an."""
+    name, jahr_str = period.split()
+    monat = MONAT_NAMEN.index(name) + 1
+    jahr = 2000 + int(jahr_str)
+    return jahr, monat

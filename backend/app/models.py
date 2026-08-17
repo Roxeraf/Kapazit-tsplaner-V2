@@ -762,3 +762,74 @@ class ResourceAssignment(Base):
     fte: Mapped[float] = mapped_column(Float, default=0)
     erstellt_am: Mapped[str] = mapped_column(String(40))
     aktualisiert_am: Mapped[str] = mapped_column(String(40))
+
+
+# ---------------------------------------------------------------------------
+# Real Capacity (Phase 20 der Kapazitätsplaner-v2-Zielarchitektur, siehe CONCEPT.md
+# Abschnitt 12 / Master-MD Abschnitt 20). Grundformel:
+#   Nominal Capacity - Holiday - Absence - Internal Allocation = Available Capacity
+# Personenbezogen, unabhängig von einem einzelnen Projekt - kein delete_project-Cascade nötig.
+# ---------------------------------------------------------------------------
+
+
+class CapacityCalendar(Base):
+    """Benannter Feiertagskalender (z.B. 'Deutschland', 'Bayern'), dem WorkingTime-Zeiträume
+    zugeordnet werden können."""
+
+    __tablename__ = "capacity_calendars"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class Holiday(Base):
+    __tablename__ = "holidays"
+    __table_args__ = (UniqueConstraint("capacity_calendar_id", "date"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    capacity_calendar_id: Mapped[int] = mapped_column(ForeignKey("capacity_calendars.id"))
+    date: Mapped[str] = mapped_column(String(10))  # ISO "YYYY-MM-DD"
+    name: Mapped[str] = mapped_column(String(200))
+
+
+class WorkingTime(Base):
+    """Nominale Wochenstunden einer Person für einen Gültigkeitszeitraum (Historisierung von
+    Teilzeit-/Vollzeit-Änderungen), inkl. anzuwendendem Feiertagskalender. Ergänzt
+    ResourceProfile.weekly_hours (Phase 14, dort der aktuelle Einzelwert) um eine echte
+    Zeitreihe - beide Felder werden bewusst nicht synchronisiert (additiv, siehe CONCEPT.md
+    Abschnitt 12.3 Frage 5 zum generellen Nicht-Sync-Prinzip)."""
+
+    __tablename__ = "working_times"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
+    capacity_calendar_id: Mapped[int | None] = mapped_column(ForeignKey("capacity_calendars.id"), nullable=True)
+    valid_from: Mapped[str] = mapped_column(String(10))  # ISO "YYYY-MM-DD"
+    valid_to: Mapped[str | None] = mapped_column(String(10), nullable=True)  # None = weiterhin gültig
+    weekly_hours: Mapped[float] = mapped_column(Float, default=40)
+
+
+class Absence(Base):
+    __tablename__ = "absences"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
+    # Freitext (wie Blocker.severity) - z.B. "urlaub"/"krankheit"/"sonstiges".
+    absence_type: Mapped[str] = mapped_column(String(30), default="urlaub")
+    start_date: Mapped[str] = mapped_column(String(10))  # ISO "YYYY-MM-DD"
+    end_date: Mapped[str] = mapped_column(String(10))
+
+
+class InternalAllocation(Base):
+    """Kapazität, die pauschal für interne Tätigkeiten (nicht Projektarbeit) reserviert ist,
+    je Monat (gleiches 'Apr 26'-Format wie ResourceDemand.period)."""
+
+    __tablename__ = "internal_allocations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
+    period: Mapped[str] = mapped_column(String(10))
+    fte: Mapped[float] = mapped_column(Float, default=0)
+    description: Mapped[str | None] = mapped_column(String(200), nullable=True)

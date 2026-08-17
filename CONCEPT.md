@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.10 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–19 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.11 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–20 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -594,7 +594,47 @@ Dieses Repo enthält:
     regressionsfrei. Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 19 als erledigt
     markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–19 der Zielarchitektur (Abschnitt 12) umgesetzt.
+20. **Phase 20 (Real Capacity, Kapazitätsplaner-v2-Zielarchitektur):** Migration `0009`
+    (additiv, fünf neue Tabellen, keine Änderung an bestehenden Tabellen). Grundformel
+    (Master-MD Abschnitt 20): **Nominal Capacity − Holiday − Absence − Internal Allocation =
+    Available Capacity**. Neue Modelle: **`CapacityCalendar`** (benannter Feiertagskalender,
+    z.B. "Deutschland"), **`Holiday`** (Datum + Name je Kalender, `unique(calendar, date)`),
+    **`WorkingTime`** (nominale Wochenstunden einer Person je Gültigkeitszeitraum
+    `valid_from`/`valid_to` inkl. zugeordnetem Kalender — echte Zeitreihe, ergänzt
+    `ResourceProfile.weekly_hours` aus Phase 14 additiv, keine Synchronisierung, gleiches
+    Nicht-Sync-Prinzip wie bei `GanttPhase`/`PlanPhase`), **`Absence`** (Zeitraum +
+    `absence_type`, Freitext wie `Blocker.severity`) und **`InternalAllocation`** (`period`
+    im `"Apr 26"`-Format wie `ResourceDemand.period`, `fte`). `VOLLZEIT_WOCHENSTUNDEN` (bisher
+    lokal in `routers/team.py`) nach `backend/app/constants.py` verschoben — einzige Quelle
+    für die "40 Wochenstunden = 1.0 FTE"-Referenz, jetzt von `team.py` und dem neuen
+    `real_capacity.py` gemeinsam genutzt. Neuer Helper `constants.parse_period()` kehrt
+    `berechne_monate()` um (`"Apr 26"` → `(2026, 4)`), für die Kalendergrenzen-Bestimmung
+    benötigt. Neuer Router `backend/app/routers/real_capacity.py`: CRUD für alle fünf Modelle
+    (`/capacity-calendars`, `/capacity-calendars/{id}/holidays`, `/people/{id}/working-times`,
+    `/people/{id}/absences`, `/people/{id}/internal-allocations`) sowie **`GET
+    /people/{id}/capacity?period=...`**, das die Grundformel berechnet: Feiertage/
+    Abwesenheiten werden über den Werktage-Anteil der Periode proportional in FTE
+    umgerechnet (nur Wochentags-Termine zählen), `InternalAllocation` wird direkt in FTE
+    abgezogen (bereits so gepflegt). Nominale Wochenstunden kommen aus dem für die Periode
+    gültigen `WorkingTime`-Eintrag, ersatzweise aus `ResourceProfile.weekly_hours` (Phase 14)
+    als MVP-Fallback ohne Kalenderbezug, falls kein `WorkingTime` gepflegt ist; 404, wenn
+    keines von beidem existiert. Löschen eines `CapacityCalendar` löscht dessen `Holiday`-
+    Zeilen und nullt `WorkingTime.capacity_calendar_id` (Zeitraum bleibt bestehen, verliert
+    nur die Kalenderzuordnung). Personenbezogen und unabhängig von einem einzelnen Projekt —
+    kein `delete_project`-Cascade nötig. Verifiziert per curl mit einem an das Master-MD-
+    Beispiel angelehnten Szenario (40h/Woche, 5 Urlaubstage + 1 Feiertag in unterschiedlichen
+    Monaten, `InternalAllocation` 0,10 FTE): Rechenergebnisse manuell nachgerechnet und exakt
+    bestätigt (z.B. Oktober 2026: 22 Werktage, 5 Urlaubstage → `absence_fte=0.2273`,
+    `available_fte=0.6727`); ein Feiertag am Wochenende wurde korrekt **nicht** abgezogen, ein
+    Feiertag an einem Werktag korrekt anteilig (`1/21≈0.0476`); `ResourceProfile`-Fallback für
+    Personen ohne `WorkingTime` sowie 404 ohne jegliche Kapazitätsdaten getestet;
+    Namens-/Datums-Duplikate (409). Migration gegen frische DB und simulierte bestehende DB
+    (mit befülltem `persons`/`resource_profiles`) getestet — kein Datenverlust, Downgrade/
+    Upgrade-Round-Trip sauber. Bestehende Endpunkte (`/team`, `/gap`, `/projects`,
+    `/resource-roles`) regressionsfrei. Kein Frontend-Umbau. Details siehe Abschnitt 12.4
+    (Phase 20 als erledigt markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–20 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -677,10 +717,12 @@ Knowledge Query Layer (`/knowledge/*`, siehe Abschnitt 11 Punkt 15). Phase 16: `
 17: `PlanPhase`, `Milestone`, Dependencies über `EntityRelation` (siehe Abschnitt 11 Punkt
 17). Phase 18: `BaselineSnapshot`, `BaselineEntry`, Schedule-/Milestone-Deviations (siehe
 Abschnitt 11 Punkt 18). Phase 19: `ResourceRole`, `Skill`, `PersonSkill`, `ResourceDemand`,
-`ResourceAssignment`, Commitment-Level (siehe Abschnitt 11 Punkt 19). Alle übrigen aus der
-Master-MD (`CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte
-GAP-Engine, mehrdimensionales Project Health, Administration-UI) bleiben für die jeweils
-zugeordnete spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht umgesetzt**.
+`ResourceAssignment`, Commitment-Level (siehe Abschnitt 11 Punkt 19). Phase 20:
+`CapacityCalendar`, `Holiday`, `WorkingTime`, `Absence`, `InternalAllocation`, Available-
+Capacity-Berechnung (siehe Abschnitt 11 Punkt 20). Alle übrigen aus der Master-MD
+(strukturierte GAP-Engine, mehrdimensionales Project Health, Administration-UI) bleiben für
+die jeweils zugeordnete spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht
+umgesetzt**.
 
 **D — bewusst später (unverändert aus der Master-MD):**
 KI Project Agent, Vector-/Embedding-Layer, Enterprise-SSO, vollständiger Enterprise-Sync,
@@ -752,8 +794,8 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–19 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19). Phasen 20–26 sind
-Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
+Phase 13–20 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20). Phasen 21–26
+sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
@@ -764,7 +806,7 @@ Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 | 17 | Project Planning Core | ✅ PlanPhase, Milestone, Dependencies (Gantt bleibt unverändert UI) |
 | 18 | Baseline Management | ✅ BaselineSnapshot, BaselineEntry, Baseline vs Forecast, Deviations |
 | 19 | Capacity Planning Core | ✅ ResourceRole, Skill, PersonSkill, ResourceDemand, ResourceAssignment, Commitment-Level |
-| 20 | Real Capacity | CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation |
+| 20 | Real Capacity | ✅ CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation, Available Capacity |
 | 21 | GAP Engine | Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Drill-down |
 | 22 | Project Control & Health | mehrdimensionales Project Health, Project Control Cockpit |
 | 23 | Controlling & Capacity Intelligence | Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio |

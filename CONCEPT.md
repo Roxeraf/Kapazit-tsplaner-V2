@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.14 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–23 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine, Project Control & Health, Controlling & Capacity Intelligence) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.15 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–24 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine, Project Control & Health, Controlling & Capacity Intelligence, Knowledge Experience) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -862,7 +862,64 @@ Dieses Repo enthält:
     Durchgang). Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 23 als erledigt
     markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–23 der Zielarchitektur (Abschnitt 12) umgesetzt.
+24. **Phase 24 (Knowledge Experience, Kapazitätsplaner-v2-Zielarchitektur):** **Keine neue
+    Migration** — baut ausschließlich auf den seit Phase 13/15 bestehenden Tabellen
+    (`tags`, `tag_categories`, `tag_links`, `entity_relations`) auf und erweitert den
+    Knowledge Query Layer aus Phase 15 (`entity_links.py`, `routers/knowledge.py`) um die in
+    Master-MD Abschnitt 44/40/46 beschriebenen Zugriffsmuster:
+    - **Tag-Dossiers & kombinierte Tags** (`GET /knowledge/tags/dossier?tags=&mode=and|or&
+      project_id=`, neu `entity_links.entities_by_tags()`): ein einzelner Tag
+      (`tags=Schnittstelle`) liefert das Dossier-Beispiel aus Abschnitt 44 (Anzahl je
+      Entitätstyp + die Entitäten selbst), eine Kombination (`tags=Kunde,GoLive&mode=and`)
+      liefert nur Entitäten, die **alle** angegebenen Tags tragen (`mode=or` = irgendeinen).
+      `project_id` filtert zusätzlich auf ein Projekt.
+    - **Related Entities** (`entity_links.related_entities()`, neues Feld `related` auf
+      `GET /knowledge/context`): andere Entitäten mit den meisten gemeinsamen Tags, mit den
+      konkreten geteilten Tag-Namen (`shared_tags`) als Begründung — bewusst reine
+      Tag-Overlap-Ähnlichkeit statt einer Vector-/Embedding-Schicht, siehe Abschnitt 46
+      ("noch kein Vector-RAG").
+    - **Semantische Suche** (`entity_links.search_entities()` erweitert): `GET
+      /knowledge/search` matcht jetzt zusätzlich gegen `Tag.synonyms` und `Tag.ai_description`
+      (Abschnitt 43, z.B. Tag "GoLive" mit Synonymen "Produktivstart"/"Livegang"/"Rollout") -
+      der `match`-Wert unterscheidet dabei `tag:<Name>` (direkter Namenstreffer) von
+      `tag_semantisch:<Name>` (nur über Synonym/AI-Beschreibung gefunden), damit der Treffer
+      erklärbar bleibt (Entwicklungsprinzip 12). Dieselbe Namens-/Synonym-Auflösung
+      (`entity_links.resolve_tag()`) wird auch von den Tag-Dossiers genutzt - ein Dossier für
+      `tags=Livegang` findet damit denselben Tag wie `tags=GoLive`.
+    - **Activity Integration**: `plan_phase`/`milestone` fehlten bisher in der
+      Activity-Feed-Zeitstempel-Registry aus Phase 16 (nur `comment`/`decision`/`risk`/
+      `meeting_minutes`/`task`/`blocker`), obwohl beide seit Phase 17 Tags/Relationen tragen
+      können - dadurch tauchten sie nie im Activity Feed und nie in der `activity`-Liste
+      eines Tag-Dossiers auf. Behoben durch Verschieben der Registry von
+      `routers/communication.py` nach `entity_links.py` (`ACTIVITY_ENTITY_TYPES`/
+      `timestamp_for()`, jetzt inkl. `plan_phase`/`milestone`) - eine gemeinsame Zeitbasis
+      für `GET /projects/{id}/activity` (Phase 16) und die neue `activity`-Liste im
+      Tag-Dossier statt einer zweiten, separat zu pflegenden Kopie.
+    - **Bewusst nicht neu gebaut**: keine Vector-/Embedding-Suche (Abschnitt 55/62.15 -
+      KI-Readiness heißt strukturierte, semantisch beschriebene Daten, nicht frühzeitig
+      Embeddings/RAG bauen); kein Admin-UI für Tags/TagCategories (das ist Phase 25); kein
+      Frontend für Tag-Dossiers/Related Entities (wie Phase 13–23 bleibt dieser Durchgang
+      Backend-only, siehe unten).
+    Verifiziert per curl gegen eine frische, isolierte SQLite-Testdatenbank (nicht die
+    Dev-Datenbank) mit einem Projekt, einer getaggten Notiz (`#Kunde #Schnittstelle`), einer
+    getaggten Aufgabe (`#Schnittstelle #GoLive`) und einem getaggten Milestone (`#Kunde
+    #GoLive`), sowie Tag "GoLive" mit Synonymen "Produktivstart"/"Livegang"/"Rollout": Dossier
+    `tags=Kunde,GoLive&mode=or` liefert alle drei Entitäten (`counts` `comment:1, task:1,
+    milestone:1`), `mode=and` liefert korrekt nur den Milestone; Dossier per Synonym
+    (`tags=Livegang`) findet dieselben Treffer wie `tags=GoLive`; `GET /knowledge/search?
+    q=Produktivstart` liefert die Aufgabe/den Milestone mit `match="tag_semantisch:GoLive"`,
+    während `q=GoLive` weiterhin `match="tag:GoLive"` liefert; `GET /knowledge/context` für
+    die Aufgabe liefert `related` mit der Notiz (`shared_tags=["Schnittstelle"]`) und dem
+    Milestone (`shared_tags=["GoLive"]`), zusätzlich zur unverändert funktionierenden
+    `relations`-Liste (per `POST /entity-relations` angelegt); `GET /projects/{id}/activity`
+    enthält jetzt den Milestone. Regressionscheck: reine Textsuche (`q=XML`), `GET
+    /knowledge/relations`, `GET /knowledge/project/{id}`, `POST /entity-relations` unverändert
+    funktionsfähig; zusätzlich per eigenständigem Python-Skript gegen eine In-Memory-SQLite-DB
+    die AND/OR-/Projekt-Filter-/Synonym-Fallpfade von `entities_by_tags()` und
+    `related_entities()` isoliert verifiziert (17 Einzelchecks). Kein Frontend-Umbau. Details
+    siehe Abschnitt 12.4 (Phase 24 als erledigt markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–24 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -1029,8 +1086,8 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–23 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/21/22/23). Phasen
-24–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
+Phase 13–24 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/21/22/23/24).
+Phasen 25–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
@@ -1045,7 +1102,7 @@ Phase 13–23 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/2
 | 21 | GAP Engine | ✅ Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Bündel-Endpoint |
 | 22 | Project Control & Health | ✅ mehrdimensionales Project Health, konfigurierbare Schwellwerte, Project Control Cockpit |
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
-| 24 | Knowledge Experience | Tag-Dossiers, kombinierte Tags, semantische Suche |
+| 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | UI für Personen/Teams/Rollen/Permissions/Skills/Tags |
 | 26 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
 

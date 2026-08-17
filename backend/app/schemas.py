@@ -254,12 +254,26 @@ class KnowledgeSearchResult(BaseModel):
     entity_id: int
     project_id: int | None
     label: str | None
-    match: str  # "text" | "tag:<Tag-Name>"
+    # "text" | "tag:<Tag-Name>" | "tag_semantisch:<Tag-Name>" (Phase 24: Treffer nur über
+    # Synonym oder AI-Beschreibung des Tags, nicht über den Tag-Namen selbst).
+    match: str
+
+
+class RelatedEntityOut(BaseModel):
+    """Andere Entität mit gemeinsamen Tags (Phase 24, "Related Entities" - Master-MD
+    Abschnitt 40/46). Einfachste erklärbare Ähnlichkeit ohne Vector-/Embedding-Schicht."""
+
+    entity_type: str
+    entity_id: int
+    project_id: int | None
+    label: str | None
+    shared_tags: list[str] = []
 
 
 class KnowledgeContextOut(BaseModel):
-    """"Wissenskarte" einer einzelnen Entität - Tags, Dokumente und Relationen (Quelle wie
-    Ziel) an einem Ort, gedacht als Grundlage für spätere KI-Kontextassemblierung."""
+    """"Wissenskarte" einer einzelnen Entität - Tags, Dokumente, Relationen (Quelle wie
+    Ziel) und seit Phase 24 zusätzlich tag-basierte Related Entities an einem Ort, gedacht
+    als Grundlage für spätere KI-Kontextassemblierung."""
 
     entity_type: str
     entity_id: int
@@ -268,6 +282,7 @@ class KnowledgeContextOut(BaseModel):
     tags: list[str] = []
     documents: list[DocumentOut] = []
     relations: list[EntityRelationOut] = []
+    related: list[RelatedEntityOut] = []
 
 
 class KnowledgeProjectContextOut(BaseModel):
@@ -835,6 +850,23 @@ class ActivityItemOut(BaseModel):
     label: str | None
     timestamp: str
     tags: list[str] = []
+
+
+# ---------------------------------------------------------------------------
+# Tag-Dossiers (Phase 24, siehe CONCEPT.md Abschnitt 12.4 / Master-MD Abschnitt 44
+# "dynamische Tag-Sichten") - ein Tag (oder eine Kombination wie "#Kunde + #GoLive") wird
+# zu einem dynamischen Projektdossier: Anzahl je Entitätstyp, die Entitäten selbst und die
+# jüngste Aktivität dazu.
+# ---------------------------------------------------------------------------
+
+
+class TagDossierOut(BaseModel):
+    tags: list[str]
+    mode: Literal["and", "or"]
+    project_id: int | None
+    counts: dict[str, int] = {}
+    entities: list[KnowledgeEntityOut] = []
+    activity: list[ActivityItemOut] = []
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -86,7 +88,8 @@ def search_knowledge(q: str, project_id: int | None = None, db: Session = Depend
 
 @router.get("/knowledge/context", response_model=schemas.KnowledgeContextOut)
 def get_knowledge_context(entity_type: schemas.EntityType, entity_id: int, db: Session = Depends(get_db)):
-    """"Wissenskarte" einer einzelnen Entität: Tags, Dokumente und Relationen an einem Ort."""
+    """"Wissenskarte" einer einzelnen Entität: Tags, Dokumente, explizite Relationen und
+    (Phase 24) tag-basierte Related Entities an einem Ort."""
     summary = entity_links.entity_summary(db, entity_type, entity_id)
     if summary is None:
         raise HTTPException(status_code=404, detail="Entität nicht gefunden")
@@ -98,6 +101,10 @@ def get_knowledge_context(entity_type: schemas.EntityType, entity_id: int, db: S
         tags=entity_links.tags_for(db, entity_type, entity_id),
         documents=entity_links.documents_for(db, entity_type, entity_id),
         relations=[_relation_out(r) for r in entity_links.relations_for(db, entity_type, entity_id)],
+        related=[
+            schemas.RelatedEntityOut(**entity)
+            for entity in entity_links.related_entities(db, entity_type, entity_id)
+        ],
     )
 
 
@@ -167,4 +174,60 @@ def get_project_knowledge_context(project_id: int, db: Session = Depends(get_db)
         counts=counts,
         tags=sorted(tag_names),
         relations=[_relation_out(r) for r in relation_ids.values()],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tag-Dossiers (Phase 24, Master-MD Abschnitt 44) - ein einzelner Tag oder eine Kombination
+# wie "#Kunde + #GoLive" wird zu einem dynamischen Projektdossier. Bewusst unter
+# `/knowledge/tags/dossier` statt `/tags/{id}/dossier`, weil kombinierte Tags (mode="and"/
+# "or", mehrere Namen) keiner einzelnen Tag-ID zugeordnet werden können.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/knowledge/tags/dossier", response_model=schemas.TagDossierOut)
+def get_tag_dossier(
+    tags: str,
+    mode: Literal["and", "or"] = "and",
+    project_id: int | None = None,
+    activity_limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    """Dynamisches Tag-Dossier: Anzahl je Entitätstyp, die Entitäten selbst und die jüngste
+    Aktivität dazu - für einen einzelnen Tag (`tags=Schnittstelle`) oder eine Kombination
+    (`tags=Kunde,GoLive&mode=and`). `tags` matcht auch Synonyme (siehe
+    `entity_links.resolve_tag`), z.B. `tags=Livegang` findet denselben Tag wie "GoLive"."""
+    tag_names = [name.strip() for name in tags.split(",") if name.strip()]
+    if not tag_names:
+        raise HTTPException(status_code=422, detail="tags darf nicht leer sein")
+
+    entities = entity_links.entities_by_tags(db, tag_names, mode, project_id)
+
+    counts: dict[str, int] = {}
+    for entity in entities:
+        counts[entity["entity_type"]] = counts.get(entity["entity_type"], 0) + 1
+
+    activity: list[schemas.ActivityItemOut] = []
+    for entity in entities:
+        timestamp = entity_links.timestamp_for(db, entity["entity_type"], entity["entity_id"])
+        if timestamp is None:
+            continue
+        activity.append(
+            schemas.ActivityItemOut(
+                entity_type=entity["entity_type"],
+                entity_id=entity["entity_id"],
+                label=entity["label"],
+                timestamp=timestamp,
+                tags=entity["tags"],
+            )
+        )
+    activity.sort(key=lambda item: item.timestamp, reverse=True)
+
+    return schemas.TagDossierOut(
+        tags=tag_names,
+        mode=mode,
+        project_id=project_id,
+        counts=counts,
+        entities=[schemas.KnowledgeEntityOut(**entity) for entity in entities],
+        activity=activity[:activity_limit],
     )

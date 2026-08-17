@@ -478,33 +478,27 @@ def delete_blocker(blocker_id: int, db: Session = Depends(get_db)):
 
 # ---------------------------------------------------------------------------
 # Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
-# chronologische Aggregation, keine neue Tabelle. Nutzt dieselbe Registry wie der Knowledge
-# Query Layer (entity_links.ENTITY_TYPES), ausser "document" (Dateien sind keine Aktivität).
+# chronologische Aggregation, keine neue Tabelle. Nutzt dieselbe Zeitstempel-Registry wie
+# die Tag-Dossiers aus Phase 24 (entity_links.ACTIVITY_ENTITY_TYPES/timestamp_for) - "document"
+# fehlt bewusst (Dateien sind keine Aktivität).
 # ---------------------------------------------------------------------------
-
-_ACTIVITY_TIMESTAMP_FIELD = {
-    "comment": "erstellt_am",
-    "decision": "erstellt_am",
-    "risk": "erstellt_am",
-    "meeting_minutes": "erstellt_am",
-    "task": "erstellt_am",
-    "blocker": "erstellt_am",
-}
 
 
 @router.get("/{project_id}/activity", response_model=list[schemas.ActivityItemOut])
 def get_project_activity(project_id: int, limit: int = 50, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
     items: list[schemas.ActivityItemOut] = []
-    for entity_type, timestamp_field in _ACTIVITY_TIMESTAMP_FIELD.items():
+    for entity_type in entity_links.ACTIVITY_ENTITY_TYPES:
         for summary in entity_links.list_entity_summaries(db, entity_type, project_id):
-            row = db.get(entity_links.model_for(entity_type), summary["entity_id"])
+            timestamp = entity_links.timestamp_for(db, entity_type, summary["entity_id"])
+            if timestamp is None:
+                continue
             items.append(
                 schemas.ActivityItemOut(
                     entity_type=entity_type,
                     entity_id=summary["entity_id"],
                     label=summary["label"],
-                    timestamp=getattr(row, timestamp_field),
+                    timestamp=timestamp,
                     tags=summary["tags"],
                 )
             )

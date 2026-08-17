@@ -28,6 +28,7 @@ import type {
   MemberUtilization,
   PlanHistoryEntry,
   ProjectDetail,
+  ProjectMembership,
   ProjectStatus,
   ProjectSummary,
   Risk,
@@ -95,6 +96,7 @@ export const api = {
       jira_component: string | null;
       status: ProjectStatus;
       projektleiter: string | null;
+      projektleiter_person_id: number | null;
       kommentar_id: number | null;
       batch_id: string | null;
     }>,
@@ -279,7 +281,7 @@ export const api = {
       titel: string;
       beschreibung?: string | null;
       status?: DecisionStatus;
-      entschieden_von?: string | null;
+      entschieden_von_person_id?: number | null;
       entschieden_am?: string | null;
       tags?: string[];
     },
@@ -290,7 +292,7 @@ export const api = {
       titel: string;
       beschreibung: string | null;
       status: DecisionStatus;
-      entschieden_von: string | null;
+      entschieden_von_person_id: number | null;
       entschieden_am: string | null;
       tags: string[];
     }>,
@@ -306,7 +308,7 @@ export const api = {
       wahrscheinlichkeit?: RiskLevel;
       auswirkung?: RiskLevel;
       status?: RiskStatus;
-      owner?: string | null;
+      owner_person_id?: number | null;
       faellig_am?: string | null;
       tags?: string[];
     },
@@ -319,7 +321,7 @@ export const api = {
       wahrscheinlichkeit: RiskLevel;
       auswirkung: RiskLevel;
       status: RiskStatus;
-      owner: string | null;
+      owner_person_id: number | null;
       faellig_am: string | null;
       tags: string[];
     }>,
@@ -353,7 +355,7 @@ export const api = {
       titel: string;
       beschreibung?: string | null;
       status?: TaskStatus;
-      zustaendig?: string | null;
+      zustaendig_person_id?: number | null;
       faellig_am?: string | null;
       tags?: string[];
     },
@@ -364,7 +366,7 @@ export const api = {
       titel: string;
       beschreibung: string | null;
       status: TaskStatus;
-      zustaendig: string | null;
+      zustaendig_person_id: number | null;
       faellig_am: string | null;
       tags: string[];
     }>,
@@ -375,12 +377,25 @@ export const api = {
   getUtilization: () => request<MemberUtilization[]>("/team/utilization"),
   getKpis: () => request<KpiSummary>("/kpis"),
 
-  // Fachliche Administration (Phase 25)
-  listPeople: () => request<AdminPerson[]>("/people"),
+  // Fachliche Administration (Phase 25) + projektweiter PersonPicker (Phase 26.1)
+  listPeople: (search?: string) =>
+    request<AdminPerson[]>(`/people${search ? `?search=${encodeURIComponent(search)}` : ""}`),
   createPerson: (payload: { display_name: string; email?: string | null }) =>
     request<AdminPerson>("/people", { method: "POST", body: JSON.stringify(payload) }),
   updatePerson: (id: number, payload: Partial<Pick<AdminPerson, "display_name" | "email" | "active">>) =>
     request<AdminPerson>(`/people/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+
+  // Projektteam (Phase 14, ab Phase 26.1 im Frontend genutzt)
+  listProjectMemberships: (projectId: number) =>
+    request<ProjectMembership[]>(`/projects/${projectId}/memberships`),
+  createProjectMembership: (projectId: number, personId: number, projectRoleId: number) =>
+    request<ProjectMembership>(`/projects/${projectId}/memberships`, {
+      method: "POST",
+      body: JSON.stringify({ person_id: personId, project_role_id: projectRoleId }),
+    }),
+  deleteProjectMembership: (membershipId: number) =>
+    request<void>(`/project-memberships/${membershipId}`, { method: "DELETE" }),
+
   listProjectRoles: () => request<AdminProjectRole[]>("/project-roles"),
   createProjectRole: (payload: { name: string; description?: string }) => request<AdminProjectRole>("/project-roles", { method: "POST", body: JSON.stringify(payload) }),
   updateProjectRole: (id: number, payload: Partial<Omit<AdminProjectRole, "id">>) => request<AdminProjectRole>(`/project-roles/${id}`, { method: "PUT", body: JSON.stringify(payload) }),

@@ -3,7 +3,9 @@ import { api } from "../../../api/client";
 import AttachmentList from "../../../components/AttachmentList";
 import AttachmentPicker from "../../../components/AttachmentPicker";
 import ConfirmDialog from "../../../components/ConfirmDialog";
+import PersonPicker from "../../../components/PersonPicker";
 import TagInput from "../../../components/TagInput";
+import usePeopleMap from "../../../hooks/usePeopleMap";
 import { DECISION_STATUS_LABELS, type Decision, type DecisionStatus } from "../../../types";
 
 function formatDate(iso: string | null): string {
@@ -24,11 +26,13 @@ export default function DecisionList({
 }) {
   const [titel, setTitel] = useState("");
   const [beschreibung, setBeschreibung] = useState("");
+  const [entschiedenVonPersonId, setEntschiedenVonPersonId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Decision | null>(null);
+  const people = usePeopleMap();
 
   const handleAdd = async () => {
     if (!titel.trim()) return;
@@ -38,6 +42,7 @@ export default function DecisionList({
       const decision = await api.createDecision(projectId, {
         titel: titel.trim(),
         beschreibung: beschreibung.trim() || null,
+        entschieden_von_person_id: entschiedenVonPersonId,
         tags,
       });
       for (const file of files) {
@@ -45,6 +50,7 @@ export default function DecisionList({
       }
       setTitel("");
       setBeschreibung("");
+      setEntschiedenVonPersonId(null);
       setTags([]);
       setFiles([]);
       onChanged();
@@ -94,10 +100,11 @@ export default function DecisionList({
               </div>
             </div>
             {d.beschreibung && <p style={{ margin: "0.35rem 0" }}>{d.beschreibung}</p>}
-            {d.entschieden_am && (
+            {(d.entschieden_am || d.entschieden_von_person_id != null) && (
               <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: 0 }}>
-                Entschieden am {formatDate(d.entschieden_am)}
-                {d.entschieden_von && ` von ${d.entschieden_von}`}
+                {d.entschieden_am && `Entschieden am ${formatDate(d.entschieden_am)}`}
+                {d.entschieden_von_person_id != null &&
+                  `${d.entschieden_am ? " von " : "Entschieden von "}${people.get(d.entschieden_von_person_id) ?? "…"}`}
               </p>
             )}
             {d.tags.length > 0 && (
@@ -122,6 +129,10 @@ export default function DecisionList({
         <label>
           Beschreibung
           <input value={beschreibung} onChange={(e) => setBeschreibung(e.target.value)} placeholder="optional" />
+        </label>
+        <label>
+          Entschieden von
+          <PersonPicker value={entschiedenVonPersonId} onChange={setEntschiedenVonPersonId} />
         </label>
         <TagInput value={tags} onChange={setTags} />
         <AttachmentPicker files={files} onChange={setFiles} />

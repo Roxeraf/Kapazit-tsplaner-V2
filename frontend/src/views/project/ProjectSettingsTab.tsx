@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
+import PersonPicker from "../../components/PersonPicker";
 import { PROJECT_STATUS_LABELS, type JiraComponent, type JiraProject, type ProjectStatus } from "../../types";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
+import ProjectTeamSection from "./components/ProjectTeamSection";
 
 export default function ProjectSettingsTab() {
   const { project, reload } = useProjectWorkspace();
@@ -51,8 +53,11 @@ export default function ProjectSettingsTab() {
     reload();
   };
 
-  const handleProjektleiterChange = async (raw: string) => {
-    await api.updateProject(project.id, { projektleiter: raw.trim() || null });
+  // Schreibt projektleiter_person_id (Phase 26.1) UND den Freitext projektleiter mit -
+  // Portfolio-Karten und das Cockpit lesen bis zur Cockpit-Integration (26.6) noch den
+  // Freitext direkt, siehe CONCEPT.md Abschnitt 12.3.
+  const handleProjektleiterChange = async (personId: number | null, displayName: string | null) => {
+    await api.updateProject(project.id, { projektleiter_person_id: personId, projektleiter: displayName });
     reload();
   };
 
@@ -80,14 +85,19 @@ export default function ProjectSettingsTab() {
           </label>
           <label>
             Projektleiter
-            <input
-              key={project.projektleiter ?? ""}
-              defaultValue={project.projektleiter ?? ""}
-              placeholder="z. B. Max Mustermann"
-              onBlur={(e) => handleProjektleiterChange(e.target.value)}
+            <PersonPicker
+              value={project.projektleiter_person_id}
+              onChange={() => {
+                /* Speichern erfolgt in onPersonChange, sobald der display_name feststeht. */
+              }}
+              onPersonChange={(person) => handleProjektleiterChange(person?.id ?? null, person?.display_name ?? null)}
             />
           </label>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: "1.25rem" }}>
+        <ProjectTeamSection projectId={project.id} />
       </div>
 
       <div className="card">

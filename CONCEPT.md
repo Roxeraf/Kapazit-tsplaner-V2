@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.15 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–24 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine, Project Control & Health, Controlling & Capacity Intelligence, Knowledge Experience) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.16 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–25 (… Knowledge Experience, Administration UX) der Kapazitätsplaner-v2-Zielarchitektur vollständig umgesetzt; Phase 26 (Functional Integration) mit Unterschritt 26.1 (Person Integration) begonnen (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -926,7 +926,44 @@ Dieses Repo enthält:
     Personen bleiben read-only, Jira/Tempo-Credentials bleiben in der Laufzeitumgebung.
     Details siehe Abschnitt 12.4 (Phase 25 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–25 der Zielarchitektur (Abschnitt 12) umgesetzt.
+26. **Phase 26 (Functional Integration, Kapazitätsplaner-v2-Zielarchitektur):** 🔶 in Arbeit,
+    Unterschritte 26.1–26.9 (siehe Abschnitt 12.4). Ziel: keine neuen Backend-Modelle, sondern
+    die seit Phase 13–25 gebauten, bisher fast durchgängig frontend-losen Bausteine zu echten
+    End-to-End-Workflows verbinden; die alten Parallelmodelle werden am Ende (26.9) real
+    entfernt statt dauerhaft als Bridge zu bestehen, da sich das Projekt noch in aktiver
+    Entwicklung befindet (Datenverlust bewusst akzeptiert).
+    - **26.1 (Person Integration) — ✅ erledigt.** Migration `0011` (additiv+destruktiv:
+      `Decision.entschieden_von`/`Risk.owner`/`Task.zustaendig` als Freitext entfernt, durch
+      nullable FKs `entschieden_von_person_id`/`owner_person_id`/`zustaendig_person_id` auf
+      `persons` ersetzt — bewusst kein Best-Effort-Namensabgleich wie bei
+      `Project.projektleiter_person_id` in Migration `0003`, da vorhandene Freitextwerte in
+      der aktuellen Entwicklungsphase verworfen werden dürfen). `GET /people` um `?search=`
+      erweitert (`backend/app/routers/people.py`, analog `GET /tags?search=`). Neue
+      Person-Validierung (404 bei unbekannter `*_person_id`) in `create_decision`/
+      `update_decision`/`create_risk`/`update_risk`/`create_task`/`update_task`
+      (`backend/app/routers/communication.py`, gemeinsamer Helper `_validate_person_id`,
+      exakt das Muster aus `create_blocker`/`update_blocker` übernommen). Frontend: neue
+      wiederverwendbare Komponente `frontend/src/components/PersonPicker.tsx`
+      (Suche+Vorschlagsliste, Muster von `TagInput.tsx`), ersetzt die Freitext-Inputs für
+      Projektleiter (`ProjectSettingsTab.tsx`, schreibt `projektleiter_person_id` **und**
+      weiterhin den Freitext `projektleiter` mit — Portfolio-Karten/Cockpit lesen den Freitext
+      bis zur Cockpit-Integration in 26.6 direkt) sowie Owner in `RiskList.tsx`/`TaskList.tsx`/
+      `DecisionList.tsx`; Anzeige des Personennamens über neuen Hook
+      `frontend/src/hooks/usePeopleMap.ts` (einmalig geladene id→display_name-Map, kein
+      serverseitiger Join nötig, analog zu `BlockerOut`, das ebenfalls nur `owner_person_id`
+      ohne aufgelösten Namen liefert). Neue Sektion "Projektteam"
+      (`frontend/src/views/project/components/ProjectTeamSection.tsx`) nutzt die seit Phase 14
+      bestehenden, bisher ungenutzten Endpunkte `GET/POST /projects/{id}/memberships` und
+      `GET /project-roles` — kein neuer Backend-Code, reine Frontend-Neuerung. Verifiziert:
+      Migration-Roundtrip (`upgrade`/`downgrade`/`upgrade`, `alembic check` ohne Drift) gegen
+      frische SQLite-DB; curl-Szenario Person→Risk/Task/Decision mit `*_person_id` inkl.
+      404 bei unbekannter Person; `npm run build` (TypeScript+Vite) fehlerfrei; Playwright-
+      Durchlauf gegen echten Dev-Server (Projektleiter setzen, Projektteam-Mitglied
+      hinzufügen, Risiko/Aufgabe/Entscheidung jeweils mit Personen-Owner anlegen) — alle vier
+      Flows zeigen den aufgelösten Personennamen korrekt an, keine Konsolenfehler.
+    - **26.2–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit Unterschritt 26.1 begonnen, siehe Punkt 26 oben.
 
 ---
 
@@ -1111,7 +1148,27 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
+| 26 | Functional Integration | 🔶 in Arbeit — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
+| 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
+| 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
+| 29 | AI Project Agent | später, siehe Bucket D unten |
+
+**Phase-26-Entscheidung (Neunummerierung):** Die bisherige Phase 26 "KI-Readiness Review"
+rückt auf Phase 28. Grund: Phasen 13–25 haben ein vollständiges "Zielarchitektur"-Backend
+gebaut (Person, Blocker, PlanPhase/Milestone, Baseline, ResourceDemand/ResourceAssignment,
+Real Capacity, GAP Engine, Project Health/Cockpit, Controlling, Knowledge Layer), aber jede
+dieser Phasen endet mit "Kein Frontend-Umbau" — das Frontend lief bis Phase 26 weiterhin fast
+vollständig auf dem alten Excel-abgeleiteten Modell (`GanttPhase`/`FtePlan`/`TeamMember`/
+`Assignment`, Freitext-Zuordnungsfelder, sechs Einzel-Fetches statt `/cockpit`, keine
+Blocker-/Activity-Feed-/Tag-Dossier-UI). Phase 26 baut bewusst **keine neuen Backend-Modelle**,
+sondern verbindet die vorhandenen Bausteine zu echten End-to-End-Workflows (Unterschritte
+26.1 Person Integration, 26.2 Planning Integration, 26.3 Capacity Integration, 26.4 Activity
+Integration, 26.5 Knowledge Integration, 26.6 Cockpit Integration, 26.7 Actionable GAPs, 26.8
+Document Context, 26.9 Legacy Cutover). Anders als bei Phase 14 (`TeamMember`→`Person`) ist
+hier **kein dauerhafter Parallelbetrieb** das Ziel: da sich das Projekt noch in aktiver
+Entwicklung befindet, werden die alten Parallelmodelle (`GanttPhase`/`FtePlan`/`Assignment`/
+`TeamMember`, Freitext-Owner-Felder) in 26.9 nach erfolgreicher Umstellung real entfernt statt
+auf unbestimmte Zeit als Bridge bestehen zu bleiben.
 
 **Phase-25-Architekturentscheidung:** Die Administration ist eine eigene globale Route
 `/administration` und bündelt vorhandene fachliche Sources of Truth, statt Stammdaten im

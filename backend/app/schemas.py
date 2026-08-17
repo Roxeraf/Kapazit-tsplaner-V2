@@ -310,7 +310,7 @@ class DecisionCreate(BaseModel):
     # siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 35: decision_text vs. reason).
     begruendung: str | None = None
     status: str = "offen"
-    entschieden_von: str | None = None
+    entschieden_von_person_id: int | None = None
     entschieden_am: str | None = None
     tags: list[str] = []
 
@@ -320,7 +320,7 @@ class DecisionUpdate(BaseModel):
     beschreibung: str | None = None
     begruendung: str | None = None
     status: str | None = None
-    entschieden_von: str | None = None
+    entschieden_von_person_id: int | None = None
     entschieden_am: str | None = None
     tags: list[str] | None = None
 
@@ -332,7 +332,7 @@ class DecisionOut(BaseModel):
     beschreibung: str | None
     begruendung: str | None = None
     status: str
-    entschieden_von: str | None
+    entschieden_von_person_id: int | None
     entschieden_am: str | None
     erstellt_am: str
     tags: list[str] = []
@@ -345,7 +345,7 @@ class RiskCreate(BaseModel):
     wahrscheinlichkeit: str = "mittel"
     auswirkung: str = "mittel"
     status: str = "offen"
-    owner: str | None = None
+    owner_person_id: int | None = None
     faellig_am: str | None = None
     tags: list[str] = []
 
@@ -356,7 +356,7 @@ class RiskUpdate(BaseModel):
     wahrscheinlichkeit: str | None = None
     auswirkung: str | None = None
     status: str | None = None
-    owner: str | None = None
+    owner_person_id: int | None = None
     faellig_am: str | None = None
     tags: list[str] | None = None
 
@@ -369,7 +369,7 @@ class RiskOut(BaseModel):
     wahrscheinlichkeit: str
     auswirkung: str
     status: str
-    owner: str | None
+    owner_person_id: int | None
     faellig_am: str | None
     erstellt_am: str
     aktualisiert_am: str
@@ -409,7 +409,7 @@ class TaskCreate(BaseModel):
     titel: str
     beschreibung: str | None = None
     status: str = "offen"
-    zustaendig: str | None = None
+    zustaendig_person_id: int | None = None
     faellig_am: str | None = None
     tags: list[str] = []
 
@@ -418,7 +418,7 @@ class TaskUpdate(BaseModel):
     titel: str | None = None
     beschreibung: str | None = None
     status: str | None = None
-    zustaendig: str | None = None
+    zustaendig_person_id: int | None = None
     faellig_am: str | None = None
     tags: list[str] | None = None
 
@@ -429,7 +429,7 @@ class TaskOut(BaseModel):
     titel: str
     beschreibung: str | None
     status: str
-    zustaendig: str | None
+    zustaendig_person_id: int | None
     faellig_am: str | None
     erstellt_am: str
     aktualisiert_am: str

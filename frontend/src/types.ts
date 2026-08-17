@@ -351,3 +351,15 @@ export interface Task {
   tags: string[];
   documents: Document[];
 }
+
+// Fachliche Administration (Phase 25)
+export interface AdminPerson { id: number; external_id: string | null; display_name: string; email: string | null; source: "LOCAL" | "ENTERPRISE_PLATFORM"; active: boolean }
+export interface AdminProjectRole { id: number; name: string; description: string | null; active: boolean }
+export interface AdminPermission { id: number; name: string; description: string | null }
+export interface AdminAppRole { id: number; name: string; description: string | null; permissions: string[] }
+export interface AdminResourceRole { id: number; name: string; description: string | null; active: boolean }
+export interface AdminSkill { id: number; name: string; category: string | null; active: boolean }
+export interface AdminTagCategory { id: number; name: string; description: string | null }
+export interface AdminTag { id: number; name: string; category_id: number | null; description: string | null; color: string | null; active: boolean; ai_relevant: boolean; ai_description: string | null; synonyms: string[] }
+export interface AdminHealthThreshold { metric: string; yellow: number; red: number }
+export interface AdminCapacityCalendar { id: number; name: string; description: string | null; active: boolean }

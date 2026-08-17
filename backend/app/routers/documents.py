@@ -153,6 +153,21 @@ def list_tags(search: str | None = None, db: Session = Depends(get_db)):
     return [_tag_out(t) for t in tags]
 
 
+@router.post("/tags", response_model=schemas.TagOut, status_code=201)
+def create_tag(payload: schemas.TagCreate, db: Session = Depends(get_db)):
+    if db.query(models.Tag).filter(models.Tag.name == payload.name).first() is not None:
+        raise HTTPException(status_code=409, detail="Tag mit diesem Namen existiert bereits")
+    if payload.category_id is not None and db.get(models.TagCategory, payload.category_id) is None:
+        raise HTTPException(status_code=404, detail="Tag-Kategorie nicht gefunden")
+    values = payload.model_dump(exclude={"synonyms"})
+    values["synonyms"] = ", ".join(value.strip() for value in payload.synonyms if value.strip()) or None
+    tag = models.Tag(**values)
+    db.add(tag)
+    db.commit()
+    db.refresh(tag)
+    return _tag_out(tag)
+
+
 @router.patch("/tags/{tag_id}", response_model=schemas.TagOut)
 def update_tag(tag_id: int, payload: schemas.TagUpdate, db: Session = Depends(get_db)):
     tag = db.get(models.Tag, tag_id)

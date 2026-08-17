@@ -55,6 +55,18 @@ def create_resource_role(payload: schemas.ResourceRoleCreate, db: Session = Depe
     return role
 
 
+@router.put("/resource-roles/{role_id}", response_model=schemas.ResourceRoleOut)
+def update_resource_role(role_id: int, payload: schemas.ResourceRoleUpdate, db: Session = Depends(get_db)):
+    role = db.get(models.ResourceRole, role_id)
+    if role is None:
+        raise HTTPException(status_code=404, detail="Ressourcenrolle nicht gefunden")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(role, field, value)
+    db.commit()
+    db.refresh(role)
+    return role
+
+
 # ---------------------------------------------------------------------------
 # Skill & PersonSkill
 # ---------------------------------------------------------------------------
@@ -72,6 +84,18 @@ def create_skill(payload: schemas.SkillCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Skill mit diesem Namen existiert bereits")
     skill = models.Skill(**payload.model_dump())
     db.add(skill)
+    db.commit()
+    db.refresh(skill)
+    return skill
+
+
+@router.put("/skills/{skill_id}", response_model=schemas.SkillOut)
+def update_skill(skill_id: int, payload: schemas.SkillUpdate, db: Session = Depends(get_db)):
+    skill = db.get(models.Skill, skill_id)
+    if skill is None:
+        raise HTTPException(status_code=404, detail="Skill nicht gefunden")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(skill, field, value)
     db.commit()
     db.refresh(skill)
     return skill

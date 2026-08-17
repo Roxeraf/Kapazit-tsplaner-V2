@@ -187,6 +187,17 @@ class TagCategoryCreate(BaseModel):
     description: str | None = None
 
 
+class TagCreate(BaseModel):
+    name: str
+    category_id: int | None = None
+    description: str | None = None
+    color: str | None = None
+    active: bool = True
+    ai_relevant: bool = False
+    ai_description: str | None = None
+    synonyms: list[str] = []
+
+
 class TagCategoryOut(BaseModel):
     id: int
     name: str
@@ -647,6 +658,12 @@ class ResourceRoleCreate(BaseModel):
     description: str | None = None
 
 
+class ResourceRoleUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    active: bool | None = None
+
+
 class ResourceRoleOut(BaseModel):
     id: int
     name: str
@@ -657,6 +674,12 @@ class ResourceRoleOut(BaseModel):
 class SkillCreate(BaseModel):
     name: str
     category: str | None = None
+
+
+class SkillUpdate(BaseModel):
+    name: str | None = None
+    category: str | None = None
+    active: bool | None = None
 
 
 class SkillOut(BaseModel):
@@ -736,6 +759,12 @@ class ResourceAssignmentOut(BaseModel):
 class CapacityCalendarCreate(BaseModel):
     name: str
     description: str | None = None
+
+
+class CapacityCalendarUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    active: bool | None = None
 
 
 class CapacityCalendarOut(BaseModel):
@@ -1048,6 +1077,12 @@ class ProjectRoleCreate(BaseModel):
     description: str | None = None
 
 
+class ProjectRoleUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    active: bool | None = None
+
+
 class ProjectRoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1081,6 +1116,11 @@ class PermissionOut(BaseModel):
 
 class AppRoleCreate(BaseModel):
     name: str
+    description: str | None = None
+
+
+class AppRoleUpdate(BaseModel):
+    name: str | None = None
     description: str | None = None
 
 

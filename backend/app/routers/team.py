@@ -8,15 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..constants import VOLLZEIT_WOCHENSTUNDEN
 from ..database import get_db
 
 router = APIRouter(prefix="/team", tags=["team"])
 
-# Referenz-Wochenstunden für "1.0 FTE" - TeamMember.wochenstunden default ist 40 (siehe
-# models.py), Assignment.fte ist bereits in FTE-Einheiten (nicht Prozent, siehe dortiger
-# Docstring). Für die Auslastungsberechnung wird die individuelle Kapazität eines
-# Teammitglieds daher als wochenstunden / VOLLZEIT_WOCHENSTUNDEN ausgedrückt.
-VOLLZEIT_WOCHENSTUNDEN = 40
+# Assignment.fte ist bereits in FTE-Einheiten (nicht Prozent, siehe dortiger Docstring). Für
+# die Auslastungsberechnung wird die individuelle Kapazität eines Teammitglieds daher als
+# wochenstunden / VOLLZEIT_WOCHENSTUNDEN (siehe ../constants.py) ausgedrückt.
 
 
 def _assignment_out(a: models.Assignment) -> schemas.AssignmentOut:

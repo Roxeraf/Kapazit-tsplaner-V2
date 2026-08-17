@@ -15,7 +15,35 @@ _ENTITY_LABEL_PREFIX = {
     "risk": "Risiko",
     "meeting_minutes": "Meeting",
     "task": "Aufgabe",
+    "blocker": "Blocker",
+    "plan_phase": "Planphase",
+    "milestone": "Milestone",
 }
+
+# Registry für den Knowledge Query Layer (Phase 15, siehe CONCEPT.md Abschnitt 12/46):
+# entity_type -> (Modell, Feld mit dem anzeigbaren Titel/Text). Deckt dasselbe Vokabular wie
+# TagLink/DocumentLink/EntityRelation ab (schemas.EntityType).
+_ENTITY_REGISTRY: dict[str, tuple[type, str]] = {
+    "comment": (models.Comment, "text"),
+    "decision": (models.Decision, "titel"),
+    "risk": (models.Risk, "titel"),
+    "meeting_minutes": (models.MeetingMinutes, "titel"),
+    "task": (models.Task, "titel"),
+    "document": (models.Document, "dateiname"),
+    "blocker": (models.Blocker, "title"),
+    "plan_phase": (models.PlanPhase, "phase_type"),
+    "milestone": (models.Milestone, "name"),
+}
+
+# Öffentliches Vokabular für Aufrufer außerhalb dieses Moduls (z.B. routers/knowledge.py,
+# routers/communication.py), ohne das interne Registry-Dict direkt zu exponieren.
+ENTITY_TYPES: tuple[str, ...] = tuple(_ENTITY_REGISTRY.keys())
+
+
+def model_for(entity_type: str) -> type | None:
+    """Das SQLAlchemy-Modell eines entity_type, falls im Knowledge-Layer-Vokabular bekannt."""
+    model, _ = _ENTITY_REGISTRY.get(entity_type, (None, None))
+    return model
 
 
 def _now() -> str:
@@ -72,6 +100,15 @@ def _resolve_entity_label(db: Session, entity_type: str, entity_id: int) -> str:
     elif entity_type == "task":
         row = db.get(models.Task, entity_id)
         text = row.titel if row else None
+    elif entity_type == "blocker":
+        row = db.get(models.Blocker, entity_id)
+        text = row.title if row else None
+    elif entity_type == "plan_phase":
+        row = db.get(models.PlanPhase, entity_id)
+        text = row.phase_type if row else None
+    elif entity_type == "milestone":
+        row = db.get(models.Milestone, entity_id)
+        text = row.name if row else None
     if text is None:
         return f"{prefix} #{entity_id} (gelöscht)"
     return f"{prefix} „{text}“"
@@ -140,3 +177,164 @@ def delete_links_for_entity(db: Session, entity_type: str, entity_id: int) -> No
     db.query(models.DocumentLink).filter(
         models.DocumentLink.entity_type == entity_type, models.DocumentLink.entity_id == entity_id
     ).delete()
+
+
+def create_relation(
+    db: Session,
+    source_entity_type: str,
+    source_entity_id: int,
+    target_entity_type: str,
+    target_entity_id: int,
+    relation_type: str,
+    created_by_person_id: int | None = None,
+) -> models.EntityRelation:
+    """Legt eine gerichtete, typisierte Beziehung zwischen zwei Entitäten an (z.B. Decision
+    `resulted_in` Task), siehe CONCEPT.md Abschnitt 12 (Knowledge Layer)."""
+    existing = (
+        db.query(models.EntityRelation)
+        .filter(
+            models.EntityRelation.source_entity_type == source_entity_type,
+            models.EntityRelation.source_entity_id == source_entity_id,
+            models.EntityRelation.target_entity_type == target_entity_type,
+            models.EntityRelation.target_entity_id == target_entity_id,
+            models.EntityRelation.relation_type == relation_type,
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+    relation = models.EntityRelation(
+        source_entity_type=source_entity_type,
+        source_entity_id=source_entity_id,
+        target_entity_type=target_entity_type,
+        target_entity_id=target_entity_id,
+        relation_type=relation_type,
+        created_at=_now(),
+        created_by_person_id=created_by_person_id,
+    )
+    db.add(relation)
+    db.flush()
+    return relation
+
+
+def relations_for(db: Session, entity_type: str, entity_id: int) -> list[models.EntityRelation]:
+    """Alle Relationen, in denen die Entität als Quelle oder Ziel auftritt."""
+    return (
+        db.query(models.EntityRelation)
+        .filter(
+            (
+                (models.EntityRelation.source_entity_type == entity_type)
+                & (models.EntityRelation.source_entity_id == entity_id)
+            )
+            | (
+                (models.EntityRelation.target_entity_type == entity_type)
+                & (models.EntityRelation.target_entity_id == entity_id)
+            )
+        )
+        .order_by(models.EntityRelation.created_at)
+        .all()
+    )
+
+
+def delete_relations_for_entity(db: Session, entity_type: str, entity_id: int) -> None:
+    """Löscht EntityRelation-Zeilen einer gelöschten Entität (als Quelle oder Ziel)."""
+    db.query(models.EntityRelation).filter(
+        (
+            (models.EntityRelation.source_entity_type == entity_type)
+            & (models.EntityRelation.source_entity_id == entity_id)
+        )
+        | (
+            (models.EntityRelation.target_entity_type == entity_type)
+            & (models.EntityRelation.target_entity_id == entity_id)
+        )
+    ).delete(synchronize_session=False)
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Query Layer (Phase 15, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 46).
+# Zentrale strukturierte Zugriffsschicht über alle taggable Entitäten - noch kein
+# Vector-RAG/KI-Agent, soll später sowohl UI-Funktionen als auch einen KI-Agenten versorgen.
+# ---------------------------------------------------------------------------
+
+
+def entity_summary(db: Session, entity_type: str, entity_id: int) -> dict | None:
+    """Generische Kurzdarstellung einer Entität (entity_type/entity_id/project_id/label)."""
+    model, text_field = _ENTITY_REGISTRY.get(entity_type, (None, None))
+    if model is None:
+        return None
+    row = db.get(model, entity_id)
+    if row is None:
+        return None
+    text = getattr(row, text_field)
+    return {
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "project_id": getattr(row, "project_id", None),
+        "label": text[:200] if text else None,
+    }
+
+
+def list_entity_summaries(db: Session, entity_type: str, project_id: int | None = None) -> list[dict]:
+    """Alle Entitäten eines Typs (optional auf ein Projekt eingeschränkt), inkl. Tags."""
+    model, text_field = _ENTITY_REGISTRY.get(entity_type, (None, None))
+    if model is None:
+        return []
+    query = db.query(model)
+    if project_id is not None and hasattr(model, "project_id"):
+        query = query.filter(model.project_id == project_id)
+    rows = query.order_by(model.id).all()
+    return [
+        {
+            "entity_type": entity_type,
+            "entity_id": row.id,
+            "project_id": getattr(row, "project_id", None),
+            "label": ((getattr(row, text_field) or "")[:200]) or None,
+            "tags": tags_for(db, entity_type, row.id),
+        }
+        for row in rows
+    ]
+
+
+def search_entities(db: Session, query_text: str, project_id: int | None = None) -> list[dict]:
+    """Einfache Volltextsuche über Titel/Text aller taggable Entitäten sowie über Tag-Namen
+    (liefert dann die damit verknüpften Entitäten) - noch kein Vector-RAG, siehe Master-MD
+    Abschnitt 46."""
+    like = f"%{query_text}%"
+    results: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+
+    def _add(entity_type: str, entity_id: int, label: str | None, entity_project_id: int | None, match: str) -> None:
+        key = (entity_type, entity_id)
+        if key in seen:
+            return
+        if project_id is not None and entity_project_id is not None and entity_project_id != project_id:
+            return
+        seen.add(key)
+        results.append(
+            {
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "project_id": entity_project_id,
+                "label": label,
+                "match": match,
+            }
+        )
+
+    for entity_type, (model, text_field) in _ENTITY_REGISTRY.items():
+        q = db.query(model).filter(getattr(model, text_field).ilike(like))
+        if project_id is not None and hasattr(model, "project_id"):
+            q = q.filter(model.project_id == project_id)
+        for row in q.limit(20).all():
+            text = getattr(row, text_field)
+            _add(entity_type, row.id, (text or "")[:200] or None, getattr(row, "project_id", None), "text")
+
+    for tag in db.query(models.Tag).filter(models.Tag.name.ilike(like)).limit(10).all():
+        links = db.query(models.TagLink).filter(models.TagLink.tag_id == tag.id).all()
+        for link in links:
+            summary = entity_summary(db, link.entity_type, link.entity_id)
+            if summary is not None:
+                _add(
+                    link.entity_type, link.entity_id, summary["label"], summary["project_id"], f"tag:{tag.name}"
+                )
+
+    return results

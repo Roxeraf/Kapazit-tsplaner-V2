@@ -16,6 +16,9 @@ class ProjectCreate(BaseModel):
     anzahl_monate: int = 14
     jira_component: str | None = None
     projektleiter: str | None = None
+    # Nullable Bridge auf das Personen-Verzeichnis (Phase 14) - projektleiter (Freitext)
+    # bleibt bestehen, siehe CONCEPT.md Abschnitt 12.
+    projektleiter_person_id: int | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -26,6 +29,7 @@ class ProjectUpdate(BaseModel):
     jira_component: str | None = None
     status: ProjectStatus | None = None
     projektleiter: str | None = None
+    projektleiter_person_id: int | None = None
     # Nur für die Änderungshistorie (siehe PlanHistory) - wird nicht am Projekt persistiert.
     kommentar_id: int | None = None
     batch_id: str | None = None
@@ -42,6 +46,7 @@ class ProjectSummary(BaseModel):
     reihenfolge: int
     status: ProjectStatus
     projektleiter: str | None
+    projektleiter_person_id: int | None = None
     monate: list[str]
 
 
@@ -118,9 +123,26 @@ class FteUpdate(BaseModel):
 # Zentrale Dokumentenablage, Tags & Kommunikation (siehe CONCEPT.md Abschnitt 6a)
 # ---------------------------------------------------------------------------
 
-# entity_type-Vokabular, geteilt zwischen TagLink und DocumentLink. "document" nur für
-# TagLink relevant (Dokumente sind selbst taggbar, aber nie Ziel eines DocumentLink).
-EntityType = Literal["comment", "decision", "risk", "meeting_minutes", "task", "document"]
+# entity_type-Vokabular, geteilt zwischen TagLink, DocumentLink und EntityRelation.
+# "document" nur für TagLink relevant (Dokumente sind selbst taggbar, aber nie Ziel eines
+# DocumentLink). Siehe Kapazitätsplaner-v2-Zielarchitektur, CONCEPT.md Abschnitt 12.
+EntityType = Literal[
+    "comment", "decision", "risk", "meeting_minutes", "task", "document", "blocker",
+    "plan_phase", "milestone",
+]
+
+# relation_type-Vokabular für EntityRelation (Master-MD Abschnitt 45, "Knowledge Layer").
+RelationType = Literal[
+    "related_to",
+    "resulted_in",
+    "based_on",
+    "follow_up",
+    "blocks",
+    "resolves",
+    "depends_on",
+    "supports",
+    "caused_by",
+]
 
 
 class DocumentUsageOut(BaseModel):
@@ -160,14 +182,107 @@ class DocumentLinkOut(BaseModel):
     erstellt_am: str
 
 
+class TagCategoryCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class TagCategoryOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+
+
 class TagOut(BaseModel):
     id: int
     name: str
+    category_id: int | None = None
+    description: str | None = None
+    color: str | None = None
+    active: bool = True
+    ai_relevant: bool = False
+    ai_description: str | None = None
+    synonyms: list[str] = []
+
+
+class TagUpdate(BaseModel):
+    category_id: int | None = None
+    description: str | None = None
+    color: str | None = None
+    active: bool | None = None
+    ai_relevant: bool | None = None
+    ai_description: str | None = None
+    synonyms: list[str] | None = None
+
+
+class EntityRelationCreate(BaseModel):
+    source_entity_type: EntityType
+    source_entity_id: int
+    target_entity_type: EntityType
+    target_entity_id: int
+    relation_type: RelationType
+    created_by_person_id: int | None = None
+
+
+class EntityRelationOut(BaseModel):
+    id: int
+    source_entity_type: str
+    source_entity_id: int
+    target_entity_type: str
+    target_entity_id: int
+    relation_type: str
+    created_at: str
+    created_by_person_id: int | None
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Query Layer (Phase 15, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 46) -
+# strukturierte Zugriffsschicht über alle taggable Entitäten, noch kein Vector-RAG/KI-Agent.
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeEntityOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    project_id: int | None
+    label: str | None
+    tags: list[str] = []
+
+
+class KnowledgeSearchResult(BaseModel):
+    entity_type: str
+    entity_id: int
+    project_id: int | None
+    label: str | None
+    match: str  # "text" | "tag:<Tag-Name>"
+
+
+class KnowledgeContextOut(BaseModel):
+    """"Wissenskarte" einer einzelnen Entität - Tags, Dokumente und Relationen (Quelle wie
+    Ziel) an einem Ort, gedacht als Grundlage für spätere KI-Kontextassemblierung."""
+
+    entity_type: str
+    entity_id: int
+    project_id: int | None
+    label: str | None
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+    relations: list[EntityRelationOut] = []
+
+
+class KnowledgeProjectContextOut(BaseModel):
+    project_id: int
+    counts: dict[str, int]
+    tags: list[str] = []
+    relations: list[EntityRelationOut] = []
 
 
 class DecisionCreate(BaseModel):
     titel: str
     beschreibung: str | None = None
+    # Trennt WAS entschieden wurde (beschreibung) von WARUM (Decision Context, Phase 16,
+    # siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 35: decision_text vs. reason).
+    begruendung: str | None = None
     status: str = "offen"
     entschieden_von: str | None = None
     entschieden_am: str | None = None
@@ -177,6 +292,7 @@ class DecisionCreate(BaseModel):
 class DecisionUpdate(BaseModel):
     titel: str | None = None
     beschreibung: str | None = None
+    begruendung: str | None = None
     status: str | None = None
     entschieden_von: str | None = None
     entschieden_am: str | None = None
@@ -188,6 +304,7 @@ class DecisionOut(BaseModel):
     project_id: int
     titel: str
     beschreibung: str | None
+    begruendung: str | None = None
     status: str
     entschieden_von: str | None
     entschieden_am: str | None
@@ -295,6 +412,432 @@ class TaskOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Blocker (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 37/38). Englische
+# Feldnamen wie Person/ResourceProfile (Zielarchitektur-native Entität), im Unterschied zu
+# den aus dem Excel-Tool abgeleiteten Kommunikation-Tab-Modellen oberhalb.
+# ---------------------------------------------------------------------------
+
+BlockerParty = Literal["INTERNAL", "CUSTOMER", "THIRD_PARTY", "UNKNOWN"]
+
+
+class BlockerCreate(BaseModel):
+    title: str
+    description: str | None = None
+    status: str = "offen"  # offen/in_bearbeitung/geloest
+    severity: str = "mittel"  # niedrig/mittel/hoch/kritisch
+    active_since: str | None = None
+    caused_by_party: BlockerParty = "UNKNOWN"
+    waiting_for_party: BlockerParty = "UNKNOWN"
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    next_action: str | None = None
+    impact: str | None = None
+    tags: list[str] = []
+
+
+class BlockerUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: str | None = None
+    severity: str | None = None
+    active_since: str | None = None
+    caused_by_party: BlockerParty | None = None
+    waiting_for_party: BlockerParty | None = None
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    next_action: str | None = None
+    impact: str | None = None
+    tags: list[str] | None = None
+
+
+class BlockerOut(BaseModel):
+    id: int
+    project_id: int
+    title: str
+    description: str | None
+    status: str
+    severity: str
+    active_since: str | None
+    caused_by_party: str
+    waiting_for_party: str
+    owner_person_id: int | None
+    owner_team_id: int | None
+    next_action: str | None
+    impact: str | None
+    erstellt_am: str
+    aktualisiert_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+# ---------------------------------------------------------------------------
+# PlanPhase & Milestone (Phase 17, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 8/9/10).
+# Zielarchitektur-native Entitäten, englische Feldnamen. Additiv - kein Sync mit dem
+# bestehenden Gantt-Grid (GanttPhase/ProjectGanttPhase bleiben unverändert die Bedienoberfläche).
+# ---------------------------------------------------------------------------
+
+
+class PlanPhaseCreate(BaseModel):
+    subproject_id: int | None = None
+    phase_type: str
+    baseline_start: str | None = None
+    baseline_end: str | None = None
+    forecast_start: str | None = None
+    forecast_end: str | None = None
+    actual_start: str | None = None
+    actual_end: str | None = None
+    status: str = "geplant"  # geplant/laufend/abgeschlossen/verzoegert
+    progress: float | None = None
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    tags: list[str] = []
+
+
+class PlanPhaseUpdate(BaseModel):
+    subproject_id: int | None = None
+    phase_type: str | None = None
+    baseline_start: str | None = None
+    baseline_end: str | None = None
+    forecast_start: str | None = None
+    forecast_end: str | None = None
+    actual_start: str | None = None
+    actual_end: str | None = None
+    status: str | None = None
+    progress: float | None = None
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    tags: list[str] | None = None
+
+
+class PlanPhaseOut(BaseModel):
+    id: int
+    project_id: int
+    subproject_id: int | None
+    phase_type: str
+    baseline_start: str | None
+    baseline_end: str | None
+    forecast_start: str | None
+    forecast_end: str | None
+    actual_start: str | None
+    actual_end: str | None
+    status: str
+    progress: float | None
+    owner_person_id: int | None
+    owner_team_id: int | None
+    erstellt_am: str
+    aktualisiert_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+class MilestoneCreate(BaseModel):
+    subproject_id: int | None = None
+    name: str
+    baseline_date: str | None = None
+    forecast_date: str | None = None
+    actual_date: str | None = None
+    status: str = "geplant"  # geplant/gefaehrdet/erreicht/verpasst
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    tags: list[str] = []
+
+
+class MilestoneUpdate(BaseModel):
+    subproject_id: int | None = None
+    name: str | None = None
+    baseline_date: str | None = None
+    forecast_date: str | None = None
+    actual_date: str | None = None
+    status: str | None = None
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    tags: list[str] | None = None
+
+
+class MilestoneOut(BaseModel):
+    id: int
+    project_id: int
+    subproject_id: int | None
+    name: str
+    baseline_date: str | None
+    forecast_date: str | None
+    actual_date: str | None
+    status: str
+    owner_person_id: int | None
+    owner_team_id: int | None
+    erstellt_am: str
+    aktualisiert_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+# ---------------------------------------------------------------------------
+# Baseline Management (Phase 18, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 12) -
+# eingefrorener, benannter Planstand (PlanPhase/Milestone-Felder) zu einem Zeitpunkt.
+# ---------------------------------------------------------------------------
+
+
+class BaselineSnapshotCreate(BaseModel):
+    name: str
+    created_by_person_id: int | None = None
+
+
+class BaselineEntryOut(BaseModel):
+    id: int
+    entity_type: str
+    entity_id: int
+    field: str
+    value: str | None
+
+
+class BaselineSnapshotOut(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    created_at: str
+    created_by_person_id: int | None
+    entries: list[BaselineEntryOut] = []
+
+
+class BaselineSnapshotSummary(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    created_at: str
+    created_by_person_id: int | None
+    entry_count: int
+
+
+class BaselineDeviationOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    label: str | None
+    field: str
+    baseline_value: str | None
+    current_value: str | None
+    delta_days: int | None  # None, wenn baseline_value/current_value kein gültiges Datum ist
+
+
+# ---------------------------------------------------------------------------
+# Capacity Planning Core (Phase 19, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt
+# 14-19). Grundsatz "Demand ≠ Assignment" - komplett unabhängig vom bestehenden
+# Assignment-Modell (TeamMember<->Project, siehe TeamMemberOut/AssignmentOut oben).
+# ---------------------------------------------------------------------------
+
+CommitmentLevel = Literal["FIX", "TENTATIVE", "SCENARIO"]
+
+
+class ResourceRoleCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class ResourceRoleOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    active: bool
+
+
+class SkillCreate(BaseModel):
+    name: str
+    category: str | None = None
+
+
+class SkillOut(BaseModel):
+    id: int
+    name: str
+    category: str | None
+    active: bool
+
+
+class PersonSkillCreate(BaseModel):
+    skill_id: int
+    level: str | None = None
+
+
+class PersonSkillOut(BaseModel):
+    id: int
+    person_id: int
+    skill_id: int
+    skill_name: str
+    level: str | None
+
+
+class ResourceDemandCreate(BaseModel):
+    plan_phase_id: int | None = None
+    resource_role_id: int
+    period: str
+    fte: float = 0
+    commitment_level: CommitmentLevel = "TENTATIVE"
+
+
+class ResourceDemandUpdate(BaseModel):
+    plan_phase_id: int | None = None
+    resource_role_id: int | None = None
+    period: str | None = None
+    fte: float | None = None
+    commitment_level: CommitmentLevel | None = None
+
+
+class ResourceDemandOut(BaseModel):
+    id: int
+    project_id: int
+    plan_phase_id: int | None
+    resource_role_id: int
+    resource_role_name: str
+    period: str
+    fte: float
+    commitment_level: str
+    erstellt_am: str
+    aktualisiert_am: str
+    assigned_fte: float  # Summe der ResourceAssignment.fte
+    # Allocation Gap (Phase 21, Master-MD Abschnitt 22): fte - assigned_fte. Negativ =
+    # Unterdeckung (weniger zugeordnet als bedarf), positiv = Überdeckung.
+    allocation_gap: float
+
+
+class ResourceAssignmentCreate(BaseModel):
+    person_id: int
+    fte: float = 0
+
+
+class ResourceAssignmentOut(BaseModel):
+    id: int
+    resource_demand_id: int
+    person_id: int
+    person_name: str
+    fte: float
+    erstellt_am: str
+    aktualisiert_am: str
+
+
+# ---------------------------------------------------------------------------
+# Real Capacity (Phase 20, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 20).
+# Grundformel: Nominal Capacity - Holiday - Absence - Internal Allocation = Available Capacity.
+# ---------------------------------------------------------------------------
+
+
+class CapacityCalendarCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class CapacityCalendarOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    active: bool
+
+
+class HolidayCreate(BaseModel):
+    date: str
+    name: str
+
+
+class HolidayOut(BaseModel):
+    id: int
+    capacity_calendar_id: int
+    date: str
+    name: str
+
+
+class WorkingTimeCreate(BaseModel):
+    capacity_calendar_id: int | None = None
+    valid_from: str
+    valid_to: str | None = None
+    weekly_hours: float = 40
+
+
+class WorkingTimeUpdate(BaseModel):
+    capacity_calendar_id: int | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    weekly_hours: float | None = None
+
+
+class WorkingTimeOut(BaseModel):
+    id: int
+    person_id: int
+    capacity_calendar_id: int | None
+    valid_from: str
+    valid_to: str | None
+    weekly_hours: float
+
+
+class AbsenceCreate(BaseModel):
+    absence_type: str = "urlaub"
+    start_date: str
+    end_date: str
+
+
+class AbsenceUpdate(BaseModel):
+    absence_type: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class AbsenceOut(BaseModel):
+    id: int
+    person_id: int
+    absence_type: str
+    start_date: str
+    end_date: str
+
+
+class InternalAllocationCreate(BaseModel):
+    period: str
+    fte: float = 0
+    description: str | None = None
+
+
+class InternalAllocationUpdate(BaseModel):
+    period: str | None = None
+    fte: float | None = None
+    description: str | None = None
+
+
+class InternalAllocationOut(BaseModel):
+    id: int
+    person_id: int
+    period: str
+    fte: float
+    description: str | None
+
+
+class PersonCapacityOut(BaseModel):
+    """Verfügbare Kapazität einer Person in einer Periode (Master-MD Abschnitt 20
+    Grundformel). Holiday/Absence werden über den Werktage-Anteil der Periode proportional
+    in FTE umgerechnet, InternalAllocation wird direkt in FTE abgezogen (bereits so
+    gepflegt)."""
+
+    person_id: int
+    period: str
+    nominal_fte: float
+    holiday_fte: float
+    absence_fte: float
+    internal_fte: float
+    available_fte: float
+    working_days: int
+    holiday_days: int
+    absence_days: int
+
+
+# ---------------------------------------------------------------------------
+# Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
+# chronologische Aggregation bestehender Endpunkte, keine neue Tabelle.
+# ---------------------------------------------------------------------------
+
+
+class ActivityItemOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    label: str | None
+    timestamp: str
+    tags: list[str] = []
+
+
+# ---------------------------------------------------------------------------
 # Kommentare & Änderungshistorie (Speichern-Button/Entwurfsmodus)
 # ---------------------------------------------------------------------------
 
@@ -307,6 +850,9 @@ class CommentCreate(BaseModel):
     # Nur für allgemeine Notizen relevant (monat/phase_code=None) - Zell-Kommentare bleiben
     # reiner Text, siehe CONCEPT.md Abschnitt 6a.
     tags: list[str] = []
+    # Gesetzt = Antwort auf einen anderen Kommentar (Discussion Threading, Phase 16, siehe
+    # CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 34).
+    parent_id: int | None = None
 
 
 class CommentUpdate(BaseModel):
@@ -324,6 +870,7 @@ class CommentOut(BaseModel):
     phase_code: str | None
     text: str
     erstellt_am: str
+    parent_id: int | None = None
     tags: list[str] = []
     documents: list[DocumentOut] = []
 
@@ -404,6 +951,112 @@ class UnassignedAuthorOut(BaseModel):
 
 class TeamWithMembers(TeamOut):
     members: list[TeamMemberOut]
+
+
+# ---------------------------------------------------------------------------
+# Personen, Organisation & Permissions (Phase 14, siehe CONCEPT.md Abschnitt 12). Person ist
+# bewusst schlank (kein Auth/Login) und getrennt von TeamMember (Kapazitätsressource).
+# ---------------------------------------------------------------------------
+
+PersonSource = Literal["LOCAL", "ENTERPRISE_PLATFORM"]
+
+
+class PersonCreate(BaseModel):
+    display_name: str
+    email: str | None = None
+    external_id: str | None = None
+    source: PersonSource = "LOCAL"
+    active: bool = True
+
+
+class PersonUpdate(BaseModel):
+    display_name: str | None = None
+    email: str | None = None
+    active: bool | None = None
+
+
+class PersonOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    external_id: str | None
+    display_name: str
+    email: str | None
+    source: PersonSource
+    active: bool
+
+
+class ResourceProfileCreate(BaseModel):
+    team_id: int | None = None
+    weekly_hours: float = 40
+    capacity_relevant: bool = True
+    active: bool = True
+
+
+class ResourceProfileUpdate(BaseModel):
+    team_id: int | None = None
+    weekly_hours: float | None = None
+    capacity_relevant: bool | None = None
+    active: bool | None = None
+
+
+class ResourceProfileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    person_id: int
+    team_id: int | None
+    weekly_hours: float
+    capacity_relevant: bool
+    active: bool
+
+
+class ProjectRoleCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class ProjectRoleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+    active: bool
+
+
+class ProjectMembershipCreate(BaseModel):
+    person_id: int
+    project_role_id: int
+
+
+class ProjectMembershipOut(BaseModel):
+    id: int
+    project_id: int
+    person_id: int
+    person_name: str
+    project_role_id: int
+    project_role_name: str
+
+
+class PermissionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+
+
+class AppRoleCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class AppRoleOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    permissions: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -522,3 +1175,247 @@ class ForecastSummary(BaseModel):
     gap_gesamt: float
     gap_pct: float | None
     status: str
+
+
+# ---------------------------------------------------------------------------
+# GAP Engine (Phase 21, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 21/22). Verbindet
+# Projektplanung (PlanPhase/Milestone, Phase 17) + Kapazitätsplanung (ResourceDemand, Phase
+# 19; Available Capacity, Phase 20) + Ist-Daten (Jira, bestehend) + Forecast zu den in der
+# Master-MD Abschnitt 22 definierten GAP-Arten. Rein berechnete Endpunkte, keine neuen
+# Tabellen - die bestehende Soll-/Ist-Logik oben (GapAnalysis) wird wiederverwendet, nicht
+# ersetzt (Effort Gap).
+# ---------------------------------------------------------------------------
+
+
+class CapacityGapOut(BaseModel):
+    """Demand/Capacity Gap = Available Capacity - Resource Demand (Master-MD Abschnitt 22).
+    Portfolioweit über alle kapazitätsrelevanten Personen, da es keine Person<->ResourceRole-
+    Zuordnung im Datenmodell gibt (siehe CONCEPT.md Abschnitt 12.3) - resource_role_id
+    filtert nur die Bedarfsseite, nicht die Kapazitätsseite."""
+
+    period: str
+    resource_role_id: int | None
+    demand_fte: float
+    available_fte: float
+    capacity_gap_fte: float
+    persons_considered: int
+
+
+class ScheduleGapEntry(BaseModel):
+    """Schedule Gap (live, nicht auf einen BaselineSnapshot angewiesen - siehe Phase 18 für
+    die Snapshot-basierte Variante). Deckt sowohl 'Baseline vs Forecast' als auch 'Forecast
+    vs Actual' ab (Master-MD Abschnitt 21)."""
+
+    entity_type: str  # "plan_phase" | "milestone"
+    entity_id: int
+    label: str | None
+    baseline_date: str | None
+    forecast_date: str | None
+    actual_date: str | None
+    baseline_vs_forecast_days: int | None
+    forecast_vs_actual_days: int | None
+
+
+class ProgressGapEntry(BaseModel):
+    """Progress Gap = Expected Progress - Actual Progress, in Prozentpunkten (Master-MD
+    Abschnitt 22). Expected Progress wird aus dem zeitlichen Anteil zwischen Start und Ende
+    (Forecast, ersatzweise Baseline) bis heute berechnet."""
+
+    plan_phase_id: int
+    label: str
+    expected_progress_pct: float | None
+    actual_progress_pct: float | None
+    progress_gap_pp: float | None
+
+
+class UtilizationGapOut(BaseModel):
+    """Utilization Gap = tatsächliche/erwartete Auslastung ggü. Ziel-Auslastung (Master-MD
+    Abschnitt 22). target_pct ist fix 100% (volle Auslastung der verfügbaren Kapazität) -
+    keine konfigurierbare Ziel-Auslastung in diesem Durchgang."""
+
+    person_id: int
+    period: str
+    assigned_fte: float
+    available_fte: float
+    utilization_pct: float | None
+    target_pct: float
+    utilization_gap_pp: float | None
+
+
+class ProjectGapsOut(BaseModel):
+    """Bündelt Effort-/Schedule-/Progress-Gap eines Projekts an einer Stelle - einfache Form
+    des in Master-MD Abschnitt 21/25 geforderten Drill-downs. Der volle hierarchische
+    Portfolio-Drill-down (Abschnitt 52) bleibt Controlling (Phase 22/23)."""
+
+    project_id: int
+    effort: GapAnalysis
+    schedule: list[ScheduleGapEntry]
+    progress: list[ProgressGapEntry]
+
+
+# ---------------------------------------------------------------------------
+# Project Control & Health (Phase 22, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt
+# 6/49/50). Mehrdimensionales Project Health auf Basis der GAP-Engine (Phase 21) und
+# bestehender Daten (Blocker/Risk/Milestone), mit konfigurierbaren Schwellwerten
+# (HealthThreshold). Rein berechnete Endpunkte bis auf die Schwellwert-Konfiguration selbst.
+# ---------------------------------------------------------------------------
+
+
+class HealthThresholdOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    metric: str
+    yellow: float
+    red: float
+
+
+class HealthThresholdUpdate(BaseModel):
+    yellow: float
+    red: float
+
+
+class HealthDimension(BaseModel):
+    """Eine Project-Health-Dimension. value ist der zugrunde liegende 'badness'-Wert (nicht-
+    negativ, je größer desto schlechter - z.B. Verzugstage, fehlende FTE, Risiko-Score),
+    None wenn keine belastbare Datenbasis vorliegt (status dann 'grau')."""
+
+    status: str  # "gruen" | "gelb" | "rot" | "grau"
+    value: float | None
+    explanation: str
+
+
+class ProjectHealthOut(BaseModel):
+    project_id: int
+    project_name: str
+    overall: HealthDimension
+    schedule: HealthDimension
+    capacity: HealthDimension
+    effort: HealthDimension
+    progress: HealthDimension
+    risks: HealthDimension
+    blockers: HealthDimension
+    milestones: HealthDimension
+    customer: HealthDimension
+
+
+class CockpitMilestoneEntry(BaseModel):
+    id: int
+    name: str
+    baseline_date: str | None
+    forecast_date: str | None
+    actual_date: str | None
+    status: str
+
+
+class CockpitCapacity(BaseModel):
+    period: str
+    demand_fte: float
+    assigned_fte: float
+    allocation_gap_fte: float
+
+
+class CockpitBlockers(BaseModel):
+    open_total: int
+    customer: int
+    internal: int
+    third_party: int
+    unknown: int
+
+
+class CockpitTasks(BaseModel):
+    open_total: int
+    overdue: int
+
+
+class ProjectControlCockpitOut(BaseModel):
+    """Project Control Cockpit (Master-MD Abschnitt 6) - bündelt Health, aktuelle Phase,
+    Forecast-Ende, Milestones, Kapazität, Blocker- und Aufgaben-Zusammenfassung sowie
+    projektbezogene Tags ('Aktuelle Themen') an einer Stelle."""
+
+    project_id: int
+    project_name: str
+    kunde: str | None
+    projektleiter: str | None
+    health: ProjectHealthOut
+    current_phase: str | None
+    forecast_end: str | None
+    milestones: list[CockpitMilestoneEntry]
+    capacity: CockpitCapacity
+    blockers: CockpitBlockers
+    tasks: CockpitTasks
+    tags: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Controlling & Capacity Intelligence (Phase 23, siehe CONCEPT.md Abschnitt 12 / Master-MD
+# Abschnitt 23). Portfolioweite Aggregation der bereits bestehenden GAP-/Health-/Capacity-
+# Berechnungen (Phase 19-22) über alle Projekte hinweg - Komposition statt Duplikation:
+# bestehende Item-Schemas werden um project_id/project_name ergänzt, nicht neu gebaut.
+# ---------------------------------------------------------------------------
+
+
+class PortfolioAllocationGapEntry(BaseModel):
+    project_id: int
+    project_name: str
+    resource_demand_id: int
+    resource_role_id: int
+    resource_role_name: str
+    period: str
+    fte: float
+    assigned_fte: float
+    allocation_gap: float
+
+
+class PortfolioScheduleGapEntry(BaseModel):
+    project_id: int
+    project_name: str
+    entry: ScheduleGapEntry
+
+
+class PortfolioProgressGapEntry(BaseModel):
+    project_id: int
+    project_name: str
+    entry: ProgressGapEntry
+
+
+class PortfolioBaselineDeviationEntry(BaseModel):
+    project_id: int
+    project_name: str
+    baseline_id: int
+    baseline_name: str
+    deviation: BaselineDeviationOut
+
+
+class BlockerPortfolioEntry(BaseModel):
+    """Bewusst schlank (kein tags/documents wie BlockerOut) - vermeidet N+1-Abfragen bei
+    einer projektübergreifenden Liste, analog zu CockpitMilestoneEntry (Phase 22)."""
+
+    project_id: int
+    project_name: str
+    id: int
+    title: str
+    status: str
+    severity: str
+    caused_by_party: str
+    waiting_for_party: str
+    active_since: str | None
+
+
+class MilestonePortfolioEntry(BaseModel):
+    project_id: int
+    project_name: str
+    id: int
+    name: str
+    baseline_date: str | None
+    forecast_date: str | None
+    actual_date: str | None
+    status: str
+
+
+class RoleAnalysisEntry(BaseModel):
+    resource_role_id: int
+    resource_role_name: str
+    period: str
+    demand_fte: float
+    assigned_fte: float
+    gap_fte: float

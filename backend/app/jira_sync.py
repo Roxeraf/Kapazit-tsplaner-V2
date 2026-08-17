@@ -26,6 +26,8 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
     Alle Buchungen werden übernommen. Für noch nicht zugeordnete Accounts verwendet die
     Ist-FTE-Berechnung 40 Wochenstunden als transparenten Standardwert. Damit verschwinden
     Tempo-/Jira-Daten nicht nur deshalb, weil die Personenpflege noch nicht abgeschlossen ist.
+    Nur Buchungen von MA mit bekanntem `jira_account_id` (siehe team_members) werden
+    übernommen, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
 
     Rückgabe: (Anzahl gecachter Worklogs, Anzahl unzugeordneter Buchungen, Beispiele
     unbekannter Autoren als {"account_id", "display_name"} — zum Abgleich mit den in den

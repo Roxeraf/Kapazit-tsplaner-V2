@@ -446,6 +446,52 @@ export interface BaselineSnapshot {
   entries: BaselineEntry[];
 }
 
+// Phase 26.3: ResourceDemand/ResourceAssignment (Phase 19 der Zielarchitektur,
+// backend/app/routers/capacity.py) - "Demand ≠ Assignment": Bedarf wird zunächst
+// unabhängig von Personen geplant, ResourceAssignment ordnet ihn danach zu.
+export type CommitmentLevel = "FIX" | "TENTATIVE" | "SCENARIO";
+
+export const COMMITMENT_LEVEL_LABELS: Record<CommitmentLevel, string> = {
+  FIX: "Fix",
+  TENTATIVE: "Vorläufig",
+  SCENARIO: "Szenario",
+};
+
+export interface ResourceDemand {
+  id: number;
+  project_id: number;
+  plan_phase_id: number | null;
+  resource_role_id: number;
+  resource_role_name: string;
+  period: string;
+  fte: number;
+  commitment_level: CommitmentLevel;
+  erstellt_am: string;
+  aktualisiert_am: string;
+  assigned_fte: number;
+  allocation_gap: number;
+}
+
+export interface ResourceAssignment {
+  id: number;
+  resource_demand_id: number;
+  person_id: number;
+  person_name: string;
+  fte: number;
+  erstellt_am: string;
+  aktualisiert_am: string;
+}
+
+// Keine Person<->ResourceRole-Verknüpfung im Datenmodell (Rolle/Skill sind getrennte
+// Dimensionen) - Kandidaten werden nur nach freier Kapazität gefiltert, skills sind rein
+// informativ.
+export interface CandidatePerson {
+  person_id: number;
+  display_name: string;
+  available_fte: number;
+  skills: string[];
+}
+
 // Fachliche Administration (Phase 25)
 export interface AdminPerson { id: number; external_id: string | null; display_name: string; email: string | null; source: "LOCAL" | "ENTERPRISE_PLATFORM"; active: boolean }
 // Phase 26.1: Person ist auch außerhalb der Administration die Grundlage für den

@@ -6,6 +6,7 @@ import type { ProjectDetail as ProjectDetailT, TeamMember } from "../../types";
 import BaselineList from "./components/BaselineList";
 import MilestoneList from "./components/MilestoneList";
 import PlanPhaseList from "./components/PlanPhaseList";
+import ResourceDemandGrid from "./components/ResourceDemandGrid";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
 export default function ProjectPlanningTab() {
@@ -228,6 +229,10 @@ export default function ProjectPlanningTab() {
 
       <div className="card" style={{ marginBottom: "1.25rem" }}>
         <MilestoneList projectId={projectId} subprojects={draft.subprojects} />
+      </div>
+
+      <div className="card" style={{ marginBottom: "1.25rem" }}>
+        <ResourceDemandGrid projectId={projectId} periods={draft.monate} />
       </div>
 
       <div className="card" style={{ marginBottom: "1.25rem" }}>

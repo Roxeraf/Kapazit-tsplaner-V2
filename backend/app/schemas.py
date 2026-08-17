@@ -750,6 +750,18 @@ class ResourceAssignmentOut(BaseModel):
     aktualisiert_am: str
 
 
+class CandidatePersonOut(BaseModel):
+    """Phase 26.3: Person mit freier Kapazität für einen ResourceDemand. Es gibt keine
+    Person<->ResourceRole-Zuordnung im Datenmodell (siehe capacity_calc.compute_capacity_gap-
+    Docstring) - Filterung ausschließlich nach verfügbarer Kapazität, Skills sind rein
+    informativ mitgeliefert, kein Filterkriterium."""
+
+    person_id: int
+    display_name: str
+    available_fte: float
+    skills: list[str] = []
+
+
 # ---------------------------------------------------------------------------
 # Real Capacity (Phase 20, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 20).
 # Grundformel: Nominal Capacity - Holiday - Absence - Internal Allocation = Available Capacity.

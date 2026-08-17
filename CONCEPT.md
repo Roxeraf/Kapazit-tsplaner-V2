@@ -1001,7 +1001,31 @@ Dieses Repo enthält:
       gegen echten Dev-Server (Phase mit Teilprojekt-Zuordnung und Owner anlegen, Plan-Start-
       Datum nachträglich ändern, Milestone anlegen, Baseline speichern) — alle Werte korrekt
       persistiert und anzeigt, keine Konsolenfehler.
-    - **26.3–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
+    - **26.3 (Capacity Integration) — ✅ erledigt.** Ein Raster "Rolle × Periode"
+      (`ResourceDemandGrid.tsx`, Perioden aus `project.monate`) ersetzt das alte FTE-Raster
+      als Bedienoberfläche für `ResourceDemand`. CRUD war seit Phase 19 vollständig vorhanden
+      und ungenutzt (`routers/capacity.py`). **Einzige neue Backend-Logik in Phase 26:**
+      `GET /resource-demands/{id}/candidates` (neues Schema `CandidatePersonOut`) — iteriert
+      dieselbe Personen-Grundmenge wie `capacity_calc.compute_capacity_gap` (aktiv,
+      `capacity_relevant`, mit `ResourceProfile`), ruft je Person
+      `compute_person_capacity(db, person_id, demand.period)`, filtert `available_fte > 0`,
+      schließt bereits zugeordnete Personen aus, reichert um `PersonSkill`-Namen an (rein
+      informativ — bestätigt keine Person↔`ResourceRole`-Verknüpfung im Datenmodell, Rolle und
+      Skill sind laut Code-Kommentar bewusst getrennte Dimensionen). Frontend:
+      `ResourceDemandGrid.tsx` zeigt je Zelle sofort `assigned_fte`/`allocation_gap` (negativ
+      rot); Klick auf eine belegte Zelle öffnet ein Detail-Panel darunter mit aktuellen
+      Zuordnungen und Kandidatenliste, Zuordnung per `PersonPicker` + FTE-Eingabe →
+      `POST /resource-demands/{id}/assignments`. Die "Team-Zuordnung"-Karte in
+      `ProjectPlanningTab.tsx` ist durch dieses Raster funktional abgelöst (`Assignment` bildete
+      nur Person↔Projekt↔FTE ohne Rolle/Periode ab) — Entfernung der Karte selbst bewusst erst
+      in 26.9 zusammen mit dem `TeamMember`/`Assignment`-Cutover. Verifiziert: curl-Szenario
+      exakt nach Master-MD-Beispiel (Bedarf 0,8 FTE, Person A 0,5 FTE + Person B 0,2 FTE
+      verfügbar/zugeordnet → `assigned_fte=0.7`, `allocation_gap=0.1`; Kandidaten nach
+      Zuordnung korrekt ausgeschlossen); `npm run build` fehlerfrei; Playwright-Durchlauf
+      gegen echten Dev-Server (Rolle hinzufügen, FTE-Zelle befüllen, Detail-Panel öffnen,
+      Kandidat mit freier Kapazität zuordnen) — `POST .../assignments` mit korrektem Payload
+      bestätigt, `allocation_gap` aktualisiert sich sofort, keine Konsolenfehler.
+    - **26.4–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
 
 Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit Unterschritt 26.1 begonnen, siehe Punkt 26 oben.
 
@@ -1188,7 +1212,7 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
+| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
 | 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
 | 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
 | 29 | AI Project Agent | später, siehe Bucket D unten |

@@ -28,6 +28,8 @@ import type {
   MemberUtilization,
   BaselineSnapshot,
   BaselineSnapshotSummary,
+  CandidatePerson,
+  CommitmentLevel,
   Milestone,
   MilestoneStatus,
   PlanHistoryEntry,
@@ -37,6 +39,8 @@ import type {
   ProjectMembership,
   ProjectStatus,
   ProjectSummary,
+  ResourceAssignment,
+  ResourceDemand,
   Risk,
   RiskLevel,
   RiskStatus,
@@ -244,6 +248,25 @@ export const api = {
   createBaseline: (projectId: number, payload: { name: string; created_by_person_id?: number | null }) =>
     request<BaselineSnapshot>(`/projects/${projectId}/baselines`, { method: "POST", body: JSON.stringify(payload) }),
   deleteBaseline: (baselineId: number) => request<void>(`/projects/baselines/${baselineId}`, { method: "DELETE" }),
+
+  // Kapazität (Phase 26.3): ResourceDemand/ResourceAssignment ersetzen ab jetzt das alte
+  // FTE-Raster (backend/app/routers/capacity.py)
+  listResourceDemands: (projectId: number) => request<ResourceDemand[]>(`/projects/${projectId}/resource-demands`),
+  createResourceDemand: (
+    projectId: number,
+    payload: { plan_phase_id?: number | null; resource_role_id: number; period: string; fte?: number; commitment_level?: CommitmentLevel },
+  ) => request<ResourceDemand>(`/projects/${projectId}/resource-demands`, { method: "POST", body: JSON.stringify(payload) }),
+  updateResourceDemand: (
+    demandId: number,
+    payload: Partial<{ plan_phase_id: number | null; resource_role_id: number; period: string; fte: number; commitment_level: CommitmentLevel }>,
+  ) => request<ResourceDemand>(`/projects/resource-demands/${demandId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteResourceDemand: (demandId: number) => request<void>(`/projects/resource-demands/${demandId}`, { method: "DELETE" }),
+
+  listResourceAssignments: (demandId: number) => request<ResourceAssignment[]>(`/resource-demands/${demandId}/assignments`),
+  createResourceAssignment: (demandId: number, payload: { person_id: number; fte?: number }) =>
+    request<ResourceAssignment>(`/resource-demands/${demandId}/assignments`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteResourceAssignment: (assignmentId: number) => request<void>(`/resource-assignments/${assignmentId}`, { method: "DELETE" }),
+  getResourceDemandCandidates: (demandId: number) => request<CandidatePerson[]>(`/resource-demands/${demandId}/candidates`),
 
   exportPptxUrl: (projectId: number) => `${API_BASE}/projects/${projectId}/export/pptx`,
   exportPortfolioPptxUrl: () => `${API_BASE}/projects/export/pptx/portfolio`,

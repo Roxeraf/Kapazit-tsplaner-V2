@@ -53,10 +53,6 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
         m.jira_account_id
         for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
     }
-    known_account_ids.update(
-        p.jira_account_id
-        for p in db.query(models.Person).filter(models.Person.jira_account_id.isnot(None))
-    )
 
     gespeichert = 0
     unzugeordnet = 0

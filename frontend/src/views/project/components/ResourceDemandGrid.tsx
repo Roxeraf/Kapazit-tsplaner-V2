@@ -142,7 +142,7 @@ export default function ResourceDemandGrid({ projectId, periods }: { projectId: 
                           onBlur={(e) => handleCellBlur(roleId, period, e.target.value)}
                         />
                         {demand && (
-                          <div style={{ fontSize: "0.7rem", color: demand.allocation_gap < 0 ? "var(--rot)" : "var(--text-muted)" }}>
+                          <div style={{ fontSize: "0.7rem", color: demand.allocation_gap > 0 ? "var(--rot)" : "var(--text-muted)" }}>
                             {demand.assigned_fte.toFixed(2)} zugeordnet
                             {demand.allocation_gap !== 0 && ` (${demand.allocation_gap > 0 ? "+" : ""}${demand.allocation_gap.toFixed(2)})`}
                           </div>

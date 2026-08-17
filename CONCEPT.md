@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.16 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–25 (… Knowledge Experience, Administration UX) der Kapazitätsplaner-v2-Zielarchitektur vollständig umgesetzt; Phase 26 (Functional Integration) mit Unterschritt 26.1 (Person Integration) begonnen (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.16 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–25 (… Knowledge Experience, Administration UX) der Kapazitätsplaner-v2-Zielarchitektur vollständig umgesetzt; Phase 26 (Functional Integration) mit Unterschritten 26.1–26.7 (Person/Planning/Capacity/Activity/Knowledge/Cockpit Integration, Actionable GAPs) umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -1094,9 +1094,49 @@ Dieses Repo enthält:
       `customer` rot, `risks` grün, `effort` grau mangels Soll-Daten); `npm run build`
       fehlerfrei; Playwright-Screenshot bestätigt alle Werte 1:1 wie vom Backend geliefert,
       keine Konsolenfehler.
-    - **26.7–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
+    - **26.7 (Actionable GAPs) — ✅ erledigt.** GAP-Zahlen sind jetzt klickbar statt reiner
+      Anzeige. `ProjectOverviewTab.tsx`: bei `schedule`-Status ≠ grün/grau erscheint
+      "Ursache in der Planung ansehen →" (Link zur Planung-Tab), bei
+      `capacity.allocation_gap_fte < 0` "Geeignete Ressourcen suchen →" (führt ebenfalls zur
+      Planung, wo die 26.3-Kandidatenliste je `ResourceDemand`-Zelle bereits existiert), bei
+      offenen Blockern "Blocker ansehen →" (zur Kommunikation). Neue Seite
+      `frontend/src/views/PortfolioHealth.tsx` (Route `/portfolio-health`, neuer Nav-Punkt
+      unter "Controlling") nutzt die bisher komplett ungenutzten Portfolio-Controlling-
+      Endpunkte aus Phase 23 (`GET /controlling/portfolio-health`,
+      `GET /controlling/allocation-gaps?period=`): Tabelle mit allen neun Health-Dimensionen
+      je Projekt (farbige Punkte, Projektname verlinkt zum Workspace) sowie eine nach
+      Schweregrad sortierte Liste aller Kapazitätsengpässe der aktuellen Periode
+      (`current_period()`-Format lokal nachgebildet, da der Endpoint einen expliziten
+      `period`-Query-Parameter erwartet), Klick führt zur Planung des betroffenen Projekts.
+      Kein Backend-Change nötig — 26.3 hatte den einzigen für Phase 26 nötigen neuen
+      Endpunkt bereits geliefert.
+      **Wichtiger Fund während der Verifikation:** `allocation_gap` wird im Backend mit zwei
+      gegensätzlichen Vorzeichenkonventionen berechnet — `ResourceDemandOut.allocation_gap`
+      (`routers/capacity.py`) und `PortfolioAllocationGapEntry.allocation_gap`
+      (`routers/controlling.py`) berechnen beide `fte - assigned_fte` (**positiv =
+      Unterdeckung**), während `CockpitCapacity.allocation_gap_fte` (`routers/health.py`)
+      spiegelverkehrt `assigned_fte - fte` berechnet (**negativ = Unterdeckung**). Der
+      Docstring-Kommentar auf `ResourceDemandOut.allocation_gap` in `schemas.py` ist dabei
+      selbst irreführend (er behauptet "negativ = Unterdeckung", was der tatsächlichen
+      Formel widerspricht) — vorgefundener Bestandsfehler in einem Kommentar, bewusst nicht
+      angefasst, um keine unbeauftragte Backend-Änderung vorzunehmen. Die neuen UI-Stellen
+      wurden auf die jeweils tatsächliche (nicht die dokumentierte) Formel abgestimmt:
+      `ResourceDemandGrid.tsx` (26.3) färbte die Gap-Anzeige ursprünglich bei `< 0` rot —
+      korrigiert auf `> 0`; `PortfolioHealth.tsx` filterte/sortierte ursprünglich auf `< 0` —
+      korrigiert auf `> 0` mit absteigender Sortierung (größte Unterdeckung zuerst).
+      `ProjectOverviewTab.tsx`s `cockpit.capacity.allocation_gap_fte < 0`-Vergleich war von
+      Anfang an korrekt, da das Cockpit die entgegengesetzte Konvention verwendet.
+      Verifiziert: Testszenario mit zwei Projekten (Frankenfeld 1,2 FTE, Muster AG 0,8 FTE,
+      beide unzugeordnet) — `GET /controlling/allocation-gaps` bestätigt beide Werte
+      positiv; nach der Korrektur zeigen sowohl die Grid-Zelle in `ResourceDemandGrid.tsx`
+      als auch die Engpass-Liste in `PortfolioHealth.tsx` beide Fälle korrekt rot, sortiert
+      nach Schweregrad (Frankenfeld vor Muster AG); Cockpit-Ansicht von Frankenfeld zeigt
+      weiterhin korrekt "Gap -1.20 FTE" mit rotem "Geeignete Ressourcen suchen →"-Link;
+      Playwright-Screenshots aller drei Ansichten bestätigen konsistente Rot-Färbung; `npm
+      run build` fehlerfrei.
+    - **26.8–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit Unterschritt 26.1 begonnen, siehe Punkt 26 oben.
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit den Unterschritten 26.1–26.7 umgesetzt, siehe Punkt 26 oben.
 
 ---
 
@@ -1281,7 +1321,7 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅, 26.5 Knowledge Integration ✅, 26.6 Cockpit Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
+| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅, 26.5 Knowledge Integration ✅, 26.6 Cockpit Integration ✅, 26.7 Actionable GAPs ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
 | 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
 | 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
 | 29 | AI Project Agent | später, siehe Bucket D unten |

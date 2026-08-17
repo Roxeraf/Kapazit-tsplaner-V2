@@ -45,7 +45,9 @@ import type {
   ProjectMembership,
   ProjectStatus,
   ProjectSummary,
+  PortfolioAllocationGapEntry,
   ProjectControlCockpit,
+  ProjectHealth,
   RelationType,
   ResourceAssignment,
   ResourceDemand,
@@ -328,6 +330,11 @@ export const api = {
 
   // Project Control Cockpit (Phase 26.6, backend/app/routers/health.py)
   getCockpit: (projectId: number) => request<ProjectControlCockpit>(`/projects/${projectId}/cockpit`),
+
+  // Controlling & Capacity Intelligence (Phase 26.7, backend/app/routers/controlling.py)
+  getPortfolioHealth: () => request<ProjectHealth[]>("/controlling/portfolio-health"),
+  getAllocationGaps: (period: string) =>
+    request<PortfolioAllocationGapEntry[]>(`/controlling/allocation-gaps?period=${encodeURIComponent(period)}`),
 
   // Tag-Dossiers (Phase 26.5, backend/app/routers/knowledge.py)
   getTagDossier: (tags: string[], mode: "and" | "or" = "and", projectId?: number) => {

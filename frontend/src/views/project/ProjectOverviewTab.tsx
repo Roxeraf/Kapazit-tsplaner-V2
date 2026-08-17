@@ -102,6 +102,14 @@ export default function ProjectOverviewTab() {
                 Aktuelle Phase: {cockpit.current_phase ?? "—"}
                 <br />
                 Forecast-Ende: {cockpit.forecast_end ?? "—"}
+                {cockpit.health.schedule.status !== "gruen" && cockpit.health.schedule.status !== "grau" && (
+                  <>
+                    <br />
+                    <Link to={`/projekte/${project.id}/planung`} style={{ fontSize: "0.8rem", color: "var(--rot)" }}>
+                      Ursache in der Planung ansehen →
+                    </Link>
+                  </>
+                )}
               </p>
             </div>
             <div>
@@ -113,6 +121,14 @@ export default function ProjectOverviewTab() {
                   Gap {cockpit.capacity.allocation_gap_fte > 0 ? "+" : ""}
                   {cockpit.capacity.allocation_gap_fte.toFixed(2)} FTE
                 </span>
+                {cockpit.capacity.allocation_gap_fte < 0 && (
+                  <>
+                    <br />
+                    <Link to={`/projekte/${project.id}/planung`} style={{ fontSize: "0.8rem", color: "var(--rot)" }}>
+                      Geeignete Ressourcen suchen →
+                    </Link>
+                  </>
+                )}
               </p>
             </div>
             <div>
@@ -122,6 +138,14 @@ export default function ProjectOverviewTab() {
                   .filter((party) => cockpit.blockers[party] > 0)
                   .map((party) => `${PARTY_LABELS[party]} ${cockpit.blockers[party]}`)
                   .join(" · ") || "Keine offenen Blocker"}
+                {cockpit.blockers.open_total > 0 && (
+                  <>
+                    <br />
+                    <Link to={`/projekte/${project.id}/kommunikation`} style={{ fontSize: "0.8rem" }}>
+                      Blocker ansehen →
+                    </Link>
+                  </>
+                )}
               </p>
             </div>
             <div>

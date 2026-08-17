@@ -527,6 +527,21 @@ export interface ProjectControlCockpit {
   tags: string[];
 }
 
+// Phase 26.7: Controlling & Capacity Intelligence (Phase 23 der Zielarchitektur,
+// backend/app/routers/controlling.py) - portfolioweite Aggregation der bestehenden GAP-/
+// Health-Berechnungen, bisher komplett ungenutzt.
+export interface PortfolioAllocationGapEntry {
+  project_id: number;
+  project_name: string;
+  resource_demand_id: number;
+  resource_role_id: number;
+  resource_role_name: string;
+  period: string;
+  fte: number;
+  assigned_fte: number;
+  allocation_gap: number;
+}
+
 // Phase 26.5: Tag-Dossiers (Phase 24 der Zielarchitektur, backend/app/routers/knowledge.py) -
 // ein Tag oder eine Kombination ("#Kunde + #GoLive") wird zu einem dynamischen Dossier.
 export interface KnowledgeEntity {

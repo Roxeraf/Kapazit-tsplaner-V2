@@ -5,12 +5,10 @@ Master-MD Abschnitt 22 definierten GAP-Arten. Rein berechnete Endpunkte, keine n
 - die bestehende Soll-/Ist-Logik (gap_analysis.py) wird für den Effort Gap wiederverwendet,
 nicht ersetzt ("Bestehende Soll-/Ist-Logik wird nicht entfernt, sondern integriert.")."""
 
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import capacity_calc, gap_analysis, models, schemas
+from .. import capacity_calc, gap_analysis, gap_calc, models, schemas
 from ..database import get_db
 
 router = APIRouter(tags=["gap-engine"])
@@ -28,15 +26,6 @@ def _get_person_or_404(db: Session, person_id: int) -> models.Person:
     if person is None:
         raise HTTPException(status_code=404, detail="Person nicht gefunden")
     return person
-
-
-def _parse_date(value: str | None) -> date | None:
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -93,93 +82,27 @@ def get_effort_gap(project_id: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Schedule Gap (live) = Baseline vs Forecast vs Actual je PlanPhase/Milestone. Ergänzt die
 # Snapshot-basierten Deviations aus Phase 18 (backend/app/routers/baselines.py) um eine
-# Live-Sicht ohne BaselineSnapshot.
+# Live-Sicht ohne BaselineSnapshot. Berechnung in gap_calc.py (Phase 22, dort auch von
+# health_calc.py für die Schedule Health genutzt).
 # ---------------------------------------------------------------------------
-
-
-def _schedule_gap_entries(db: Session, project_id: int) -> list[schemas.ScheduleGapEntry]:
-    entries: list[schemas.ScheduleGapEntry] = []
-    for pp in db.query(models.PlanPhase).filter(models.PlanPhase.project_id == project_id).all():
-        baseline = _parse_date(pp.baseline_end) or _parse_date(pp.baseline_start)
-        forecast = _parse_date(pp.forecast_end) or _parse_date(pp.forecast_start)
-        actual = _parse_date(pp.actual_end) or _parse_date(pp.actual_start)
-        entries.append(
-            schemas.ScheduleGapEntry(
-                entity_type="plan_phase",
-                entity_id=pp.id,
-                label=pp.phase_type,
-                baseline_date=pp.baseline_end or pp.baseline_start,
-                forecast_date=pp.forecast_end or pp.forecast_start,
-                actual_date=pp.actual_end or pp.actual_start,
-                baseline_vs_forecast_days=(forecast - baseline).days if baseline and forecast else None,
-                forecast_vs_actual_days=(actual - forecast).days if forecast and actual else None,
-            )
-        )
-    for m in db.query(models.Milestone).filter(models.Milestone.project_id == project_id).all():
-        baseline = _parse_date(m.baseline_date)
-        forecast = _parse_date(m.forecast_date)
-        actual = _parse_date(m.actual_date)
-        entries.append(
-            schemas.ScheduleGapEntry(
-                entity_type="milestone",
-                entity_id=m.id,
-                label=m.name,
-                baseline_date=m.baseline_date,
-                forecast_date=m.forecast_date,
-                actual_date=m.actual_date,
-                baseline_vs_forecast_days=(forecast - baseline).days if baseline and forecast else None,
-                forecast_vs_actual_days=(actual - forecast).days if forecast and actual else None,
-            )
-        )
-    return entries
 
 
 @router.get("/projects/{project_id}/gaps/schedule", response_model=list[schemas.ScheduleGapEntry])
 def get_schedule_gap(project_id: int, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
-    return _schedule_gap_entries(db, project_id)
+    return gap_calc.schedule_gap_entries(db, project_id)
 
 
 # ---------------------------------------------------------------------------
-# Progress Gap = Expected Progress - Actual Progress (Prozentpunkte)
+# Progress Gap = Expected Progress - Actual Progress (Prozentpunkte). Berechnung in
+# gap_calc.py (Phase 22, dort auch von health_calc.py für die Progress Health genutzt).
 # ---------------------------------------------------------------------------
-
-
-def _expected_progress_pct(start: date | None, end: date | None) -> float | None:
-    if start is None or end is None or end <= start:
-        return None
-    today = date.today()
-    if today <= start:
-        return 0.0
-    if today >= end:
-        return 100.0
-    return round((today - start).days / (end - start).days * 100, 1)
-
-
-def _progress_gap_entries(db: Session, project_id: int) -> list[schemas.ProgressGapEntry]:
-    entries: list[schemas.ProgressGapEntry] = []
-    for pp in db.query(models.PlanPhase).filter(models.PlanPhase.project_id == project_id).all():
-        start = _parse_date(pp.forecast_start) or _parse_date(pp.baseline_start)
-        end = _parse_date(pp.forecast_end) or _parse_date(pp.baseline_end)
-        expected = _expected_progress_pct(start, end)
-        actual = pp.progress
-        gap = round(actual - expected, 1) if expected is not None and actual is not None else None
-        entries.append(
-            schemas.ProgressGapEntry(
-                plan_phase_id=pp.id,
-                label=pp.phase_type,
-                expected_progress_pct=expected,
-                actual_progress_pct=actual,
-                progress_gap_pp=gap,
-            )
-        )
-    return entries
 
 
 @router.get("/projects/{project_id}/gaps/progress", response_model=list[schemas.ProgressGapEntry])
 def get_progress_gap(project_id: int, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
-    return _progress_gap_entries(db, project_id)
+    return gap_calc.progress_gap_entries(db, project_id)
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +153,6 @@ def get_project_gaps(project_id: int, db: Session = Depends(get_db)):
     return schemas.ProjectGapsOut(
         project_id=project_id,
         effort=gap_analysis.project_gap(db, project),
-        schedule=_schedule_gap_entries(db, project_id),
-        progress=_progress_gap_entries(db, project_id),
+        schedule=gap_calc.schedule_gap_entries(db, project_id),
+        progress=gap_calc.progress_gap_entries(db, project_id),
     )

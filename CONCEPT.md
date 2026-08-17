@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.12 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–21 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.13 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–22 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine, Project Control & Health) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -693,7 +693,101 @@ Dieses Repo enthält:
     `VOLLZEIT_WOCHENSTUNDEN`-Verschiebung weiterhin korrekt) — alle regressionsfrei. Kein
     Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 21 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–21 der Zielarchitektur (Abschnitt 12) umgesetzt.
+22. **Phase 22 (Project Control & Health, Kapazitätsplaner-v2-Zielarchitektur):** Migration
+    `0010` — genau eine neue Tabelle `health_thresholds` (konfigurierbare Schwellwerte,
+    Master-MD Abschnitt 50: "Schwellwerte sollen konfigurierbar sein"), mit fünf
+    Default-Zeilen geseedet (`schedule_days`, `capacity_fte`, `progress_pp`, `risk_score`,
+    `blocker_severity`, je `yellow`/`red`). Mehrdimensionales Project Health (Master-MD
+    Abschnitt 49) auf Basis der GAP-Engine (Phase 21) und bestehender Blocker-/Risk-/
+    Milestone-Daten, rein berechnend bis auf die Schwellwert-Konfiguration selbst.
+    Refactoring vorab: `_schedule_gap_entries`/`_progress_gap_entries` (bisher private
+    Funktionen in `routers/gap_engine.py`) in ein neues gemeinsames Modul
+    `backend/app/gap_calc.py` extrahiert (`schedule_gap_entries()`/`progress_gap_entries()`),
+    analog zur `capacity_calc.py`-Extraktion in Phase 21 — `routers/gap_engine.py` und das
+    neue `backend/app/health_calc.py` nutzen dieselbe Berechnung, ohne dass ein Router vom
+    anderen importiert.
+    - **Neun Health-Dimensionen** (`backend/app/health_calc.py`,
+      `GET /projects/{id}/health`): `overall`, `schedule`, `capacity`, `effort`, `progress`,
+      `risks`, `blockers`, `milestones`, `customer`, je als
+      `{status: gruen|gelb|rot|grau, value, explanation}` — jede Bewertung ist damit direkt
+      aus einer strukturierten Kennzahl erklärbar (Master-MD Abschnitt 49: "Jede Bewertung
+      muss aus strukturierten Kennzahlen und fachlichen Daten erklärbar sein").
+      `status="grau"` bedeutet "keine belastbare Datenbasis" (z.B. keine Milestones
+      hinterlegt) und ist bewusst von `"gruen"` unterschieden — Abwesenheit von Daten ist
+      keine positive Aussage. Bei Blocker/Risk/Customer ist die Abwesenheit *offener*
+      Einträge dagegen genuin positiv, dort ist der leere Fall `"gruen"`.
+      - **Schedule Health**: größter Verzug in Tagen über alle `PlanPhase`/`Milestone`
+        (`forecast_vs_actual_days`, ersatzweise `baseline_vs_forecast_days`, aus
+        `gap_calc.schedule_gap_entries()`) gegen `schedule_days`-Schwelle.
+      - **Capacity Health**: `ResourceDemand` vs. zugeordnetes FTE **des Projekts** für die
+        aktuelle Periode (`constants.current_period()`, neuer Helper "'Apr 26'-Format für
+        heute") gegen `capacity_fte`-Schwelle — bewusst projektscharf, im Unterschied zum
+        portfolioweiten Capacity Gap aus Phase 21 (`GET /gap-engine/capacity`), da das
+        Cockpit-Beispiel der Master-MD (Abschnitt 6) eine Projekt-Kapazitätszeile zeigt.
+      - **Effort Health**: **keine neue Logik** — übernimmt `status`/`gap_pct` direkt aus
+        `gap_analysis.project_gap()` (bestehend seit Phase 3), nicht neu bewertet und nicht
+        an `HealthThreshold` angebunden (siehe `models.HealthThreshold`-Docstring: bewusst
+        keine Parallel-Konfiguration für bereits produktiv genutzte Schwellen
+        `GAP_SCHWELLE_GELB`/`GAP_SCHWELLE_ROT`).
+      - **Progress Health**: größter Rückstand in Prozentpunkten über alle `PlanPhase`
+        (`progress_gap_pp` aus `gap_calc.progress_gap_entries()`) gegen `progress_pp`-Schwelle.
+      - **Risk Health**: höchster offener `Risk`-Score (`wahrscheinlichkeit`+`auswirkung`,
+        je niedrig/mittel/hoch = 1/2/3, Range 2–6) gegen `risk_score`-Schwelle; keine offenen
+        Risiken → `gruen`.
+      - **Blocker Health**: höchste Severity-Stufe offener `Blocker`
+        (niedrig/mittel/hoch/kritisch = 1–4) gegen `blocker_severity`-Schwelle; keine offenen
+        Blocker → `gruen`.
+      - **Milestone Health**: nutzt direkt `Milestone.status` (`verpasst`→rot,
+        `gefaehrdet`→gelb, sonst grün) statt eigener Datumsberechnung — das Statusfeld trägt
+        diese Semantik bereits (Phase 17); keine Milestones → `grau`.
+      - **Customer Health**: Teilmenge der offenen Blocker mit
+        `caused_by_party=="CUSTOMER"` oder `waiting_for_party=="CUSTOMER"` (Phase 16), gegen
+        dieselbe `blocker_severity`-Schwelle wie Blocker Health (identischer Wertebereich,
+        keine eigene Konfigurationszeile) — Kunde hat den Blocker verursacht oder der Ball
+        liegt aktuell bei ihm.
+      - **Overall Health**: worst-of über alle Dimensionen mit belastbarer Datenbasis
+        (`grau` ausgeklammert; sind alle `grau`, ist auch Overall `grau`). Die Master-MD gibt
+        keinen konkreten Aggregationsalgorithmus vor (nur die Erklärbarkeits-Anforderung
+        oben) — worst-of ist die einfachste, deterministische, vollständig erklärbare Wahl;
+        bewusste Scope-Entscheidung, analog zur portfolioweiten Vereinfachung beim Capacity
+        Gap in Phase 21.
+    - **Konfigurierbare Schwellwerte** (`GET /health-thresholds`,
+      `PUT /health-thresholds/{metric}`): `HealthThreshold`-Tabelle, geseedet mit den
+      Default-Werten aus dem Master-MD-Beispiel (Abschnitt 50: Schedule Gap +14 Tage → ROT,
+      Capacity Gap -0,3 FTE → GELB, Progress Gap -20 PP → ROT — alle drei Beispielwerte
+      liegen exakt auf den gewählten Default-Schwellen). 404 bei unbekannter Metrik.
+    - **Project Control Cockpit** (`GET /projects/{id}/cockpit`, Master-MD Abschnitt 6):
+      bündelt Health, Projektleiter, aktuelle Phase (`PlanPhase.status=="laufend"`,
+      ersatzweise die Phase, deren Forecast-Zeitraum heute umfasst), voraussichtliches Ende
+      (spätestes bekanntes Forecast-Datum über `PlanPhase`/`Milestone` — Näherung für
+      "Forecast GoLive" aus dem Cockpit-Beispiel, da kein Feld einen bestimmten Milestone als
+      GoLive markiert), Milestone-Liste, Projekt-Kapazität (wie Capacity Health), Blocker-
+      Zusammenfassung nach `caused_by_party` (Kunde/Intern/Dritte/Unbekannt, wie im
+      Cockpit-Beispiel "Kunde 2 / Intern 1"), offene/überfällige `Task`s sowie "Aktuelle
+      Themen": alle Tags, die an irgendeiner Entität des Projekts hängen (`Blocker`/
+      `PlanPhase`/`Milestone`/`Task`/`Risk`/`Decision`/`MeetingMinutes`/`Comment`), aggregiert
+      über den bestehenden Knowledge Query Layer
+      (`entity_links.list_entity_summaries()`, Phase 15) — keine neue Tag-Abfrage gebaut.
+    Verifiziert per curl an einem am Master-MD-Cockpit-Beispiel orientierten Szenario
+    ("Spedition Frankenfeld"): PlanPhase "Testing" mit 19 Tagen Forecast-vs-Actual-Verzug und
+    Progress 10 % ggü. erwarteten 100 % → Schedule/Progress Health beide `rot`; Milestone
+    "GoLive" `verpasst` → Milestone Health `rot`; Risk hoch/hoch (Score 6) → Risk Health
+    `rot`; zwei offene Blocker (kritisch/Kunde, mittel/Intern) → Blocker und Customer Health
+    beide `rot`; ResourceDemand 2,4 FTE ggü. 2,1 FTE zugeordnet → Capacity Health `gelb` mit
+    `allocation_gap_fte=-0.3` — **exakt der Master-MD-Beispielwert** (Abschnitt 6); Overall
+    Health korrekt `rot` (worst-of). Cockpit liefert `current_phase="Testing"`,
+    `forecast_end`, Blocker-Aufschlüsselung `{customer:1, internal:1}`, Tasks
+    `{open_total:1, overdue:1}` und Tags `["Kunde","Schnittstelle","Testing"]` (aggregiert aus
+    den beiden Blockern). Schwellwert-Update per `PUT` verifiziert, 404 bei unbekannter
+    Metrik/unbekanntem Projekt. Migration gegen frische und simulierte bestehende SQLite-DB
+    getestet (Downgrade/Upgrade-Round-Trip sauber, `alembic check` ohne Drift, Seed-Zeilen
+    nach Re-Upgrade korrekt wiederhergestellt). Regressionscheck: `/projects/{id}/gaps/
+    schedule` und `/projects/{id}/gaps/progress` liefern nach der `gap_calc.py`-Extraktion
+    weiterhin identische Werte, `/team`, `/knowledge/search`, `/projects/{id}/activity`,
+    `/projects/{id}/resource-demands` (inkl. `allocation_gap`) unverändert funktionsfähig.
+    Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 22 als erledigt markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–22 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -781,9 +875,12 @@ Abschnitt 11 Punkt 18). Phase 19: `ResourceRole`, `Skill`, `PersonSkill`, `Resou
 Capacity-Berechnung (siehe Abschnitt 11 Punkt 20). Phase 21: GAP-Engine
 (`routers/gap_engine.py`) mit Capacity-, Effort- (Wiederverwendung von `gap_analysis.py`),
 Schedule-, Progress- und Utilization-Gap sowie einem Bündel-Endpoint `/projects/{id}/gaps`
-(siehe Abschnitt 11 Punkt 21). Alle übrigen aus der Master-MD (mehrdimensionales Project
-Health, Administration-UI) bleiben für die jeweils zugeordnete spätere Phase vorgemerkt (siehe
-Phasenplan unten) — **noch nicht umgesetzt**.
+(siehe Abschnitt 11 Punkt 21). Phase 22: `HealthThreshold`, mehrdimensionales Project Health
+(`GET /projects/{id}/health`) mit neun Dimensionen, konfigurierbare Schwellwerte
+(`/health-thresholds`), Project Control Cockpit (`GET /projects/{id}/cockpit`, siehe
+Abschnitt 11 Punkt 22). Alle übrigen aus der Master-MD (Administration-UI) bleiben für die
+jeweils zugeordnete spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht
+umgesetzt**.
 
 **D — bewusst später (unverändert aus der Master-MD):**
 KI Project Agent, Vector-/Embedding-Layer, Enterprise-SSO, vollständiger Enterprise-Sync,
@@ -855,8 +952,8 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–21 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/21). Phasen
-22–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
+Phase 13–22 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/21/22). Phasen
+23–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
@@ -869,7 +966,7 @@ Phase 13–21 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/2
 | 19 | Capacity Planning Core | ✅ ResourceRole, Skill, PersonSkill, ResourceDemand, ResourceAssignment, Commitment-Level |
 | 20 | Real Capacity | ✅ CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation, Available Capacity |
 | 21 | GAP Engine | ✅ Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Bündel-Endpoint |
-| 22 | Project Control & Health | mehrdimensionales Project Health, Project Control Cockpit |
+| 22 | Project Control & Health | ✅ mehrdimensionales Project Health, konfigurierbare Schwellwerte, Project Control Cockpit |
 | 23 | Controlling & Capacity Intelligence | Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio |
 | 24 | Knowledge Experience | Tag-Dossiers, kombinierte Tags, semantische Suche |
 | 25 | Administration UX | UI für Personen/Teams/Rollen/Permissions/Skills/Tags |

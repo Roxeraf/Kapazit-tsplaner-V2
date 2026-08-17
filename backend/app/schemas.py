@@ -1251,3 +1251,96 @@ class ProjectGapsOut(BaseModel):
     effort: GapAnalysis
     schedule: list[ScheduleGapEntry]
     progress: list[ProgressGapEntry]
+
+
+# ---------------------------------------------------------------------------
+# Project Control & Health (Phase 22, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt
+# 6/49/50). Mehrdimensionales Project Health auf Basis der GAP-Engine (Phase 21) und
+# bestehender Daten (Blocker/Risk/Milestone), mit konfigurierbaren Schwellwerten
+# (HealthThreshold). Rein berechnete Endpunkte bis auf die Schwellwert-Konfiguration selbst.
+# ---------------------------------------------------------------------------
+
+
+class HealthThresholdOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    metric: str
+    yellow: float
+    red: float
+
+
+class HealthThresholdUpdate(BaseModel):
+    yellow: float
+    red: float
+
+
+class HealthDimension(BaseModel):
+    """Eine Project-Health-Dimension. value ist der zugrunde liegende 'badness'-Wert (nicht-
+    negativ, je größer desto schlechter - z.B. Verzugstage, fehlende FTE, Risiko-Score),
+    None wenn keine belastbare Datenbasis vorliegt (status dann 'grau')."""
+
+    status: str  # "gruen" | "gelb" | "rot" | "grau"
+    value: float | None
+    explanation: str
+
+
+class ProjectHealthOut(BaseModel):
+    project_id: int
+    project_name: str
+    overall: HealthDimension
+    schedule: HealthDimension
+    capacity: HealthDimension
+    effort: HealthDimension
+    progress: HealthDimension
+    risks: HealthDimension
+    blockers: HealthDimension
+    milestones: HealthDimension
+    customer: HealthDimension
+
+
+class CockpitMilestoneEntry(BaseModel):
+    id: int
+    name: str
+    baseline_date: str | None
+    forecast_date: str | None
+    actual_date: str | None
+    status: str
+
+
+class CockpitCapacity(BaseModel):
+    period: str
+    demand_fte: float
+    assigned_fte: float
+    allocation_gap_fte: float
+
+
+class CockpitBlockers(BaseModel):
+    open_total: int
+    customer: int
+    internal: int
+    third_party: int
+    unknown: int
+
+
+class CockpitTasks(BaseModel):
+    open_total: int
+    overdue: int
+
+
+class ProjectControlCockpitOut(BaseModel):
+    """Project Control Cockpit (Master-MD Abschnitt 6) - bündelt Health, aktuelle Phase,
+    Forecast-Ende, Milestones, Kapazität, Blocker- und Aufgaben-Zusammenfassung sowie
+    projektbezogene Tags ('Aktuelle Themen') an einer Stelle."""
+
+    project_id: int
+    project_name: str
+    kunde: str | None
+    projektleiter: str | None
+    health: ProjectHealthOut
+    current_phase: str | None
+    forecast_end: str | None
+    milestones: list[CockpitMilestoneEntry]
+    capacity: CockpitCapacity
+    blockers: CockpitBlockers
+    tasks: CockpitTasks
+    tags: list[str]

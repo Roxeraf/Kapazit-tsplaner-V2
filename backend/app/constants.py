@@ -1,5 +1,7 @@
 """Phasencodes und FTE-Heatmap-Schwellen 1:1 aus dem Excel-Tool (siehe CONCEPT.md, Abschnitt 3)."""
 
+import datetime
+
 # Referenz-Wochenstunden für "1.0 FTE" - TeamMember.wochenstunden/ResourceProfile.weekly_hours/
 # WorkingTime.weekly_hours default ist 40. Kapazität einer Person wird durchgängig als
 # wochenstunden / VOLLZEIT_WOCHENSTUNDEN ausgedrückt (siehe routers/team.py, routers/
@@ -62,3 +64,11 @@ def parse_period(period: str) -> tuple[int, int]:
     monat = MONAT_NAMEN.index(name) + 1
     jahr = 2000 + int(jahr_str)
     return jahr, monat
+
+
+def current_period() -> str:
+    """Heutiges Perioden-Bucket im 'Apr 26'-Format (siehe berechne_monate). Für die
+    Capacity Health (Phase 22) benötigt, um den aktuellen ResourceDemand-Zeitraum eines
+    Projekts zu bestimmen."""
+    today = datetime.date.today()
+    return f"{MONAT_NAMEN[today.month - 1]} {today.year % 100:02d}"

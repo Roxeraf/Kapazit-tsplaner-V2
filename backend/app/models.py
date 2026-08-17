@@ -833,3 +833,19 @@ class InternalAllocation(Base):
     period: Mapped[str] = mapped_column(String(10))
     fte: Mapped[float] = mapped_column(Float, default=0)
     description: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class HealthThreshold(Base):
+    """Konfigurierbare Schwellwerte für die Project-Health-Berechnung (Phase 22, Master-MD
+    Abschnitt 22/50: 'Schwellwerte sollen konfigurierbar sein'). Je Dimension ein 'badness'-
+    Wert (nicht-negative Kennzahl, je größer desto schlechter - siehe health_calc.py), ab dem
+    gelb bzw. rot ausgelöst wird. Effort Health bleibt bewusst außen vor: sie verwendet
+    unverändert GAP_SCHWELLE_GELB/ROT aus gap_analysis.py (bestehende, produktiv genutzte
+    Logik wird nicht dupliziert/parallel konfigurierbar gemacht)."""
+
+    __tablename__ = "health_thresholds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    metric: Mapped[str] = mapped_column(String(30), unique=True)
+    yellow: Mapped[float] = mapped_column(Float)
+    red: Mapped[float] = mapped_column(Float)

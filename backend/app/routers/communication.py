@@ -26,7 +26,7 @@ def _decision_out(db: Session, d: models.Decision) -> schemas.DecisionOut:
         beschreibung=d.beschreibung,
         begruendung=d.begruendung,
         status=d.status,
-        entschieden_von=d.entschieden_von,
+        entschieden_von_person_id=d.entschieden_von_person_id,
         entschieden_am=d.entschieden_am,
         erstellt_am=d.erstellt_am,
         tags=entity_links.tags_for(db, "decision", d.id),
@@ -43,13 +43,18 @@ def _risk_out(db: Session, r: models.Risk) -> schemas.RiskOut:
         wahrscheinlichkeit=r.wahrscheinlichkeit,
         auswirkung=r.auswirkung,
         status=r.status,
-        owner=r.owner,
+        owner_person_id=r.owner_person_id,
         faellig_am=r.faellig_am,
         erstellt_am=r.erstellt_am,
         aktualisiert_am=r.aktualisiert_am,
         tags=entity_links.tags_for(db, "risk", r.id),
         documents=entity_links.documents_for(db, "risk", r.id),
     )
+
+
+def _validate_person_id(db: Session, person_id: int | None, field: str) -> None:
+    if person_id is not None and db.get(models.Person, person_id) is None:
+        raise HTTPException(status_code=404, detail=f"Person ({field}) nicht gefunden")
 
 
 def _meeting_out(db: Session, m: models.MeetingMinutes) -> schemas.MeetingMinutesOut:
@@ -73,7 +78,7 @@ def _task_out(db: Session, t: models.Task) -> schemas.TaskOut:
         titel=t.titel,
         beschreibung=t.beschreibung,
         status=t.status,
-        zustaendig=t.zustaendig,
+        zustaendig_person_id=t.zustaendig_person_id,
         faellig_am=t.faellig_am,
         erstellt_am=t.erstellt_am,
         aktualisiert_am=t.aktualisiert_am,
@@ -166,13 +171,14 @@ def list_decisions(project_id: int, db: Session = Depends(get_db)):
 @router.post("/{project_id}/decisions", response_model=schemas.DecisionOut, status_code=201)
 def create_decision(project_id: int, payload: schemas.DecisionCreate, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
+    _validate_person_id(db, payload.entschieden_von_person_id, "entschieden_von_person_id")
     decision = models.Decision(
         project_id=project_id,
         titel=payload.titel,
         beschreibung=payload.beschreibung,
         begruendung=payload.begruendung,
         status=payload.status,
-        entschieden_von=payload.entschieden_von,
+        entschieden_von_person_id=payload.entschieden_von_person_id,
         entschieden_am=payload.entschieden_am,
         erstellt_am=_now(),
     )
@@ -189,6 +195,8 @@ def create_decision(project_id: int, payload: schemas.DecisionCreate, db: Sessio
 def update_decision(decision_id: int, payload: schemas.DecisionUpdate, db: Session = Depends(get_db)):
     decision = _get_decision_or_404(db, decision_id)
     changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    if "entschieden_von_person_id" in changes:
+        _validate_person_id(db, changes["entschieden_von_person_id"], "entschieden_von_person_id")
     for field, value in changes.items():
         setattr(decision, field, value)
     if payload.tags is not None:
@@ -227,6 +235,7 @@ def list_risks(project_id: int, db: Session = Depends(get_db)):
 @router.post("/{project_id}/risks", response_model=schemas.RiskOut, status_code=201)
 def create_risk(project_id: int, payload: schemas.RiskCreate, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
+    _validate_person_id(db, payload.owner_person_id, "owner_person_id")
     now = _now()
     risk = models.Risk(
         project_id=project_id,
@@ -235,7 +244,7 @@ def create_risk(project_id: int, payload: schemas.RiskCreate, db: Session = Depe
         wahrscheinlichkeit=payload.wahrscheinlichkeit,
         auswirkung=payload.auswirkung,
         status=payload.status,
-        owner=payload.owner,
+        owner_person_id=payload.owner_person_id,
         faellig_am=payload.faellig_am,
         erstellt_am=now,
         aktualisiert_am=now,
@@ -253,6 +262,8 @@ def create_risk(project_id: int, payload: schemas.RiskCreate, db: Session = Depe
 def update_risk(risk_id: int, payload: schemas.RiskUpdate, db: Session = Depends(get_db)):
     risk = _get_risk_or_404(db, risk_id)
     changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    if "owner_person_id" in changes:
+        _validate_person_id(db, changes["owner_person_id"], "owner_person_id")
     if changes:
         for field, value in changes.items():
             setattr(risk, field, value)
@@ -352,13 +363,14 @@ def list_tasks(project_id: int, db: Session = Depends(get_db)):
 @router.post("/{project_id}/tasks", response_model=schemas.TaskOut, status_code=201)
 def create_task(project_id: int, payload: schemas.TaskCreate, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
+    _validate_person_id(db, payload.zustaendig_person_id, "zustaendig_person_id")
     now = _now()
     task = models.Task(
         project_id=project_id,
         titel=payload.titel,
         beschreibung=payload.beschreibung,
         status=payload.status,
-        zustaendig=payload.zustaendig,
+        zustaendig_person_id=payload.zustaendig_person_id,
         faellig_am=payload.faellig_am,
         erstellt_am=now,
         aktualisiert_am=now,
@@ -376,6 +388,8 @@ def create_task(project_id: int, payload: schemas.TaskCreate, db: Session = Depe
 def update_task(task_id: int, payload: schemas.TaskUpdate, db: Session = Depends(get_db)):
     task = _get_task_or_404(db, task_id)
     changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    if "zustaendig_person_id" in changes:
+        _validate_person_id(db, changes["zustaendig_person_id"], "zustaendig_person_id")
     if changes:
         for field, value in changes.items():
             setattr(task, field, value)

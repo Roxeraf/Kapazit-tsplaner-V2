@@ -1,23 +1,38 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import NotesSection from "../../components/NotesSection";
-import type { Comment, Decision, MeetingMinutes, Risk, Task } from "../../types";
+import type { Blocker, Comment, Decision, EntityType, MeetingMinutes, Risk, Task } from "../../types";
+import ActivityFeed from "./components/ActivityFeed";
+import BlockerList from "./components/BlockerList";
 import DecisionList from "./components/DecisionList";
 import MeetingMinutesList from "./components/MeetingMinutesList";
 import RiskList from "./components/RiskList";
 import TaskList from "./components/TaskList";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
-type Section = "diskussionen" | "entscheidungen" | "risiken" | "meetingprotokolle" | "aufgaben";
+type Section = "aktivitaet" | "diskussionen" | "entscheidungen" | "risiken" | "meetingprotokolle" | "aufgaben" | "blocker";
+
+// Bildet ActivityItem.entity_type auf die passende Sub-Ansicht ab (Phase 26.4).
+const ENTITY_TYPE_TO_SECTION: Partial<Record<EntityType, Section>> = {
+  comment: "diskussionen",
+  decision: "entscheidungen",
+  risk: "risiken",
+  meeting_minutes: "meetingprotokolle",
+  task: "aufgaben",
+  blocker: "blocker",
+};
+
+const ACTIVITY_ENTITY_TYPES: EntityType[] = ["comment", "decision", "risk", "meeting_minutes", "task", "blocker"];
 
 export default function ProjectCommunicationTab() {
   const { project } = useProjectWorkspace();
-  const [section, setSection] = useState<Section>("diskussionen");
+  const [section, setSection] = useState<Section>("aktivitaet");
   const [comments, setComments] = useState<Comment[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
   const [meetings, setMeetings] = useState<MeetingMinutes[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +42,7 @@ export default function ProjectCommunicationTab() {
   const refreshRisks = () => api.listRisks(project.id).then(setRisks).catch((e) => setError(String(e)));
   const refreshMeetings = () => api.listMeetingMinutes(project.id).then(setMeetings).catch((e) => setError(String(e)));
   const refreshTasks = () => api.listTasks(project.id).then(setTasks).catch((e) => setError(String(e)));
+  const refreshBlockers = () => api.listBlockers(project.id).then(setBlockers).catch((e) => setError(String(e)));
 
   useEffect(() => {
     refreshComments();
@@ -34,6 +50,7 @@ export default function ProjectCommunicationTab() {
     refreshRisks();
     refreshMeetings();
     refreshTasks();
+    refreshBlockers();
   }, [project.id]);
 
   const handleAddNote = async (
@@ -63,8 +80,9 @@ export default function ProjectCommunicationTab() {
     for (const r of risks) r.tags.forEach((t) => tags.add(t));
     for (const m of meetings) m.tags.forEach((t) => tags.add(t));
     for (const t of tasks) t.tags.forEach((tag) => tags.add(tag));
+    for (const b of blockers) b.tags.forEach((tag) => tags.add(tag));
     return Array.from(tags).sort();
-  }, [comments, decisions, risks, meetings, tasks]);
+  }, [comments, decisions, risks, meetings, tasks, blockers]);
 
   const matches = (text: string) => !search.trim() || text.toLowerCase().includes(search.trim().toLowerCase());
   const hasTag = (tags: string[]) => !tagFilter || tags.includes(tagFilter);
@@ -74,13 +92,16 @@ export default function ProjectCommunicationTab() {
   const filteredRisks = risks.filter((r) => matches(r.titel + " " + (r.beschreibung ?? "")) && hasTag(r.tags));
   const filteredMeetings = meetings.filter((m) => matches(m.titel + " " + m.text) && hasTag(m.tags));
   const filteredTasks = tasks.filter((t) => matches(t.titel + " " + (t.beschreibung ?? "")) && hasTag(t.tags));
+  const filteredBlockers = blockers.filter((b) => matches(b.title + " " + (b.description ?? "")) && hasTag(b.tags));
 
   const SECTIONS: { key: Section; label: string; count: number }[] = [
+    { key: "aktivitaet", label: "Aktivität", count: comments.length + decisions.length + risks.length + meetings.length + tasks.length + blockers.length },
     { key: "diskussionen", label: "Diskussionen", count: filteredComments.length },
     { key: "aufgaben", label: "Aufgaben", count: filteredTasks.length },
     { key: "entscheidungen", label: "Entscheidungen", count: filteredDecisions.length },
     { key: "risiken", label: "Risiken", count: filteredRisks.length },
     { key: "meetingprotokolle", label: "Meetings", count: filteredMeetings.length },
+    { key: "blocker", label: "Blocker", count: filteredBlockers.length },
   ];
 
   return (
@@ -125,6 +146,24 @@ export default function ProjectCommunicationTab() {
         </div>
       )}
 
+      {section === "aktivitaet" && (
+        <ActivityFeed
+          projectId={project.id}
+          filterTypes={ACTIVITY_ENTITY_TYPES}
+          onOpenSection={(type) => {
+            const target = ENTITY_TYPE_TO_SECTION[type];
+            if (target) setSection(target);
+          }}
+          onChanged={() => {
+            refreshComments();
+            refreshDecisions();
+            refreshRisks();
+            refreshTasks();
+            refreshBlockers();
+          }}
+        />
+      )}
+
       {section === "diskussionen" && (
         <div>
           <div className="card" style={{ marginBottom: "1rem" }}>
@@ -156,6 +195,7 @@ export default function ProjectCommunicationTab() {
       {section === "meetingprotokolle" && (
         <MeetingMinutesList projectId={project.id} meetings={filteredMeetings} onChanged={refreshMeetings} />
       )}
+      {section === "blocker" && <BlockerList projectId={project.id} blockers={filteredBlockers} onChanged={refreshBlockers} />}
     </div>
   );
 }

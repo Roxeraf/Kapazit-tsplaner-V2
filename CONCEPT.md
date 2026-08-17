@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.15 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–24 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine, Project Control & Health, Controlling & Capacity Intelligence, Knowledge Experience) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.17 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–26 (… Knowledge Experience, Administration UX, Functional Integration) der Kapazitätsplaner-v2-Zielarchitektur vollständig umgesetzt; das Frontend läuft durchgängig auf der Zielarchitektur, die alten Excel-abgeleiteten Parallelmodelle (Gantt/FTE-Grid, TeamMember/Assignment) sind mit Phase 26.9 (Legacy Cutover) real entfernt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -926,7 +926,325 @@ Dieses Repo enthält:
     Personen bleiben read-only, Jira/Tempo-Credentials bleiben in der Laufzeitumgebung.
     Details siehe Abschnitt 12.4 (Phase 25 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–25 der Zielarchitektur (Abschnitt 12) umgesetzt.
+26. **Phase 26 (Functional Integration, Kapazitätsplaner-v2-Zielarchitektur):** 🔶 in Arbeit,
+    Unterschritte 26.1–26.9 (siehe Abschnitt 12.4). Ziel: keine neuen Backend-Modelle, sondern
+    die seit Phase 13–25 gebauten, bisher fast durchgängig frontend-losen Bausteine zu echten
+    End-to-End-Workflows verbinden; die alten Parallelmodelle werden am Ende (26.9) real
+    entfernt statt dauerhaft als Bridge zu bestehen, da sich das Projekt noch in aktiver
+    Entwicklung befindet (Datenverlust bewusst akzeptiert).
+    - **26.1 (Person Integration) — ✅ erledigt.** Migration `0011` (additiv+destruktiv:
+      `Decision.entschieden_von`/`Risk.owner`/`Task.zustaendig` als Freitext entfernt, durch
+      nullable FKs `entschieden_von_person_id`/`owner_person_id`/`zustaendig_person_id` auf
+      `persons` ersetzt — bewusst kein Best-Effort-Namensabgleich wie bei
+      `Project.projektleiter_person_id` in Migration `0003`, da vorhandene Freitextwerte in
+      der aktuellen Entwicklungsphase verworfen werden dürfen). `GET /people` um `?search=`
+      erweitert (`backend/app/routers/people.py`, analog `GET /tags?search=`). Neue
+      Person-Validierung (404 bei unbekannter `*_person_id`) in `create_decision`/
+      `update_decision`/`create_risk`/`update_risk`/`create_task`/`update_task`
+      (`backend/app/routers/communication.py`, gemeinsamer Helper `_validate_person_id`,
+      exakt das Muster aus `create_blocker`/`update_blocker` übernommen). Frontend: neue
+      wiederverwendbare Komponente `frontend/src/components/PersonPicker.tsx`
+      (Suche+Vorschlagsliste, Muster von `TagInput.tsx`), ersetzt die Freitext-Inputs für
+      Projektleiter (`ProjectSettingsTab.tsx`, schreibt `projektleiter_person_id` **und**
+      weiterhin den Freitext `projektleiter` mit — Portfolio-Karten/Cockpit lesen den Freitext
+      bis zur Cockpit-Integration in 26.6 direkt) sowie Owner in `RiskList.tsx`/`TaskList.tsx`/
+      `DecisionList.tsx`; Anzeige des Personennamens über neuen Hook
+      `frontend/src/hooks/usePeopleMap.ts` (einmalig geladene id→display_name-Map, kein
+      serverseitiger Join nötig, analog zu `BlockerOut`, das ebenfalls nur `owner_person_id`
+      ohne aufgelösten Namen liefert). Neue Sektion "Projektteam"
+      (`frontend/src/views/project/components/ProjectTeamSection.tsx`) nutzt die seit Phase 14
+      bestehenden, bisher ungenutzten Endpunkte `GET/POST /projects/{id}/memberships` und
+      `GET /project-roles` — kein neuer Backend-Code, reine Frontend-Neuerung. Verifiziert:
+      Migration-Roundtrip (`upgrade`/`downgrade`/`upgrade`, `alembic check` ohne Drift) gegen
+      frische SQLite-DB; curl-Szenario Person→Risk/Task/Decision mit `*_person_id` inkl.
+      404 bei unbekannter Person; `npm run build` (TypeScript+Vite) fehlerfrei; Playwright-
+      Durchlauf gegen echten Dev-Server (Projektleiter setzen, Projektteam-Mitglied
+      hinzufügen, Risiko/Aufgabe/Entscheidung jeweils mit Personen-Owner anlegen) — alle vier
+      Flows zeigen den aufgelösten Personennamen korrekt an, keine Konsolenfehler.
+    - **26.2 (Planning Integration) — ✅ erledigt.** Die Planung-Tab-UI schreibt ab sofort
+      ausschließlich gegen `PlanPhase`/`Milestone` (Backend Phase 17, `routers/planning.py`)
+      statt gegen `GanttPhase`/`ProjectGanttPhase`/`FtePlan` — Nutzerentscheidung: ersetzen,
+      nicht parallel bestehen lassen. Kein Backend-Code nötig (CRUD war seit Phase 17/18
+      vollständig vorhanden, nur ungenutzt); eine kleine, bewusste Grenzüberschreitung aus
+      Abschnitt 12.4 Phase 26.8 wurde vorgezogen: `EntityType` in `frontend/src/types.ts` um
+      `"plan_phase"`/`"milestone"` erweitert (Backend unterstützte beide bereits seit Phase
+      16/17 in der `entity_links`-Registry), da sonst der Dokument-Upload beim Anlegen einer
+      Phase/eines Milestones nicht kompiliert hätte. **Bewusst nicht behoben:**
+      `PlanPhase`/`Milestone`-Änderungen erzeugen weiterhin keinen `PlanHistory`-Eintrag (nur
+      die alten Gantt/FTE-Felder werden auditiert) — die neue UI verwendet daher wie
+      `RiskList`/`TaskList`/`DecisionList` sofortiges Speichern pro Feldänderung statt des
+      alten Draft+`batch_id`-Sammel-Speicherns; ein Audit-Trail für Phase/Milestone-Änderungen
+      bleibt offen für einen späteren Durchgang. **Bewusst akzeptierte Übergangslücke:**
+      Gap-Analyse, Forecast, KPIs und der Portfolio-Mini-Gap-Indikator lesen weiterhin
+      ausschließlich `GanttPhase`/`FtePlan` (`gap_analysis.py`) und zeigen für ab jetzt neu
+      geplante Projekte nichts an, bis 26.7 sie auf die GAP-Engine/das Cockpit umstellt und
+      26.9 die alten Tabellen entfernt. Frontend: neue Komponenten
+      `frontend/src/views/project/components/PlanPhaseList.tsx` (Karten-Liste, gruppiert nach
+      Teilprojekt/"Projektweit", alle Felder inkl. Baseline/Forecast/Actual-Daten und Progress
+      sofort per `onBlur`/`onChange` speicherbar, Owner via `PersonPicker`, `phase_type` mit
+      Datalist-Vorschlägen aus den alten Phasencode-Labels), `MilestoneList.tsx` (gleiches
+      Muster), `BaselineList.tsx` (Snapshot-Liste + "Baseline speichern", Werte werden
+      serverseitig automatisch eingefroren). `ProjectPlanningTab.tsx` umgebaut: Gantt/FTE-
+      Karten (Projekt gesamt + pro Teilprojekt, inkl. `PhaseRows`-Nutzung und der daran
+      hängenden Gantt-Zell-Kommentarfunktion) vollständig entfernt und durch die drei neuen
+      Komponenten ersetzt; Stammdaten-Karte (weiterhin Draft+`batch_id`-Speichern über
+      `PlanHistory`) sowie Team-Zuordnung und Teilprojekt-Anlegen/-Löschen unverändert erhalten
+      — Subproject bleibt eine gültige, optionale Gruppierung für `PlanPhase`/`Milestone`
+      (`subproject_id` nullable FK). `PhaseRows.tsx` wird ab jetzt von nichts mehr referenziert,
+      Löschung bewusst erst in 26.9 (siehe dortiger Cutover-Abschnitt). Kein Konvertierungs-
+      skript für bestehende `GanttPhase`-Zellen — Projekte werden über die neue Oberfläche neu
+      geplant. Verifiziert: `alembic`-Migrationen unverändert (kein neuer Migrationsbedarf),
+      curl-Szenario PlanPhase+Milestone+Baseline anlegen, Forecast-Ende einer Phase um 8 Tage
+      verschieben und `GET /projects/baselines/{id}/deviations` liefert exakt
+      `delta_days=8` für das geänderte Feld und `0` für alle unveränderten, 404 bei unbekanntem
+      `owner_person_id`; `npm run build` (TypeScript+Vite) fehlerfrei; Playwright-Durchlauf
+      gegen echten Dev-Server (Phase mit Teilprojekt-Zuordnung und Owner anlegen, Plan-Start-
+      Datum nachträglich ändern, Milestone anlegen, Baseline speichern) — alle Werte korrekt
+      persistiert und anzeigt, keine Konsolenfehler.
+    - **26.3 (Capacity Integration) — ✅ erledigt.** Ein Raster "Rolle × Periode"
+      (`ResourceDemandGrid.tsx`, Perioden aus `project.monate`) ersetzt das alte FTE-Raster
+      als Bedienoberfläche für `ResourceDemand`. CRUD war seit Phase 19 vollständig vorhanden
+      und ungenutzt (`routers/capacity.py`). **Einzige neue Backend-Logik in Phase 26:**
+      `GET /resource-demands/{id}/candidates` (neues Schema `CandidatePersonOut`) — iteriert
+      dieselbe Personen-Grundmenge wie `capacity_calc.compute_capacity_gap` (aktiv,
+      `capacity_relevant`, mit `ResourceProfile`), ruft je Person
+      `compute_person_capacity(db, person_id, demand.period)`, filtert `available_fte > 0`,
+      schließt bereits zugeordnete Personen aus, reichert um `PersonSkill`-Namen an (rein
+      informativ — bestätigt keine Person↔`ResourceRole`-Verknüpfung im Datenmodell, Rolle und
+      Skill sind laut Code-Kommentar bewusst getrennte Dimensionen). Frontend:
+      `ResourceDemandGrid.tsx` zeigt je Zelle sofort `assigned_fte`/`allocation_gap` (positiv,
+      d.h. Unterdeckung, rot — Korrektur der ursprünglich falschen Vorzeichen-Annahme in 26.7
+      dokumentiert); Klick auf eine belegte Zelle öffnet ein Detail-Panel darunter mit aktuellen
+      Zuordnungen und Kandidatenliste, Zuordnung per `PersonPicker` + FTE-Eingabe →
+      `POST /resource-demands/{id}/assignments`. Die "Team-Zuordnung"-Karte in
+      `ProjectPlanningTab.tsx` ist durch dieses Raster funktional abgelöst (`Assignment` bildete
+      nur Person↔Projekt↔FTE ohne Rolle/Periode ab) — Entfernung der Karte selbst bewusst erst
+      in 26.9 zusammen mit dem `TeamMember`/`Assignment`-Cutover. Verifiziert: curl-Szenario
+      exakt nach Master-MD-Beispiel (Bedarf 0,8 FTE, Person A 0,5 FTE + Person B 0,2 FTE
+      verfügbar/zugeordnet → `assigned_fte=0.7`, `allocation_gap=0.1`; Kandidaten nach
+      Zuordnung korrekt ausgeschlossen); `npm run build` fehlerfrei; Playwright-Durchlauf
+      gegen echten Dev-Server (Rolle hinzufügen, FTE-Zelle befüllen, Detail-Panel öffnen,
+      Kandidat mit freier Kapazität zuordnen) — `POST .../assignments` mit korrektem Payload
+      bestätigt, `allocation_gap` aktualisiert sich sofort, keine Konsolenfehler.
+    - **26.4 (Activity Integration) — ✅ erledigt.** `ProjectCommunicationTab.tsx` hat jetzt
+      "Aktivität" als Standard-Unteransicht (`ActivityFeed.tsx`, `GET /projects/{id}/activity`
+      chronologisch, Filterleiste nach Entitätstyp inkl. Blocker) statt direkt in eine der
+      fünf Einzellisten zu starten — die Einzellisten bleiben als eigene Unteransichten
+      erreichbar (Klick auf den Titel eines Activity-Items springt dorthin). Kein neuer
+      Backend-Endpoint nötig: Blocker-CRUD war seit Phase 16 vollständig vorhanden und
+      ungenutzt (neue `BlockerList.tsx`, Vorbild `RiskList.tsx`, zeigt `caused_by_party`/
+      `waiting_for_party`/`next_action` prominent samt "Tage seit `active_since`"-Berechnung).
+      `entity_links.delete_relations_for_entity`/`delete_links_for_entity` waren für
+      `plan_phase`/`milestone`-Löschungen bereits verdrahtet (Prüfung ergab keine Lücke, anders
+      als ursprünglich vermutet). **"Aus Objekt erstellen"** (Diskussion → Entscheidung/
+      Aufgabe/Risiko/Blocker; Entscheidung → Folgeaufgabe/Blocker; Blocker → Aufgabe/"Als
+      gelöst markieren") ist reine Frontend-Orchestrierung ohne neuen Endpoint: legt zuerst die
+      Folge-Entität über den bestehenden Create-Endpoint an, danach eine `EntityRelation`
+      (`relation_type="resulted_in"` einheitlich für alle "X entstand aus Y"-Fälle) über
+      `POST /entity-relations`. `EntityType` in `frontend/src/types.ts` um `"blocker"`
+      erweitert (analog zur `"plan_phase"`/`"milestone"`-Erweiterung aus 26.2) — damit ist die
+      in 26.8 geplante `EntityType`-Erweiterung bereits vollständig, 26.8 reduziert sich auf
+      das Verdrahten der `AttachmentPicker`/`AttachmentList`-Komponenten in `BlockerList.tsx`
+      (bereits in diesem Durchgang mit erledigt) und den "Verwendet in"-Check im
+      Dokumente-Tab. Verifiziert: curl-Szenario Diskussion → Entscheidung → `EntityRelation`
+      (`resulted_in`) → im Activity Feed sichtbar; Blocker-CRUD inkl. Statuswechsel; `npm run
+      build` fehlerfrei; Playwright-Durchlauf gegen echten Dev-Server ("+ Entscheidung" auf
+      einer Diskussions-Karte erzeugt korrekt zwei Requests — `POST .../decisions` dann
+      `POST /entity-relations` mit `target_entity_id` der neuen Entscheidung —, Blocker-
+      Unteransicht zeigt korrekte Partei-/Tage-Anzeige), keine Konsolenfehler.
+    - **26.5 (Knowledge Integration) — ✅ erledigt.** Klick auf einen Tag öffnet jetzt ein
+      Dossier-Sidepanel (`TagDossierPanel.tsx`, `GET /knowledge/tags/dossier`) statt nur lokal
+      zu filtern — mehrere Tags kombinierbar mit UND/ODER-Umschalter, "Weiteren Tag
+      kombinieren"-Eingabe. Kein Backend-Change nötig (vollständig seit Phase 24 vorhanden,
+      nur ungenutzt). Neuer globaler Kontext `frontend/src/tagDossier.tsx`
+      (`TagDossierProvider`/`useTagDossier`, analog `unsavedChanges.tsx`), in
+      `ProjectWorkspace.tsx` um alle Tabs gelegt, damit jede Komponente einen Tag-Klick zum
+      Panel durchreichen kann, ohne Props durch die Tab-Hierarchie zu schleifen. Neue
+      wiederverwendbare `TagChip.tsx` ersetzt die bisherigen reinen `<span>#{tag}</span>`-
+      Anzeigen an allen zehn Fundstellen (`NotesSection`, `DecisionList`, `RiskList`,
+      `TaskList`, `MeetingMinutesList`, `PlanPhaseList`, `MilestoneList`, `BlockerList`,
+      `ActivityFeed`, `ProjectDocumentsTab`). Gemeinsames Modul
+      `frontend/src/entityTypeMeta.ts` (Icon/Label je `EntityType`) aus `ActivityFeed.tsx`
+      extrahiert, damit Feed und Dossier-Panel dieselbe Quelle nutzen statt zu driften. Der
+      bereits bestehende, unveränderte lokale Tag-Filter in der Toolbar von
+      `ProjectCommunicationTab.tsx` (filtert die aktuell sichtbare Unteransicht, andere
+      Funktion als das projektübergreifende Dossier) bleibt bewusst zusätzlich bestehen — beide
+      sind visuell unterscheidbar (Toolbar: umrandete Pill-Buttons; `TagChip`: reiner Text-Link,
+      exakt wie zuvor). Verifiziert: curl-Szenario exakt wie Phase-24-Beispiel (Diskussion
+      `#Kunde #Schnittstelle`, Aufgabe `#Schnittstelle #GoLive`, Milestone `#Kunde #GoLive`) —
+      `mode=or` liefert alle drei Entitäten, `mode=and` korrekt nur den Milestone; `npm run
+      build` fehlerfrei; Playwright-Durchlauf gegen echten Dev-Server (Tag-Klick öffnet Panel,
+      zweiten Tag kombinieren schaltet automatisch auf UND, ODER-Umschalter zeigt sofort alle
+      drei Treffer korrekt an), keine Konsolenfehler.
+    - **26.6 (Cockpit Integration) — ✅ erledigt.** `ProjectOverviewTab.tsx` nutzt jetzt
+      `GET /projects/{id}/cockpit` (`routers/health.py`, seit Phase 22 vollständig vorhanden,
+      bisher ungenutzt) statt einzelner Gap-/Risiko-/Entscheidungs-/Aufgaben-Fetches. Kein
+      Backend-Change nötig. Neue Health-Sektion "Project Control" zeigt alle neun
+      Health-Dimensionen (Gesamt/Termine/Kapazität/Aufwand/Fortschritt/Risiken/Blocker/
+      Milestones/Kunde) als farbige Punkte mit Tooltip-Erklärung, dazu aktuelle Phase,
+      Forecast-Ende, Kapazität (Bedarf/Zugeordnet/Gap der aktuellen Periode), Blocker nach
+      Partei aufgeschlüsselt, Aufgaben-Kennzahlen sowie "Aktuelle Themen" als klickbare
+      `TagChip`s (öffnen das 26.5-Dossier-Panel). Milestones-Liste ergänzt. `GapAnalysis`/
+      `GapStatus`-Ampel entfällt zugunsten der Overall-Health-Badge (dieselbe
+      `gruen/gelb/rot/grau`-CSS-Klasse wiederverwendet). "Letzte Notizen"/"Letzte Änderungen"
+      bleiben als eigene, schlanke Fetches bestehen (nicht Teil des Cockpit-Schemas, weiterhin
+      eigenständig sinnvoll). Verifiziert: curl-Szenario angelehnt an das Master-MD-/Phase-22-
+      Beispiel (PlanPhase mit 19 Tagen Verzug + 10% Fortschritt, Milestone verpasst, kritischer
+      Kunden-Blocker, Kapazitätslücke -0,8 FTE) — Cockpit liefert exakt die neun erwarteten
+      Health-Werte (`overall`/`schedule`/`capacity`/`progress`/`blockers`/`milestones`/
+      `customer` rot, `risks` grün, `effort` grau mangels Soll-Daten); `npm run build`
+      fehlerfrei; Playwright-Screenshot bestätigt alle Werte 1:1 wie vom Backend geliefert,
+      keine Konsolenfehler.
+    - **26.7 (Actionable GAPs) — ✅ erledigt.** GAP-Zahlen sind jetzt klickbar statt reiner
+      Anzeige. `ProjectOverviewTab.tsx`: bei `schedule`-Status ≠ grün/grau erscheint
+      "Ursache in der Planung ansehen →" (Link zur Planung-Tab), bei
+      `capacity.allocation_gap_fte < 0` "Geeignete Ressourcen suchen →" (führt ebenfalls zur
+      Planung, wo die 26.3-Kandidatenliste je `ResourceDemand`-Zelle bereits existiert), bei
+      offenen Blockern "Blocker ansehen →" (zur Kommunikation). Neue Seite
+      `frontend/src/views/PortfolioHealth.tsx` (Route `/portfolio-health`, neuer Nav-Punkt
+      unter "Controlling") nutzt die bisher komplett ungenutzten Portfolio-Controlling-
+      Endpunkte aus Phase 23 (`GET /controlling/portfolio-health`,
+      `GET /controlling/allocation-gaps?period=`): Tabelle mit allen neun Health-Dimensionen
+      je Projekt (farbige Punkte, Projektname verlinkt zum Workspace) sowie eine nach
+      Schweregrad sortierte Liste aller Kapazitätsengpässe der aktuellen Periode
+      (`current_period()`-Format lokal nachgebildet, da der Endpoint einen expliziten
+      `period`-Query-Parameter erwartet), Klick führt zur Planung des betroffenen Projekts.
+      Kein Backend-Change nötig — 26.3 hatte den einzigen für Phase 26 nötigen neuen
+      Endpunkt bereits geliefert.
+      **Wichtiger Fund während der Verifikation:** `allocation_gap` wird im Backend mit zwei
+      gegensätzlichen Vorzeichenkonventionen berechnet — `ResourceDemandOut.allocation_gap`
+      (`routers/capacity.py`) und `PortfolioAllocationGapEntry.allocation_gap`
+      (`routers/controlling.py`) berechnen beide `fte - assigned_fte` (**positiv =
+      Unterdeckung**), während `CockpitCapacity.allocation_gap_fte` (`routers/health.py`)
+      spiegelverkehrt `assigned_fte - fte` berechnet (**negativ = Unterdeckung**). Der
+      Docstring-Kommentar auf `ResourceDemandOut.allocation_gap` in `schemas.py` ist dabei
+      selbst irreführend (er behauptet "negativ = Unterdeckung", was der tatsächlichen
+      Formel widerspricht) — vorgefundener Bestandsfehler in einem Kommentar, bewusst nicht
+      angefasst, um keine unbeauftragte Backend-Änderung vorzunehmen. Die neuen UI-Stellen
+      wurden auf die jeweils tatsächliche (nicht die dokumentierte) Formel abgestimmt:
+      `ResourceDemandGrid.tsx` (26.3) färbte die Gap-Anzeige ursprünglich bei `< 0` rot —
+      korrigiert auf `> 0`; `PortfolioHealth.tsx` filterte/sortierte ursprünglich auf `< 0` —
+      korrigiert auf `> 0` mit absteigender Sortierung (größte Unterdeckung zuerst).
+      `ProjectOverviewTab.tsx`s `cockpit.capacity.allocation_gap_fte < 0`-Vergleich war von
+      Anfang an korrekt, da das Cockpit die entgegengesetzte Konvention verwendet.
+      Verifiziert: Testszenario mit zwei Projekten (Frankenfeld 1,2 FTE, Muster AG 0,8 FTE,
+      beide unzugeordnet) — `GET /controlling/allocation-gaps` bestätigt beide Werte
+      positiv; nach der Korrektur zeigen sowohl die Grid-Zelle in `ResourceDemandGrid.tsx`
+      als auch die Engpass-Liste in `PortfolioHealth.tsx` beide Fälle korrekt rot, sortiert
+      nach Schweregrad (Frankenfeld vor Muster AG); Cockpit-Ansicht von Frankenfeld zeigt
+      weiterhin korrekt "Gap -1.20 FTE" mit rotem "Geeignete Ressourcen suchen →"-Link;
+      Playwright-Screenshots aller drei Ansichten bestätigen konsistente Rot-Färbung; `npm
+      run build` fehlerfrei.
+    - **26.8 (Document Context) — ✅ erledigt, ohne Code-Änderung.** Die `entity_links`-
+      Registry unterstützt `blocker`/`plan_phase`/`milestone` bereits vollständig seit
+      26.2/26.4: `EntityType` in `frontend/src/types.ts` enthält alle drei seit 26.2
+      (`plan_phase`/`milestone`) bzw. 26.4 (`blocker`); `AttachmentPicker`/`AttachmentList`
+      sind in `BlockerList.tsx`, `PlanPhaseList.tsx` und `MilestoneList.tsx` bereits exakt
+      nach dem Muster aus `DecisionList.tsx`/`RiskList.tsx` eingebunden;
+      `entity_links.py::_resolve_entity_label` löst alle drei Typen bereits mit sprechendem
+      Label auf (`Blocker „…“`/`Planphase „…“`/`Milestone „…“`), und
+      `ProjectDocumentsTab.tsx`s "Verwendet in"-Anzeige ist generisch über `doc.used_in`
+      implementiert, ohne Typ-Sonderfälle im Frontend. Diese Sub-Phase bestand daher nur aus
+      Verifikation, keiner Implementierung. Verifiziert: frisches Testprojekt, je ein
+      Dokument an einen Blocker, eine PlanPhase und einen Milestone gehängt (curl,
+      `POST /projects/{id}/documents` mit `entity_type=blocker|plan_phase|milestone`),
+      `GET /projects/{id}/documents` liefert für alle drei das korrekte `used_in`-Label;
+      Playwright-Screenshot des Dokumente-Tabs bestätigt alle drei Backlinks ("Verwendet in:
+      Milestone „GoLive“" / "Planphase „Konfiguration“" / "Blocker „Zugang fehlt“") korrekt
+      im UI.
+    - **26.9 (Legacy Cutover) — ✅ erledigt.** Die alten Excel-abgeleiteten Parallelmodelle
+      sind real entfernt, nicht dauerhaft als Bridge stehen geblieben (Nutzerentscheidung:
+      Datenverlust in der aktiven Entwicklungsphase akzeptiert). `Team` bleibt bestehen, nur
+      `TeamMember`/`Assignment` fallen weg — "Mitglied eines Teams" wird seitdem über
+      `ResourceProfile.team_id` ausgedrückt (existierte bereits seit Phase 14).
+      **Migrationen:** `0012` (additiv) ergänzt `Person.jira_account_id`, befüllt per
+      `UPDATE ... FROM team_members` (jeder `TeamMember` hat seit Migration `0003` bereits
+      eine verknüpfte `Person`, daher kein Fuzzy-Namensabgleich nötig). `0013` (destruktiv)
+      löscht `gantt_phases`/`project_gantt_phases`/`fte_plan`/`project_fte_plan`/
+      `assignments`/`team_members` sowie `projects.projektleiter` (Freitext, seit 26.1 durch
+      `projektleiter_person_id` als alleinige Quelle abgelöst). `alembic check` bestätigt
+      keine Drift zwischen Migration und `models.py`; voller Upgrade/Downgrade/Upgrade-
+      Roundtrip auf einer frischen SQLite-DB verifiziert.
+      **Vor dem Tabellen-Drop rewired (sonst hätten mehrere produktiv genutzte Endpunkte
+      500er geworfen):**
+      - `jira_sync.py` (`sync_project`/`berechne_ist_fte`): `TeamMember`-Lookups →
+        `Person.jira_account_id` + `ResourceProfile.weekly_hours` (Join über `person_id`).
+      - `gap_analysis.py`: `_soll_je_monat()` summiert jetzt `ResourceDemand.fte` je
+        Projekt/Periode statt `FtePlan`/`ProjectFtePlan` zu lesen — **wichtiger Fund während
+        der Umsetzung, nicht im ursprünglichen Plan enthalten:** diese Funktion ist über
+        `project_gap()` die Soll-Quelle für die Gap-Analyse-/Forecast-Seiten, den
+        Portfolio-Mini-Gap-Indikator auf dem Dashboard **und** die "Aufwand"-Dimension des
+        Cockpit-Health (`health_calc._effort_health`) — ohne diese Umstellung wären diese vier
+        Stellen nach dem Tabellen-Drop dauerhaft leer/kaputt gewesen, nicht nur für neu
+        geplante Projekte wie in 26.2 in Kauf genommen. `projekte_fuer_team()`: Team-Filter-
+        Join von `Assignment`/`TeamMember.team_id` auf
+        `ResourceAssignment`→`ResourceDemand`→`Project`, Teamzugehörigkeit einer Person über
+        `ResourceProfile.team_id`.
+      - `routers/export.py` (PPTX-Export, Projekt- und Portfolio-Ebene) — **zweiter,
+        ebenfalls nicht im ursprünglichen Plan enthaltener Fund:** `_build_config()` griff
+        direkt auf `p.gantt_phases`/`p.fte_plan`/`sp.gantt_phases`/`sp.fte_plan` zu. Neu:
+        `_plan_phasen_dict()` rekonstruiert das Monat→Phasenkürzel-Raster aus `PlanPhase`
+        (Zeitraum `forecast_start`/`-end`, ersatzweise `baseline_start`/`-end`, gegen die
+        Monatsgrenzen geprüft) plus `Milestone` (Zieldatum als `"?"`-Marker) — das feste
+        Kürzel-/Farbschema des externen `PLX_generate_pptx.js`-Skripts (`p`/`k`/`t`/`s`/`g`/`?`)
+        bleibt dabei unverändert, `PlanPhase.phase_type`-Werte außerhalb dieses Vokabulars
+        werden ausgelassen statt das Skript brechen zu lassen. FTE kommt über
+        `gap_analysis.project_gap(db, p)["soll"]`. Teilprojekt-FTE entfällt (`ResourceDemand`
+        kennt keine Teilprojekt-Ebene mehr), Teilprojekt-Phasen bleiben (`PlanPhase.subproject_id`-
+        Filter).
+      - `capacity_calc.py`: neue Funktion `compute_portfolio_utilization(db, period)` —
+        periodenscharfe Auslastung je Person (`ResourceAssignment`-Summe über alle
+        `ResourceDemand` einer Periode ÷ `compute_person_capacity(...).nominal_fte`), ersetzt
+        `routers/team.py::compute_utilization()` (statisch, ohne Perioden-/Abwesenheits-
+        berücksichtigung). Neues Schema `PortfolioUtilizationEntry` ersetzt `MemberUtilizationOut`.
+      - `routers/team.py`: `TeamMember`/`Assignment`-CRUD entfernt (Mitgliederverwaltung lebt
+        jetzt in `routers/people.py`: `Person`-CRUD + `POST/PUT /people/{id}/resource-profile`,
+        beides bereits seit Phase 14 vorhanden). `Team`-CRUD bleibt; `delete_team` setzt jetzt
+        `ResourceProfile.team_id = NULL` statt `TeamMember.team_id`. `GET /team/utilization`
+        bekommt einen `period`-Query-Parameter (Default `current_period()`).
+        `routers/kpis.py` (zweiter, bisher unentdeckter Verbraucher von `compute_utilization`)
+        entsprechend umgestellt.
+      **Frontend:** `TeamCapacity.tsx` komplett umgebaut — Team-CRUD unverändert,
+      Mitgliederverwaltung jetzt `Person`+`ResourceProfile` (zwei verkettete API-Calls beim
+      Anlegen: `createPerson` dann `createResourceProfile`), Jira-Account-Matching-Flow
+      inhaltlich unverändert (Zielfeld wechselt von `TeamMember` zu `Person`). Die
+      cross-projekt "Zuordnungen"-Ansicht (MA↔Projekt-FTE ohne Rolle/Periode) ist ersatzlos
+      entfernt — durch `ResourceDemand`/`ResourceAssignment` (26.3, Projekt-Detail) bereits
+      vollständig fachlich abgelöst; "Teammitglied entfernen" ist jetzt "Deaktivieren"
+      (`Person.active=false`, nicht-destruktiv, da `Person` von vielen FKs referenziert wird —
+      bewusste Verhaltensänderung gegenüber dem alten Hard-Delete, konsistent mit dem
+      Soft-Delete-Muster, das `Person` in der Administration schon immer nutzt).
+      `Utilization.tsx` auf `PortfolioUtilizationEntry` umgestellt. **Team-Zuordnung-Karte in
+      `ProjectPlanningTab.tsx` entfernt** (durch das 26.3-Ressourcen-Raster bereits vollständig
+      ersetzt). `PhaseRows.tsx` gelöscht (seit 26.2 unreferenziert). `ProjectSettingsTab.tsx`
+      schreibt nur noch `projektleiter_person_id` (kein Freitext-Doppelschreiben mehr).
+      `PortfolioDashboard.tsx`, `Administration.tsx`: keine Änderung nötig. Tote Typen/Client-
+      Methoden entfernt (`TeamMember`, `TeamWithMembers`, `Assignment`, `ProjectAssignment`,
+      `setProjectPhasen`/`setProjectFte`/`setPhasen`/`setFte`, `listMembers`/`createMember`/
+      `updateMember`/`deleteMember`/`createAssignment`/`deleteAssignment`).
+      **Verifiziert:** curl-Regressionsdurchlauf gegen eine frische Test-DB (Projekt anlegen,
+      Team+Person+ResourceProfile anlegen, Projektleiter per Person-FK setzen, PlanPhase+
+      Milestone planen, ResourceDemand+ResourceAssignment anlegen, Blocker anlegen) —
+      Cockpit/Portfolio-Health/Allocation-Gaps/Gap-Analyse/Forecast/Team-Utilization/KPIs/
+      Team-gefilterte-Gap-Analyse liefern durchgängig konsistente, korrekte Werte; Jira-Ist-FTE-
+      Berechnung mit einem seed­eten Worklog-Cache-Eintrag ergibt exakt den erwarteten Wert
+      über `Person.jira_account_id`; Person-Deaktivierung entfernt sie korrekt aus der
+      Auslastungsansicht. PPTX-Export (Projekt- und Portfolio-Ebene) tatsächlich ausgeführt
+      (nicht nur die Anfrage) — erzeugte Datei per ZIP-Entpacken inspiziert: Phasenbalken
+      "Konfiguration" über die richtigen Monate, Meilenstein-Marker in der richtigen Spalte,
+      FTE-Zeile mit dem korrekten `ResourceDemand`-Wert. `alembic upgrade head`/`downgrade`/
+      `upgrade`-Roundtrip sowie `alembic check` (keine Drift) auf frischer SQLite-DB. Grep über
+      Backend und Frontend bestätigt keine verbliebenen Referenzen auf die entfernten Modelle/
+      Endpunkte/Typen (nur noch historische Erwähnungen in Kommentaren). Playwright-Screenshots
+      von Team-Kapazität, Auslastung, Planung-Tab (keine Team-Zuordnung-Karte mehr),
+      Einstellungen (Projektleiter korrekt aufgelöst), Gap-Analyse, Dashboard, Cockpit
+      (Aufwand-Dimension jetzt rot dank Ist-Daten), Portfolio Health, KPIs — keine
+      Konsolenfehler; `npm run build` (TypeScript strict + Vite) fehlerfrei.
+      **Damit ist Phase 26 (Functional Integration) vollständig abgeschlossen** — das Frontend
+      läuft durchgängig auf der Kapazitätsplaner-v2-Zielarchitektur, keine Excel-abgeleiteten
+      Parallelmodelle mehr im Schema.
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–26 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt, siehe Punkt 26 oben für den Unterschritt-Fortschritt (26.1–26.9, alle abgeschlossen).
 
 ---
 
@@ -982,21 +1300,24 @@ vorschlägt — siehe Abschnitt 6a), `PlanHistory` (Audit-Trail), `Comment`, `De
 `Task`, `MeetingMinutes`, die komplette Jira/Tempo-Integration (`jira_client.py`,
 `tempo_client.py`, `jira_sync.py`, `JiraWorklogCache`).
 
-**B — vorhanden, aber erweiterungsbedürftig (spätere Phasen, nicht Teil dieses Durchgangs):**
-- `GanttPhase`/`ProjectGanttPhase` (1-Zeichen-Phasencode, reine Monatszellen) → `PlanPhase`
-  existiert seit Phase 17 als strukturiertes Modell daneben (additiv, siehe Abschnitt 11
-  Punkt 17), aber noch **ohne** Sync: Das Gantt-Grid bleibt weiterhin unverändert die
-  Bedienoberfläche und einzige Quelle für bestehende Projekte; `PlanPhase` wird erst in einer
-  späteren, UI-getriebenen Phase schrittweise zur befüllten fachlichen Source of Truth (siehe
-  Frage 5 unten) — bewusst kein Sync-Automatismus ohne definierten Migrationspfad.
-- `backend/app/gap_analysis.py` (Soll/Ist/Gap + Trendfortschreibung) → Basis für die künftige
-  GAP-Engine mit getrennten GAP-Arten (Phase 21). Die heutige Logik wird nicht ersetzt,
-  sondern als ein Fall (Capacity-/Effort-Gap) in das größere Modell integriert.
-- `Assignment`/`FtePlan`/`ProjectFtePlan` (FTE direkt als Zahl, kein getrenntes
-  Bedarf/Zuordnung-Konzept) → Basis für `ResourceDemand` + Assignment-Trennung (Phase 19).
-- `Team`/`TeamMember` (siehe unten, Frage 4) → `Person`+`ResourceProfile` existieren seit
-  Phase 14, `TeamMember` bleibt aber vorerst die für Assignment/Utilization maßgebliche
-  Kapazitätsressource (additiv verknüpft über `person_id`, kein Ersatz).
+**B — vollständig abgelöst (Phase 26.9 Legacy Cutover, siehe Abschnitt 11 Punkt 26):** Diese
+Kategorie ist mit dem Legacy Cutover leergeräumt — die vier ehemaligen B-Einträge wurden real
+entfernt statt dauerhaft als Bridge zu bestehen (Nutzerentscheidung, Datenverlust in der
+aktiven Entwicklungsphase akzeptiert):
+- `GanttPhase`/`ProjectGanttPhase` (1-Zeichen-Phasencode, reine Monatszellen) — **entfernt**
+  (Migration `0013`). `PlanPhase` (seit Phase 17) ist seit 26.2 die alleinige Bedienoberfläche
+  und seit 26.9 auch die alleinige Datenquelle, inkl. `routers/export.py` (PPTX).
+- `backend/app/gap_analysis.py` (Soll/Ist/Gap + Trendfortschreibung) — **Soll-Quelle
+  umgestellt**: `_soll_je_monat()` liest seit 26.9 `ResourceDemand` statt `FtePlan`/
+  `ProjectFtePlan`; die Funktion selbst bleibt (weiterhin Basis für Effort-Gap in der
+  GAP-Engine, Phase 21).
+- `Assignment`/`FtePlan`/`ProjectFtePlan` — **entfernt** (Migration `0013`).
+  `ResourceDemand`/`ResourceAssignment` (seit Phase 19, UI seit 26.3) sind die alleinige
+  Quelle für Ressourcenbedarf/-zuordnung.
+- `TeamMember` (siehe unten, Frage 4) — **entfernt** (Migration `0013`).
+  `Person`+`ResourceProfile` (seit Phase 14, UI seit 26.9) sind die alleinige
+  Kapazitätsressource; `Person.jira_account_id` (Migration `0012`) übernimmt die
+  Jira-Verknüpfung.
 
 **C — neu, davon umgesetzt:**
 Phase 13: `TagCategory`, `EntityRelation`, Entity-/Relation-Type-Vokabular (siehe Abschnitt 11
@@ -1049,6 +1370,9 @@ automatische Ressourcenoptimierung.
    nicht unbeobachtet mit einem zweiten `weekly_hours`-Wert auseinanderlaufen kann;
    `ResourceProfile` wird erst bei Bedarf explizit angelegt (`POST
    /people/{id}/resource-profile`). `jira_account_id` bleibt vorerst an `TeamMember`.
+   **Update Phase 26.9 (Legacy Cutover):** `TeamMember` real entfernt (Migration `0013`),
+   `jira_account_id` auf `Person` verschoben (Migration `0012`) — siehe Abschnitt 11 Punkt 26
+   und die aktualisierte B-Kategorie in Abschnitt 12.2.
 5. **`GanttPhase` → `PlanPhase` ohne zwei Sources of Truth:** ✅ Modell seit Phase 17
    umgesetzt (Baseline/Forecast/Actual-Start/-Ende statt nur Monat+Code), **Sync/UI-Wechsel
    bewusst noch offen**. Das bestehende Gantt-Grid bleibt unverändert die Bedienoberfläche und
@@ -1060,6 +1384,9 @@ automatische Ressourcenoptimierung.
    Zellen-Darstellung berechnet. Beides ist bewusst nicht Teil von Phase 17, um keinen
    Sync-Automatismus ohne definierten UI-Bedarf zu bauen (Prinzip: Komplexität nur dort
    hinzufügen, wo sie konkrete Projektsteuerung verbessert).
+   **Update Phase 26.2/26.9:** Der Umbau ist erfolgt — `ProjectPlanningTab.tsx` schreibt seit
+   26.2 direkt gegen `PlanPhase`, `GanttPhase`/`ProjectGanttPhase` sind seit 26.9 real entfernt
+   (Migration `0013`), kein Konvertierungsskript für Bestandsdaten (Nutzerentscheidung).
 6. **Bestehende Soll-/Ist-GAP-Logik in die künftige GAP-Engine:** `gap_analysis.project_gap()`
    liefert bereits Soll/Ist/Gap/Hochrechnung je Projekt/Monat — das entspricht in der
    GAP-Engine-Terminologie der Master-MD im Kern dem Capacity-/Effort-Gap. Phase 21 kapselt
@@ -1111,7 +1438,27 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
+| 26 | Functional Integration | ✅ (26.1 Person Integration, 26.2 Planning Integration, 26.3 Capacity Integration, 26.4 Activity Integration, 26.5 Knowledge Integration, 26.6 Cockpit Integration, 26.7 Actionable GAPs, 26.8 Document Context, 26.9 Legacy Cutover — alle abgeschlossen) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbunden, alte Excel-abgeleiteten Parallelmodelle real entfernt, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt |
+| 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
+| 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
+| 29 | AI Project Agent | später, siehe Bucket D unten |
+
+**Phase-26-Entscheidung (Neunummerierung):** Die bisherige Phase 26 "KI-Readiness Review"
+rückt auf Phase 28. Grund: Phasen 13–25 haben ein vollständiges "Zielarchitektur"-Backend
+gebaut (Person, Blocker, PlanPhase/Milestone, Baseline, ResourceDemand/ResourceAssignment,
+Real Capacity, GAP Engine, Project Health/Cockpit, Controlling, Knowledge Layer), aber jede
+dieser Phasen endet mit "Kein Frontend-Umbau" — das Frontend lief bis Phase 26 weiterhin fast
+vollständig auf dem alten Excel-abgeleiteten Modell (`GanttPhase`/`FtePlan`/`TeamMember`/
+`Assignment`, Freitext-Zuordnungsfelder, sechs Einzel-Fetches statt `/cockpit`, keine
+Blocker-/Activity-Feed-/Tag-Dossier-UI). Phase 26 baut bewusst **keine neuen Backend-Modelle**,
+sondern verbindet die vorhandenen Bausteine zu echten End-to-End-Workflows (Unterschritte
+26.1 Person Integration, 26.2 Planning Integration, 26.3 Capacity Integration, 26.4 Activity
+Integration, 26.5 Knowledge Integration, 26.6 Cockpit Integration, 26.7 Actionable GAPs, 26.8
+Document Context, 26.9 Legacy Cutover). Anders als bei Phase 14 (`TeamMember`→`Person`) ist
+hier **kein dauerhafter Parallelbetrieb** das Ziel: da sich das Projekt noch in aktiver
+Entwicklung befindet, werden die alten Parallelmodelle (`GanttPhase`/`FtePlan`/`Assignment`/
+`TeamMember`, Freitext-Owner-Felder) in 26.9 nach erfolgreicher Umstellung real entfernt statt
+auf unbestimmte Zeit als Bridge bestehen zu bleiben.
 
 **Phase-25-Architekturentscheidung:** Die Administration ist eine eigene globale Route
 `/administration` und bündelt vorhandene fachliche Sources of Truth, statt Stammdaten im

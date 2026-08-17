@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { GapAnalysis as GapAnalysisT, GapStatus, TeamWithMembers } from "../types";
+import type { GapAnalysis as GapAnalysisT, GapStatus, Team } from "../types";
 
 const STATUS_LABEL: Record<GapStatus, string> = {
   gruen: "im Plan",
@@ -70,7 +70,7 @@ function ProjectGapCard({ gap }: { gap: GapAnalysisT }) {
 
 export default function GapAnalysis() {
   const [gaps, setGaps] = useState<GapAnalysisT[]>([]);
-  const [teams, setTeams] = useState<TeamWithMembers[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [teamId, setTeamId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

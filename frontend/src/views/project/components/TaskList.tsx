@@ -3,7 +3,10 @@ import { api } from "../../../api/client";
 import AttachmentList from "../../../components/AttachmentList";
 import AttachmentPicker from "../../../components/AttachmentPicker";
 import ConfirmDialog from "../../../components/ConfirmDialog";
+import PersonPicker from "../../../components/PersonPicker";
+import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
+import usePeopleMap from "../../../hooks/usePeopleMap";
 import { TASK_STATUS_LABELS, type Task, type TaskStatus } from "../../../types";
 
 function formatDate(iso: string | null): string {
@@ -24,13 +27,14 @@ export default function TaskList({
 }) {
   const [titel, setTitel] = useState("");
   const [beschreibung, setBeschreibung] = useState("");
-  const [zustaendig, setZustaendig] = useState("");
+  const [zustaendigPersonId, setZustaendigPersonId] = useState<number | null>(null);
   const [faelligAm, setFaelligAm] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Task | null>(null);
+  const people = usePeopleMap();
 
   const handleAdd = async () => {
     if (!titel.trim()) return;
@@ -40,7 +44,7 @@ export default function TaskList({
       const task = await api.createTask(projectId, {
         titel: titel.trim(),
         beschreibung: beschreibung.trim() || null,
-        zustaendig: zustaendig.trim() || null,
+        zustaendig_person_id: zustaendigPersonId,
         faellig_am: faelligAm || null,
         tags,
       });
@@ -49,7 +53,7 @@ export default function TaskList({
       }
       setTitel("");
       setBeschreibung("");
-      setZustaendig("");
+      setZustaendigPersonId(null);
       setFaelligAm("");
       setTags([]);
       setFiles([]);
@@ -105,19 +109,17 @@ export default function TaskList({
               </div>
             </div>
             {t.beschreibung && <p style={{ margin: "0.35rem 0" }}>{t.beschreibung}</p>}
-            {(t.zustaendig || t.faellig_am) && (
+            {(t.zustaendig_person_id != null || t.faellig_am) && (
               <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: 0 }}>
-                {t.zustaendig && `Zuständig: ${t.zustaendig}`}
-                {t.zustaendig && t.faellig_am && " · "}
+                {t.zustaendig_person_id != null && `Zuständig: ${people.get(t.zustaendig_person_id) ?? "…"}`}
+                {t.zustaendig_person_id != null && t.faellig_am && " · "}
                 {t.faellig_am && `Fällig am ${formatDate(t.faellig_am)}`}
               </p>
             )}
             {t.tags.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
                 {t.tags.map((tag) => (
-                  <span key={tag} style={{ fontSize: "0.75rem", color: "var(--blau)" }}>
-                    #{tag}
-                  </span>
+                  <TagChip key={tag} name={tag} />
                 ))}
               </div>
             )}
@@ -138,7 +140,7 @@ export default function TaskList({
         <div className="field-row" style={{ marginTop: 0 }}>
           <label>
             Zuständig
-            <input value={zustaendig} onChange={(e) => setZustaendig(e.target.value)} placeholder="optional" />
+            <PersonPicker value={zustaendigPersonId} onChange={setZustaendigPersonId} />
           </label>
           <label>
             Fällig am

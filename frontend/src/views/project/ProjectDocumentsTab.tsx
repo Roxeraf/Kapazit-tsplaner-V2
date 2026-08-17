@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import TagChip from "../../components/TagChip";
 import TagInput from "../../components/TagInput";
 import { CATEGORY_ICONS, CATEGORY_LABELS, categorize, type DocumentCategory } from "../../documentIcons";
 import type { Document } from "../../types";
@@ -152,9 +153,7 @@ export default function ProjectDocumentsTab() {
                   {doc.tags.length > 0 && (
                     <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
                       {doc.tags.map((t) => (
-                        <span key={t} style={{ fontSize: "0.75rem", color: "var(--blau)" }}>
-                          #{t}
-                        </span>
+                        <TagChip key={t} name={t} />
                       ))}
                     </div>
                   )}

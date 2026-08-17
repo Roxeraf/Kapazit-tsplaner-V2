@@ -3,6 +3,7 @@ import { api } from "../../../api/client";
 import AttachmentList from "../../../components/AttachmentList";
 import AttachmentPicker from "../../../components/AttachmentPicker";
 import ConfirmDialog from "../../../components/ConfirmDialog";
+import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
 import type { MeetingMinutes } from "../../../types";
 
@@ -96,9 +97,7 @@ export default function MeetingMinutesList({
             {m.tags.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
                 {m.tags.map((t) => (
-                  <span key={t} style={{ fontSize: "0.75rem", color: "var(--blau)" }}>
-                    #{t}
-                  </span>
+                  <TagChip key={t} name={t} />
                 ))}
               </div>
             )}

@@ -25,11 +25,34 @@ import type {
   JiraSyncResult,
   KpiSummary,
   MeetingMinutes,
-  MemberUtilization,
+  PortfolioUtilizationEntry,
+  ResourceProfile,
+  ActivityItem,
+  BaselineSnapshot,
+  BaselineSnapshotSummary,
+  Blocker,
+  BlockerParty,
+  BlockerStatus,
+  BlockerSeverity,
+  CandidatePerson,
+  CommitmentLevel,
+  EntityRelation,
+  Milestone,
+  MilestoneStatus,
   PlanHistoryEntry,
+  PlanPhase,
+  PlanPhaseStatus,
   ProjectDetail,
+  ProjectMembership,
   ProjectStatus,
   ProjectSummary,
+  PortfolioAllocationGapEntry,
+  ProjectControlCockpit,
+  ProjectHealth,
+  RelationType,
+  ResourceAssignment,
+  ResourceDemand,
+  TagDossier,
   Risk,
   RiskLevel,
   RiskStatus,
@@ -39,8 +62,6 @@ import type {
   Task,
   TaskStatus,
   Team,
-  TeamMember,
-  TeamWithMembers,
   UnassignedAuthor,
 } from "../types";
 
@@ -94,7 +115,7 @@ export const api = {
       anzahl_monate: number;
       jira_component: string | null;
       status: ProjectStatus;
-      projektleiter: string | null;
+      projektleiter_person_id: number | null;
       kommentar_id: number | null;
       batch_id: string | null;
     }>,
@@ -109,91 +130,185 @@ export const api = {
     }),
   deleteSubproject: (subprojectId: number) =>
     request<void>(`/projects/subprojects/${subprojectId}`, { method: "DELETE" }),
-  setProjectPhasen: (
-    projectId: number,
-    monat: string,
-    codes: string[],
-    kommentar_id?: number | null,
-    batch_id?: string | null,
-  ) =>
-    request<ProjectDetail>(`/projects/${projectId}/phasen`, {
-      method: "PUT",
-      body: JSON.stringify({ monat, codes, kommentar_id, batch_id }),
-    }),
-  setProjectFte: (
-    projectId: number,
-    monat: string,
-    wert_soll: number,
-    kommentar_id?: number | null,
-    batch_id?: string | null,
-  ) =>
-    request<ProjectDetail>(`/projects/${projectId}/fte`, {
-      method: "PUT",
-      body: JSON.stringify({ monat, wert_soll, kommentar_id, batch_id }),
-    }),
-  setPhasen: (
-    subprojectId: number,
-    monat: string,
-    codes: string[],
-    kommentar_id?: number | null,
-    batch_id?: string | null,
-  ) =>
-    request(`/projects/subprojects/${subprojectId}/phasen`, {
-      method: "PUT",
-      body: JSON.stringify({ monat, codes, kommentar_id, batch_id }),
-    }),
-  setFte: (
-    subprojectId: number,
-    monat: string,
-    wert_soll: number,
-    kommentar_id?: number | null,
-    batch_id?: string | null,
-  ) =>
-    request(`/projects/subprojects/${subprojectId}/fte`, {
-      method: "PUT",
-      body: JSON.stringify({ monat, wert_soll, kommentar_id, batch_id }),
-    }),
   updateSubproject: (subprojectId: number, payload: { name?: string; reihenfolge?: number }) =>
     request<SubprojectDetail>(`/projects/subprojects/${subprojectId}`, {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
   listAllSubprojects: () => request<SubprojectListItem[]>("/projects/subprojects/all"),
+
+  // Planung (Phase 26.2): PlanPhase/Milestone/Baseline ersetzen ab jetzt Gantt/FTE als
+  // Bedienoberfläche (backend/app/routers/planning.py, routers/baselines.py)
+  listPlanPhases: (projectId: number) => request<PlanPhase[]>(`/projects/${projectId}/plan-phases`),
+  createPlanPhase: (
+    projectId: number,
+    payload: {
+      subproject_id?: number | null;
+      phase_type: string;
+      baseline_start?: string | null;
+      baseline_end?: string | null;
+      forecast_start?: string | null;
+      forecast_end?: string | null;
+      actual_start?: string | null;
+      actual_end?: string | null;
+      status?: PlanPhaseStatus;
+      progress?: number | null;
+      owner_person_id?: number | null;
+      owner_team_id?: number | null;
+      tags?: string[];
+    },
+  ) => request<PlanPhase>(`/projects/${projectId}/plan-phases`, { method: "POST", body: JSON.stringify(payload) }),
+  updatePlanPhase: (
+    planPhaseId: number,
+    payload: Partial<{
+      subproject_id: number | null;
+      phase_type: string;
+      baseline_start: string | null;
+      baseline_end: string | null;
+      forecast_start: string | null;
+      forecast_end: string | null;
+      actual_start: string | null;
+      actual_end: string | null;
+      status: PlanPhaseStatus;
+      progress: number | null;
+      owner_person_id: number | null;
+      owner_team_id: number | null;
+      tags: string[];
+    }>,
+  ) => request<PlanPhase>(`/projects/plan-phases/${planPhaseId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deletePlanPhase: (planPhaseId: number) => request<void>(`/projects/plan-phases/${planPhaseId}`, { method: "DELETE" }),
+
+  listMilestones: (projectId: number) => request<Milestone[]>(`/projects/${projectId}/milestones`),
+  createMilestone: (
+    projectId: number,
+    payload: {
+      subproject_id?: number | null;
+      name: string;
+      baseline_date?: string | null;
+      forecast_date?: string | null;
+      actual_date?: string | null;
+      status?: MilestoneStatus;
+      owner_person_id?: number | null;
+      owner_team_id?: number | null;
+      tags?: string[];
+    },
+  ) => request<Milestone>(`/projects/${projectId}/milestones`, { method: "POST", body: JSON.stringify(payload) }),
+  updateMilestone: (
+    milestoneId: number,
+    payload: Partial<{
+      subproject_id: number | null;
+      name: string;
+      baseline_date: string | null;
+      forecast_date: string | null;
+      actual_date: string | null;
+      status: MilestoneStatus;
+      owner_person_id: number | null;
+      owner_team_id: number | null;
+      tags: string[];
+    }>,
+  ) => request<Milestone>(`/projects/milestones/${milestoneId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteMilestone: (milestoneId: number) => request<void>(`/projects/milestones/${milestoneId}`, { method: "DELETE" }),
+
+  listBaselines: (projectId: number) => request<BaselineSnapshotSummary[]>(`/projects/${projectId}/baselines`),
+  createBaseline: (projectId: number, payload: { name: string; created_by_person_id?: number | null }) =>
+    request<BaselineSnapshot>(`/projects/${projectId}/baselines`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteBaseline: (baselineId: number) => request<void>(`/projects/baselines/${baselineId}`, { method: "DELETE" }),
+
+  // Kapazität (Phase 26.3): ResourceDemand/ResourceAssignment ersetzen ab jetzt das alte
+  // FTE-Raster (backend/app/routers/capacity.py)
+  listResourceDemands: (projectId: number) => request<ResourceDemand[]>(`/projects/${projectId}/resource-demands`),
+  createResourceDemand: (
+    projectId: number,
+    payload: { plan_phase_id?: number | null; resource_role_id: number; period: string; fte?: number; commitment_level?: CommitmentLevel },
+  ) => request<ResourceDemand>(`/projects/${projectId}/resource-demands`, { method: "POST", body: JSON.stringify(payload) }),
+  updateResourceDemand: (
+    demandId: number,
+    payload: Partial<{ plan_phase_id: number | null; resource_role_id: number; period: string; fte: number; commitment_level: CommitmentLevel }>,
+  ) => request<ResourceDemand>(`/projects/resource-demands/${demandId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteResourceDemand: (demandId: number) => request<void>(`/projects/resource-demands/${demandId}`, { method: "DELETE" }),
+
+  listResourceAssignments: (demandId: number) => request<ResourceAssignment[]>(`/resource-demands/${demandId}/assignments`),
+  createResourceAssignment: (demandId: number, payload: { person_id: number; fte?: number }) =>
+    request<ResourceAssignment>(`/resource-demands/${demandId}/assignments`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteResourceAssignment: (assignmentId: number) => request<void>(`/resource-assignments/${assignmentId}`, { method: "DELETE" }),
+  getResourceDemandCandidates: (demandId: number) => request<CandidatePerson[]>(`/resource-demands/${demandId}/candidates`),
+
+  // Blocker (Phase 26.4, backend/app/routers/communication.py)
+  listBlockers: (projectId: number) => request<Blocker[]>(`/projects/${projectId}/blockers`),
+  createBlocker: (
+    projectId: number,
+    payload: {
+      title: string;
+      description?: string | null;
+      status?: BlockerStatus;
+      severity?: BlockerSeverity;
+      active_since?: string | null;
+      caused_by_party?: BlockerParty;
+      waiting_for_party?: BlockerParty;
+      owner_person_id?: number | null;
+      owner_team_id?: number | null;
+      next_action?: string | null;
+      impact?: string | null;
+      tags?: string[];
+    },
+  ) => request<Blocker>(`/projects/${projectId}/blockers`, { method: "POST", body: JSON.stringify(payload) }),
+  updateBlocker: (
+    blockerId: number,
+    payload: Partial<{
+      title: string;
+      description: string | null;
+      status: BlockerStatus;
+      severity: BlockerSeverity;
+      active_since: string | null;
+      caused_by_party: BlockerParty;
+      waiting_for_party: BlockerParty;
+      owner_person_id: number | null;
+      owner_team_id: number | null;
+      next_action: string | null;
+      impact: string | null;
+      tags: string[];
+    }>,
+  ) => request<Blocker>(`/projects/blockers/${blockerId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteBlocker: (blockerId: number) => request<void>(`/projects/blockers/${blockerId}`, { method: "DELETE" }),
+
+  // Activity Feed + EntityRelation (Phase 26.4, backend/app/routers/communication.py,knowledge.py)
+  getActivity: (projectId: number, limit?: number) =>
+    request<ActivityItem[]>(`/projects/${projectId}/activity${limit ? `?limit=${limit}` : ""}`),
+  createEntityRelation: (payload: {
+    source_entity_type: EntityType;
+    source_entity_id: number;
+    target_entity_type: EntityType;
+    target_entity_id: number;
+    relation_type: RelationType;
+  }) => request<EntityRelation>("/entity-relations", { method: "POST", body: JSON.stringify(payload) }),
+
+  // Project Control Cockpit (Phase 26.6, backend/app/routers/health.py)
+  getCockpit: (projectId: number) => request<ProjectControlCockpit>(`/projects/${projectId}/cockpit`),
+
+  // Controlling & Capacity Intelligence (Phase 26.7, backend/app/routers/controlling.py)
+  getPortfolioHealth: () => request<ProjectHealth[]>("/controlling/portfolio-health"),
+  getAllocationGaps: (period: string) =>
+    request<PortfolioAllocationGapEntry[]>(`/controlling/allocation-gaps?period=${encodeURIComponent(period)}`),
+
+  // Tag-Dossiers (Phase 26.5, backend/app/routers/knowledge.py)
+  getTagDossier: (tags: string[], mode: "and" | "or" = "and", projectId?: number) => {
+    const query = new URLSearchParams({ tags: tags.join(","), mode });
+    if (projectId !== undefined) query.set("project_id", String(projectId));
+    return request<TagDossier>(`/knowledge/tags/dossier?${query.toString()}`);
+  },
+
   exportPptxUrl: (projectId: number) => `${API_BASE}/projects/${projectId}/export/pptx`,
   exportPortfolioPptxUrl: () => `${API_BASE}/projects/export/pptx/portfolio`,
 
-  // Team-Kapazität
-  listTeams: () => request<TeamWithMembers[]>("/team"),
-  listMembers: () => request<TeamMember[]>("/team/members"),
+  // Team-Kapazität (Phase 26.9: Mitgliederverwaltung läuft über Person/ResourceProfile,
+  // siehe listPeople/createPerson/updatePerson/getResourceProfile weiter unten)
+  listTeams: () => request<Team[]>("/team"),
   listUnassignedAuthors: () => request<UnassignedAuthor[]>("/team/unassigned-authors"),
   createTeam: (name: string) =>
     request<Team>("/team/teams", { method: "POST", body: JSON.stringify({ name }) }),
   updateTeam: (teamId: number, payload: { name?: string }) =>
     request<Team>(`/team/teams/${teamId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteTeam: (teamId: number) => request<void>(`/team/teams/${teamId}`, { method: "DELETE" }),
-  createMember: (payload: {
-    name: string;
-    jira_account_id?: string | null;
-    wochenstunden?: number;
-    team_id?: number | null;
-  }) => request<TeamMember>("/team/members", { method: "POST", body: JSON.stringify(payload) }),
-  updateMember: (
-    memberId: number,
-    payload: Partial<{
-      name: string;
-      jira_account_id: string | null;
-      wochenstunden: number;
-      team_id: number | null;
-    }>,
-  ) => request<TeamMember>(`/team/members/${memberId}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deleteMember: (memberId: number) => request<void>(`/team/members/${memberId}`, { method: "DELETE" }),
-  createAssignment: (memberId: number, projectId: number, fte: number) =>
-    request<TeamMember>(`/team/members/${memberId}/assignments`, {
-      method: "POST",
-      body: JSON.stringify({ project_id: projectId, fte }),
-    }),
-  deleteAssignment: (assignmentId: number) =>
-    request<void>(`/team/assignments/${assignmentId}`, { method: "DELETE" }),
 
   // Jira-Ist-Integration
   jiraStatus: () => request<JiraStatus>("/jira/status"),
@@ -279,7 +394,7 @@ export const api = {
       titel: string;
       beschreibung?: string | null;
       status?: DecisionStatus;
-      entschieden_von?: string | null;
+      entschieden_von_person_id?: number | null;
       entschieden_am?: string | null;
       tags?: string[];
     },
@@ -290,7 +405,7 @@ export const api = {
       titel: string;
       beschreibung: string | null;
       status: DecisionStatus;
-      entschieden_von: string | null;
+      entschieden_von_person_id: number | null;
       entschieden_am: string | null;
       tags: string[];
     }>,
@@ -306,7 +421,7 @@ export const api = {
       wahrscheinlichkeit?: RiskLevel;
       auswirkung?: RiskLevel;
       status?: RiskStatus;
-      owner?: string | null;
+      owner_person_id?: number | null;
       faellig_am?: string | null;
       tags?: string[];
     },
@@ -319,7 +434,7 @@ export const api = {
       wahrscheinlichkeit: RiskLevel;
       auswirkung: RiskLevel;
       status: RiskStatus;
-      owner: string | null;
+      owner_person_id: number | null;
       faellig_am: string | null;
       tags: string[];
     }>,
@@ -353,7 +468,7 @@ export const api = {
       titel: string;
       beschreibung?: string | null;
       status?: TaskStatus;
-      zustaendig?: string | null;
+      zustaendig_person_id?: number | null;
       faellig_am?: string | null;
       tags?: string[];
     },
@@ -364,7 +479,7 @@ export const api = {
       titel: string;
       beschreibung: string | null;
       status: TaskStatus;
-      zustaendig: string | null;
+      zustaendig_person_id: number | null;
       faellig_am: string | null;
       tags: string[];
     }>,
@@ -372,15 +487,51 @@ export const api = {
   deleteTask: (taskId: number) => request<void>(`/projects/tasks/${taskId}`, { method: "DELETE" }),
 
   // Controlling-Erweiterung: Auslastung & KPIs (siehe CONCEPT.md Abschnitt 6/9, Schritt 9)
-  getUtilization: () => request<MemberUtilization[]>("/team/utilization"),
+  getUtilization: (period?: string) =>
+    request<PortfolioUtilizationEntry[]>(`/team/utilization${period ? `?period=${encodeURIComponent(period)}` : ""}`),
   getKpis: () => request<KpiSummary>("/kpis"),
 
-  // Fachliche Administration (Phase 25)
-  listPeople: () => request<AdminPerson[]>("/people"),
-  createPerson: (payload: { display_name: string; email?: string | null }) =>
+  // Fachliche Administration (Phase 25) + projektweiter PersonPicker (Phase 26.1)
+  listPeople: (search?: string) =>
+    request<AdminPerson[]>(`/people${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+  createPerson: (payload: { display_name: string; email?: string | null; jira_account_id?: string | null }) =>
     request<AdminPerson>("/people", { method: "POST", body: JSON.stringify(payload) }),
-  updatePerson: (id: number, payload: Partial<Pick<AdminPerson, "display_name" | "email" | "active">>) =>
-    request<AdminPerson>(`/people/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  updatePerson: (
+    id: number,
+    payload: Partial<Pick<AdminPerson, "display_name" | "email" | "active" | "jira_account_id">>,
+  ) => request<AdminPerson>(`/people/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+
+  // ResourceProfile (Phase 14/26.9) - macht eine Person kapazitätsplanbar/teamzugehörig.
+  getResourceProfile: (personId: number) =>
+    request<ResourceProfile | null>(`/people/${personId}/resource-profile`),
+  createResourceProfile: (
+    personId: number,
+    payload: { team_id?: number | null; weekly_hours?: number; capacity_relevant?: boolean; active?: boolean },
+  ) =>
+    request<ResourceProfile>(`/people/${personId}/resource-profile`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateResourceProfile: (
+    personId: number,
+    payload: Partial<{ team_id: number | null; weekly_hours: number; capacity_relevant: boolean; active: boolean }>,
+  ) =>
+    request<ResourceProfile>(`/people/${personId}/resource-profile`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  // Projektteam (Phase 14, ab Phase 26.1 im Frontend genutzt)
+  listProjectMemberships: (projectId: number) =>
+    request<ProjectMembership[]>(`/projects/${projectId}/memberships`),
+  createProjectMembership: (projectId: number, personId: number, projectRoleId: number) =>
+    request<ProjectMembership>(`/projects/${projectId}/memberships`, {
+      method: "POST",
+      body: JSON.stringify({ person_id: personId, project_role_id: projectRoleId }),
+    }),
+  deleteProjectMembership: (membershipId: number) =>
+    request<void>(`/project-memberships/${membershipId}`, { method: "DELETE" }),
+
   listProjectRoles: () => request<AdminProjectRole[]>("/project-roles"),
   createProjectRole: (payload: { name: string; description?: string }) => request<AdminProjectRole>("/project-roles", { method: "POST", body: JSON.stringify(payload) }),
   updateProjectRole: (id: number, payload: Partial<Omit<AdminProjectRole, "id">>) => request<AdminProjectRole>(`/project-roles/${id}`, { method: "PUT", body: JSON.stringify(payload) }),

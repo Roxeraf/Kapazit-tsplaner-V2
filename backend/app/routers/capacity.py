@@ -1,15 +1,14 @@
 """Capacity Planning Core (Phase 19, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt
 14-19). Grundsatz "Demand ≠ Assignment": ResourceDemand wird zunächst unabhängig von
-konkreten Personen geplant, erst ResourceAssignment ordnet ihn Personen zu - komplett
-unabhängig vom bestehenden Assignment-Modell (TeamMember<->Project, siehe routers/team.py).
-Folgt demselben CRUD-Muster wie routers/people.py/planning.py."""
+konkreten Personen geplant, erst ResourceAssignment ordnet ihn Personen zu. Folgt demselben
+CRUD-Muster wie routers/people.py/planning.py."""
 
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from .. import capacity_calc, models, schemas
 from ..database import get_db
 
 router = APIRouter(tags=["capacity"])
@@ -319,3 +318,57 @@ def delete_resource_assignment(assignment_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Ressourcenzuordnung nicht gefunden")
     db.delete(assignment)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Kandidaten (Phase 26.3): Personen mit freier Kapazität für einen ResourceDemand -
+# einzige echte neue Backend-Logik der Phase 26, sonst reine Wiederverwendung bestehender
+# CRUD-Endpunkte. Keine Rollen-/Skill-Filterung möglich (siehe CandidatePersonOut-Docstring).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/resource-demands/{demand_id}/candidates", response_model=list[schemas.CandidatePersonOut])
+def list_resource_demand_candidates(demand_id: int, db: Session = Depends(get_db)):
+    demand = _get_resource_demand_or_404(db, demand_id)
+
+    already_assigned = {
+        a.person_id
+        for a in db.query(models.ResourceAssignment.person_id)
+        .filter(models.ResourceAssignment.resource_demand_id == demand_id)
+        .all()
+    }
+
+    # Gleiche Grundmenge wie capacity_calc.compute_capacity_gap: aktive, kapazitätsrelevante
+    # Personen mit ResourceProfile.
+    persons = (
+        db.query(models.Person)
+        .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
+        .filter(models.Person.active.is_(True), models.ResourceProfile.capacity_relevant.is_(True))
+        .all()
+    )
+
+    candidates: list[schemas.CandidatePersonOut] = []
+    for person in persons:
+        if person.id in already_assigned:
+            continue
+        capacity = capacity_calc.compute_person_capacity(db, person.id, demand.period)
+        if capacity is None or capacity.available_fte <= 0:
+            continue
+        skill_rows = (
+            db.query(models.Skill.name)
+            .join(models.PersonSkill, models.PersonSkill.skill_id == models.Skill.id)
+            .filter(models.PersonSkill.person_id == person.id)
+            .order_by(models.Skill.name)
+            .all()
+        )
+        candidates.append(
+            schemas.CandidatePersonOut(
+                person_id=person.id,
+                display_name=person.display_name,
+                available_fte=capacity.available_fte,
+                skills=[name for (name,) in skill_rows],
+            )
+        )
+
+    candidates.sort(key=lambda c: c.available_fte, reverse=True)
+    return candidates

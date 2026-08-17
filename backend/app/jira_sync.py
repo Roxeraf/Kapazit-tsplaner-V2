@@ -23,8 +23,8 @@ MAX_UNBEKANNTE_BEISPIELE = 5
 def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[dict]]:
     """Holt Worklogs aus Jira für die Component/Label des Projekts und cached sie.
 
-    Nur Buchungen von MA mit bekanntem `jira_account_id` (siehe team_members) werden
-    übernommen, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
+    Nur Buchungen von Personen mit bekanntem `jira_account_id` (siehe models.Person, Phase
+    26.9) werden übernommen, da sonst keine Wochenstunden für die FTE-Umrechnung bekannt sind.
 
     Rückgabe: (Anzahl gecachter Worklogs, Anzahl unzugeordneter Buchungen, Beispiele
     unbekannter Autoren als {"account_id", "display_name"} — zum Abgleich mit den in den
@@ -50,8 +50,8 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
     raw_worklogs = list(aggregiert.values())
 
     known_account_ids = {
-        m.jira_account_id
-        for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
+        p.jira_account_id
+        for p in db.query(models.Person).filter(models.Person.jira_account_id.isnot(None))
     }
 
     gespeichert = 0
@@ -125,8 +125,13 @@ def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:
         return {}
 
     wochenstunden_by_account = {
-        m.jira_account_id: m.wochenstunden
-        for m in db.query(models.TeamMember).filter(models.TeamMember.jira_account_id.isnot(None))
+        person.jira_account_id: profile.weekly_hours
+        for person, profile in (
+            db.query(models.Person, models.ResourceProfile)
+            .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
+            .filter(models.Person.jira_account_id.isnot(None))
+            .all()
+        )
     }
 
     stunden_je_ma_monat: dict[tuple[str, str], float] = {}

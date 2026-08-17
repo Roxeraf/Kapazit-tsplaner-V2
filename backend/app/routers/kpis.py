@@ -5,9 +5,9 @@ keine neue Tabelle."""
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from .. import gap_analysis, models, schemas
+from .. import capacity_calc, gap_analysis, models, schemas
+from ..constants import current_period
 from ..database import get_db
-from .team import compute_utilization
 
 router = APIRouter(tags=["kpis"])
 
@@ -21,7 +21,8 @@ def get_kpis(db: Session = Depends(get_db)):
     for p in gap_projekte:
         status_counts[gap_analysis.project_gap(db, p)["status"]] += 1
 
-    auslastungen = [u.auslastung_pct for u in compute_utilization(db) if u.auslastung_pct is not None]
+    utilization = capacity_calc.compute_portfolio_utilization(db, current_period())
+    auslastungen = [u.auslastung_pct for u in utilization if u.auslastung_pct is not None]
     durchschnittliche_auslastung = round(sum(auslastungen) / len(auslastungen), 1) if auslastungen else None
 
     offene_risiken = db.query(models.Risk).filter(models.Risk.status != "geschlossen").count()

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
+import PersonPicker from "../../components/PersonPicker";
 import { PROJECT_STATUS_LABELS, type JiraComponent, type JiraProject, type ProjectStatus } from "../../types";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
+import ProjectTeamSection from "./components/ProjectTeamSection";
 
 export default function ProjectSettingsTab() {
   const { project, reload } = useProjectWorkspace();
@@ -51,8 +53,8 @@ export default function ProjectSettingsTab() {
     reload();
   };
 
-  const handleProjektleiterChange = async (raw: string) => {
-    await api.updateProject(project.id, { projektleiter: raw.trim() || null });
+  const handleProjektleiterChange = async (personId: number | null) => {
+    await api.updateProject(project.id, { projektleiter_person_id: personId });
     reload();
   };
 
@@ -80,14 +82,13 @@ export default function ProjectSettingsTab() {
           </label>
           <label>
             Projektleiter
-            <input
-              key={project.projektleiter ?? ""}
-              defaultValue={project.projektleiter ?? ""}
-              placeholder="z. B. Max Mustermann"
-              onBlur={(e) => handleProjektleiterChange(e.target.value)}
-            />
+            <PersonPicker value={project.projektleiter_person_id} onChange={handleProjektleiterChange} />
           </label>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: "1.25rem" }}>
+        <ProjectTeamSection projectId={project.id} />
       </div>
 
       <div className="card">

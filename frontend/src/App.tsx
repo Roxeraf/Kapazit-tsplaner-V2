@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import PortfolioDashboard from "./views/PortfolioDashboard";
 import TeamCapacity from "./views/TeamCapacity";
 import GapAnalysis from "./views/GapAnalysis";
+import PortfolioHealth from "./views/PortfolioHealth";
 import Forecast from "./views/Forecast";
 import Utilization from "./views/Utilization";
 import Kpis from "./views/Kpis";
@@ -44,6 +45,9 @@ function AppShell() {
           </div>
           <div className="app-nav-group" aria-label="Controlling">
             <span className="app-nav-group-label">Controlling</span>
+            <NavLink to="/portfolio-health" onClick={guardedNavigate("/portfolio-health")}>
+              Portfolio Health
+            </NavLink>
             <NavLink to="/gap" onClick={guardedNavigate("/gap")}>
               Gap-Analyse
             </NavLink>
@@ -86,6 +90,7 @@ function AppShell() {
             <Route path="historie" element={<ProjectHistoryTab />} />
             <Route path="einstellungen" element={<ProjectSettingsTab />} />
           </Route>
+          <Route path="/portfolio-health" element={<PortfolioHealth />} />
           <Route path="/team" element={<TeamCapacity />} />
           <Route path="/jira-projekte" element={<JiraProjects />} />
           <Route path="/gap" element={<GapAnalysis />} />

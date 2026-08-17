@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.3 — Projekt-Workspace, Kommunikation/Dokumentenablage und Controlling-Erweiterung umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand)
+**Status:** v0.4 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung und Phase 13 (Technisches Fundament der Kapazitätsplaner-v2-Zielarchitektur) umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -296,7 +296,7 @@ ist bewusst zurückgestellt, siehe Abschnitt 10.
 - Hochrechnungsmethode: reicht Trendfortschreibung, oder wird Restaufwand-basierte Variante von Anfang an gebraucht?
 - Datenhoheit Team-Kapazität: eigene Pflege im Tool oder Anbindung an Personal-/HR-Datenquelle? (aktuell: eigene Pflege im Tool, siehe Abschnitt 11)
 - Periodischer Jira-Sync-Job (Cron/Scheduler) statt manuellem Auslösen über die UI
-- Kein Alembic/Migrationstool im Repo — Schemaänderungen an bestehenden (nicht-SQLite-frischen) Datenbanken erfordern aktuell manuelle Anpassung
+- ~~Kein Alembic/Migrationstool im Repo — Schemaänderungen an bestehenden (nicht-SQLite-frischen) Datenbanken erfordern aktuell manuelle Anpassung~~ Umgesetzt (Phase 13): Alembic eingeführt, siehe Abschnitt 12.1.
 - Ebene 1 (Projektmanagement) / Ebene 2 (Controlling) ist reine Navigations-Gruppierung, keine Zugriffskontrolle — es gibt kein Rollen-/Login-System im Repo (siehe Abschnitt 7); wird hier bewusst festgehalten, damit das nicht spätestens beim nächsten KI-Prompt fälschlich als vorhandene RBAC angenommen wird
 - Projektleiter (`projects.projektleiter`) ist bewusst ein Freitextfeld statt FK, da es kein Personen-/User-Verzeichnis im Repo gibt — spätere Ausbaustufe: FK auf ein Personen-Verzeichnis, sobald eines existiert
 - ~~"Offene Aufgaben" auf dem Übersicht-Tab ist für die MVP bewusst ein Alias auf `offene Entscheidungen + offene Risiken` — es gibt (noch) kein eigenständiges Aufgaben-/Task-Modell~~ Umgesetzt (Schritt 10): echtes `tasks`-Modell, "Offene Aufgaben" zeigt jetzt echte offene Tasks zusätzlich zu Risiken/Entscheidungen (drei erkennbare Gruppen mit eigenem Icon). `zustaendig` ist bewusst Freitext (wie `Risk.owner`), kein FK auf `TeamMember` — konsistent zur Projektleiter-Entscheidung oben, da es kein Personen-/User-Verzeichnis für Zuweisungen gibt
@@ -341,6 +341,191 @@ Dieses Repo enthält:
     Playwright: Aufgabe mit Tag+Anhang anlegen, Status ändern, Anzeige auf Übersicht-Tab
     und in KPIs, keine Regressionen auf den bestehenden Tabs/Views.
 
-Details zu Aufbau und lokalem Betrieb siehe [`README.md`](README.md).
+13. **Phase 13 (Technisches Fundament, Kapazitätsplaner-v2-Zielarchitektur):** Alembic
+    eingeführt (`backend/alembic/`) — Baseline-Migration `0001` bildet exakt das Schema ab,
+    das vorher per `create_all()`+ad-hoc-`ALTER TABLE` in `main.py` erzeugt wurde; Folge-
+    Migration `0002` ergänzt `tag_categories` und `entity_relations`. `backend/app/
+    db_bootstrap.py` entscheidet beim App-Start automatisch zwischen "frische DB" (`alembic
+    upgrade head` führt beide Migrationen real aus) und "bestehende, bereits befüllte DB"
+    (einmaliges `alembic stamp 0001`, danach `upgrade head` nur für `0002` ff.) — verifiziert
+    gegen eine simulierte Alt-DB mit Bestandsdaten (Daten blieben erhalten, kein Datenverlust).
+    Neue Modelle: `TagCategory` (`tags.category_id` nullable FK, bestehende Tags bleiben ohne
+    Kategorie gültig) und `EntityRelation` (gerichtete, typisierte Beziehung zwischen zwei
+    beliebigen Entitäten, z.B. `decision` `resulted_in` `task` — folgt exakt dem bestehenden
+    `TagLink`/`DocumentLink`-Muster aus Abschnitt 6a). Neue Endpunkte: `GET/POST
+    /tag-categories`, `PATCH /tags/{id}`, `POST/GET/DELETE /entity-relations` (`backend/app/
+    routers/documents.py` bzw. neuer Router `backend/app/routers/knowledge.py`); Helper
+    `entity_links.create_relation`/`relations_for`/`delete_relations_for_entity`. Vokabular
+    (`entity_type`, neu `relation_type`) zentral in `schemas.py` (`EntityType`/`RelationType`)
+    statt eines separaten Moduls, da `EntityType` dort bereits die etablierte Konvention war.
+    Verifiziert per curl gegen laufenden Server: Tag-Kategorie anlegen, Tag zuordnen, Relation
+    zwischen Decision und Task anlegen/auflisten (auch von der Zielseite aus)/löschen,
+    Duplikat-Konflikt (409) auf Kategorienamen, bestehende Endpunkte (`/projects`, `/gap`,
+    `/tags`) weiterhin unverändert funktionsfähig. Kein Frontend-Umbau (siehe Abschnitt 12,
+    "Phase 13 in diesem Durchgang"). Details zur Zielarchitektur und den Folgephasen siehe
+    Abschnitt 12.
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) umgesetzt.
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13 der Zielarchitektur (Abschnitt 12) umgesetzt.
+
+---
+
+## 12. Zielarchitektur v2
+
+Ausgangspunkt dieses Abschnitts ist die vom Auftraggeber vorgegebene Master-Architektur
+("Kapazitätsplaner v2 – Gesamtarchitektur- und Umsetzungsplan"). Sie beschreibt die
+Weiterentwicklung dieses Tools zu einem integrierten Project-Control- und
+Capacity-Management-System: Projektplanung, Kapazitätsplanung, eine Plan-/Ist-/
+Forecast-GAP-Engine, Projektsteuerung (Aktivität/Blocker/Entscheidungen), eine semantische
+Wissensbasis (Tags/Relationen als Knowledge Graph) und Controlling — alle auf denselben
+fachlichen Daten, mit einem später folgenden KI-Agenten als letzter Ausbaustufe. Leitidee:
+
+> Planen → Ressourcen absichern → Durchführung verfolgen → Abweichungen erkennen → Ursachen
+> verstehen → Maßnahmen ableiten.
+
+Die Master-MD selbst schreibt vor, nicht blind alle neuen Modelle zu implementieren, sondern
+zuerst den bestehenden Code gegen dieses Zielbild zu spiegeln und das Ergebnis hier zu
+dokumentieren — genau das leistet dieser Abschnitt, bevor mit Phase 13 begonnen wird.
+
+### 12.1 Migrationsstrategie (Alembic)
+
+Siehe Abschnitt 11 Punkt 13 für den vollständigen Umsetzungsstand. Kurzfassung der Strategie:
+
+- Jede künftige Schemaänderung ist eine Alembic-Revision unter `backend/alembic/versions/` —
+  **keine neuen ad-hoc `ALTER TABLE`-Anweisungen mehr** in `main.py` oder anderswo.
+- `backend/alembic/env.py` liest `DATABASE_URL` aus `app.database` (keine doppelt gepflegte
+  Connection-String-Quelle) und nutzt `Base.metadata` für Autogenerate — neue Modelle in
+  `models.py` werden per `alembic revision --autogenerate -m "..."` erfasst.
+- Baseline (`0001`) entspricht exakt dem Schema, das vor Phase 13 per `create_all()` +
+  ad-hoc-`ALTER TABLE` erzeugt wurde (SQLite-Dev wie Postgres-Prod).
+- `db_bootstrap.run_migrations()` (aufgerufen beim App-Start in `main.py`) unterscheidet drei
+  Fälle: (a) DB kennt bereits `alembic_version` → normales `upgrade head`; (b) frische DB
+  (weder `alembic_version` noch `projects` vorhanden) → `upgrade head` führt die Baseline real
+  aus; (c) bestehende, bereits befüllte DB ohne `alembic_version` (heutiger Dev-/Prod-Stand)
+  → einmaliges `stamp 0001`, danach `upgrade head` nur für die Migrationen ab `0002`. Damit
+  bleibt der bisherige Betriebs-Workflow (`uvicorn app.main:app`, Docker-`CMD` unverändert)
+  erhalten — die Migration läuft beim Start, wie zuvor `create_all()`.
+- SQLite-Besonderheit: `ALTER TABLE ... ADD CONSTRAINT` wird von SQLite nicht unterstützt;
+  entsprechende Migrationsschritte (z.B. `tags.category_id`-FK in `0002`) laufen über Alembics
+  `batch_alter_table` (Copy-Move-Strategie), was unter Postgres identisch als normales
+  `ALTER TABLE` funktioniert.
+
+### 12.2 Mapping bestehender Code → Zielarchitektur (A/B/C/D)
+
+Klassifikation nach dem A/B/C/D-Schema der Master-MD, hier konkret auf tatsächliche
+Klassen/Dateien dieses Repos bezogen (nicht nur abstrakt aus der Master-MD übernommen):
+
+**A — unverändert nutzbar:**
+`Tag`/`TagLink`, `Document`/`DocumentLink` (bereits das generische
+`entity_type`+`entity_id`-Verknüpfungsmuster, das die Master-MD für `EntityRelation`
+vorschlägt — siehe Abschnitt 6a), `PlanHistory` (Audit-Trail), `Comment`, `Decision`, `Risk`,
+`Task`, `MeetingMinutes`, die komplette Jira/Tempo-Integration (`jira_client.py`,
+`tempo_client.py`, `jira_sync.py`, `JiraWorklogCache`).
+
+**B — vorhanden, aber erweiterungsbedürftig (spätere Phasen, nicht Teil dieses Durchgangs):**
+- `GanttPhase`/`ProjectGanttPhase` (1-Zeichen-Phasencode, reine Monatszellen) → Basis für ein
+  strukturiertes `PlanPhase`-Modell (Phase 17). Das Gantt-Grid bleibt dabei laut Master-MD die
+  Bedienoberfläche; `PlanPhase` wird schrittweise die fachliche Source of Truth dahinter,
+  ohne zwei parallele Wahrheiten zu erzeugen (siehe Frage 5 unten).
+- `backend/app/gap_analysis.py` (Soll/Ist/Gap + Trendfortschreibung) → Basis für die künftige
+  GAP-Engine mit getrennten GAP-Arten (Phase 21). Die heutige Logik wird nicht ersetzt,
+  sondern als ein Fall (Capacity-/Effort-Gap) in das größere Modell integriert.
+- `Assignment`/`FtePlan`/`ProjectFtePlan` (FTE direkt als Zahl, kein getrenntes
+  Bedarf/Zuordnung-Konzept) → Basis für `ResourceDemand` + Assignment-Trennung (Phase 19).
+- `Team`/`TeamMember` (siehe unten, Frage 4) → Basis für `Person`+`ResourceProfile` (Phase 14).
+
+**C — neu, davon in diesem Durchgang (Phase 13) umgesetzt:**
+`TagCategory`, `EntityRelation`, Entity-/Relation-Type-Vokabular (siehe Abschnitt 11 Punkt 13).
+Alle übrigen aus der Master-MD (`Person`, `ResourceProfile`, `ProjectMembership`,
+`ProjectRole`, `Permission`, `AppRole`, `Blocker`, `PlanPhase`, `Milestone`,
+`BaselineSnapshot`/`BaselineEntry`, `ResourceRole`, `Skill`/`PersonSkill`, `ResourceDemand`,
+`CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte GAP-Engine,
+mehrdimensionales Project Health, Administration-UI) bleiben für die jeweils zugeordnete
+spätere Phase vorgemerkt (siehe Phasenplan unten) — **nicht Teil dieses Durchgangs**.
+
+**D — bewusst später (unverändert aus der Master-MD):**
+KI Project Agent, Vector-/Embedding-Layer, Enterprise-SSO, vollständiger Enterprise-Sync,
+What-if-/Szenarioplanung, automatische Blocker-Erstellung, KI-basierte Restaufwandsschätzung,
+automatische Ressourcenoptimierung.
+
+### 12.3 Antworten auf die Prüffragen (Master-MD, "Nächster konkreter Schritt")
+
+1. **Unverändert bleibende Modelle:** siehe A oben.
+2. **Erweiterungsbedürftige Modelle:** siehe B oben.
+3. **Tatsächlich notwendige neue Modelle (Phase 13):** `TagCategory`, `EntityRelation` — alle
+   übrigen neuen Modelle der Master-MD werden erst in ihrer jeweiligen Phase notwendig, nicht
+   vorab angelegt (Prinzip "keine destruktive/vorgezogene Migration ohne konkreten Bedarf").
+4. **`TeamMember` → `Person` + `ResourceProfile`:** `TeamMember` vermischt aktuell drei
+   Konzepte (Person, Jira-Identität, Kapazitätsressource). Migrationspfad für Phase 14: neues,
+   schlankes `Person`-Modell (`id`, `display_name`, `email`, `source` ∈
+   {`LOCAL`,`ENTERPRISE_PLATFORM`}) plus `ResourceProfile` (`person_id`, `team_id`,
+   `weekly_hours`, `capacity_relevant`) — `TeamMember` bleibt zunächst als Tabelle bestehen,
+   bekommt aber ein nullable `person_id`-FK; bestehende `TeamMember`-Zeilen werden per
+   Best-Effort-Skript 1:1 in `Person`+`ResourceProfile` gespiegelt (Name → `display_name`,
+   `wochenstunden` → `weekly_hours`, `jira_account_id` bleibt vorerst an `TeamMember`, bis
+   Phase 14 entscheidet, ob es zu `Person` wandert). Keine destruktive Migration:
+   `TeamMember` wird nicht gelöscht, solange Assignment/Jira-Sync noch darauf referenzieren.
+5. **`GanttPhase` → `PlanPhase` ohne zwei Sources of Truth:** Phase 17 führt `PlanPhase` als
+   zusätzliches, strukturierteres Modell ein (Baseline/Forecast/Actual-Start/-Ende statt nur
+   Monat+Code). Das bestehende Gantt-Grid bleibt die Bedienoberfläche (UI ändert sich nicht);
+   im Hintergrund wird `PlanPhase` schrittweise befüllt und der GAP/Health-Berechnung
+   vorgezogen, bis `GanttPhase` nur noch eine abgeleitete Darstellung von `PlanPhase` ist,
+   nicht mehr selbst Source of Truth. Kein Big-Bang-Wechsel.
+6. **Bestehende Soll-/Ist-GAP-Logik in die künftige GAP-Engine:** `gap_analysis.project_gap()`
+   liefert bereits Soll/Ist/Gap/Hochrechnung je Projekt/Monat — das entspricht in der
+   GAP-Engine-Terminologie der Master-MD im Kern dem Capacity-/Effort-Gap. Phase 21 kapselt
+   diese Funktion unverändert als eine von mehreren GAP-Arten (Capacity/Allocation/Effort/
+   Schedule/Progress/Utilization-Gap) hinter einer gemeinsamen Fassade, statt sie zu ersetzen.
+7. **Weiterverwendbare Jira-Berechnungen:** `jira_sync.berechne_ist_fte` (Stunden→FTE-
+   Umrechnung) ist die Actual-Effort-Quelle der Master-MD (Abschnitt 23) und bleibt 1:1
+   erhalten — neue Ist-Dimensionen (Actual Start/End einer `PlanPhase`, Actual Date eines
+   `Milestone`) ergänzen sie in späteren Phasen, ersetzen sie nicht.
+8. **Migrationen Phase 13–21:** Phase 13 (dieser Durchgang) = `0001` Baseline, `0002`
+   TagCategory/EntityRelation. Phase 14 (Person/ResourceProfile/ProjectRole/Permission) und
+   Phase 17–21 (PlanPhase/Milestone/Baseline/ResourceDemand/CapacityCalendar/GAP-Engine)
+   folgen als weitere, additive Alembic-Revisionen — jeweils mit nullable FKs und
+   Best-Effort-Mapping bestehender Daten, keine destruktiven Migrationen (siehe
+   Entwicklungsprinzip 20 der Master-MD).
+9. **APIs, die kompatibel bleiben müssen:** alle bestehenden Endpunkte unter `/projects`,
+   `/team`, `/gap`, `/forecast`, `/kpis`, `/jira`, `/documents`, `/tags` — Phase 13 ändert an
+   keinem davon das Response-Schema, `GET /tags` liefert lediglich zusätzlich `category_id`.
+10. **Wiederverwendbare UI-Komponenten:** `TagInput`, `AttachmentPicker`/`AttachmentList`,
+    `HistoryTimeline`, `Tabs` — alle bleiben unverändert nutzbar; für spätere Phasen (z.B.
+    Tag-Kategorie-Auswahl, Relation-Anzeige) sind sie die erwarteten Anknüpfungspunkte statt
+    neuer Parallel-Komponenten.
+11. **Technische Schulden vor neuen Features:** Alembic fehlend war die größte offene Schuld
+    (Abschnitt 10) — mit Phase 13 behoben. Verbleibend, aber bewusst nicht Teil dieses
+    Durchgangs: `GapSnapshot`-Modell existiert, wird aber nirgends beschrieben (weder
+    Endpunkt noch Job) — Entscheidung für Phase 18/21, ob es reaktiviert oder durch die neue
+    GAP-Engine ersetzt wird; `EntityRelation`/`TagCategory` sind in Phase 13 bewusst noch
+    nicht in Lösch-Kaskaden (z.B. `delete_project`) verdrahtet, um den Durchgang minimal-
+    invasiv zu halten — nachzuholen, sobald eine Entität mit Relationen tatsächlich löschbar
+    sein muss.
+
+### 12.4 Phasenplan 13–26 (Ausblick)
+
+Phase 13 ist mit diesem Durchgang umgesetzt (siehe Abschnitt 11 Punkt 13). Phasen 14–26 sind
+Ausblick auf Basis der Master-MD, **kein Bestandteil dieses Durchgangs**:
+
+| Phase | Titel | Kerninhalt |
+|---|---|---|
+| 13 | Technisches Fundament | ✅ Alembic, TagCategory, EntityRelation |
+| 14 | Personen, Organisation & Permissions | Person, ResourceProfile, ProjectRole, ProjectMembership, Permission, AppRole |
+| 15 | Semantic Knowledge Foundation | Tag-Taxonomie, standardisierte Entity-/Relation-Types, Knowledge Query Layer |
+| 16 | Activity & Blocker Core | Blocker (caused_by/waiting_for), Discussion Threading, Decision Context |
+| 17 | Project Planning Core | PlanPhase, Milestone, Dependencies (Gantt bleibt UI) |
+| 18 | Baseline Management | BaselineSnapshot, BaselineEntry, Baseline vs Forecast |
+| 19 | Capacity Planning Core | ResourceRole, Skill, PersonSkill, ResourceDemand, Commitment-Level |
+| 20 | Real Capacity | CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation |
+| 21 | GAP Engine | Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Drill-down |
+| 22 | Project Control & Health | mehrdimensionales Project Health, Project Control Cockpit |
+| 23 | Controlling & Capacity Intelligence | Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio |
+| 24 | Knowledge Experience | Tag-Dossiers, kombinierte Tags, semantische Suche |
+| 25 | Administration UX | UI für Personen/Teams/Rollen/Permissions/Skills/Tags |
+| 26 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
+
+Details zu Vision, Gesamtmodell und Steuerungskreislauf siehe die Master-Architektur-MD
+("Kapazitätsplaner v2 – Gesamtarchitektur- und Umsetzungsplan").
+
+---
+
+Details zu Aufbau und lokalem Betrieb siehe [`README.md`](README.md).

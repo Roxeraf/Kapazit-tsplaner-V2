@@ -321,6 +321,18 @@ class DocumentLink(Base):
     erstellt_am: Mapped[str] = mapped_column(String(40))
 
 
+class TagCategory(Base):
+    """Fachliche Gruppierung von Tags (z.B. THEMA/PROJEKTPHASE/STAKEHOLDER/STEUERUNG, siehe
+    Kapazitätsplaner-v2-Zielarchitektur, CONCEPT.md Abschnitt 12). Rein additiv: bestehende
+    Tags bleiben ohne Kategorie gültig (Tag.category_id ist nullable)."""
+
+    __tablename__ = "tag_categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
 class Tag(Base):
     """Systemweit wiederverwendbares Tag (nicht projektgebunden)."""
 
@@ -328,6 +340,7 @@ class Tag(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("tag_categories.id"), nullable=True)
 
 
 class TagLink(Base):
@@ -342,6 +355,31 @@ class TagLink(Base):
     tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"))
     entity_type: Mapped[str] = mapped_column(String(30))
     entity_id: Mapped[int] = mapped_column()
+
+
+class EntityRelation(Base):
+    """Explizite semantische Beziehung zwischen zwei beliebigen Entitäten (z.B. Decision
+    `resulted_in` Task, Blocker `blocks` Milestone) - ergänzt die reinen Tag-Verknüpfungen
+    um gerichtete, typisierte Relationen. Siehe Kapazitätsplaner-v2-Zielarchitektur,
+    CONCEPT.md Abschnitt 12 (Knowledge Layer, Master-MD Abschnitt 45)."""
+
+    __tablename__ = "entity_relations"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_entity_type", "source_entity_id", "target_entity_type", "target_entity_id", "relation_type"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_entity_type: Mapped[str] = mapped_column(String(30))
+    source_entity_id: Mapped[int] = mapped_column()
+    target_entity_type: Mapped[str] = mapped_column(String(30))
+    target_entity_id: Mapped[int] = mapped_column()
+    relation_type: Mapped[str] = mapped_column(String(30))
+    created_at: Mapped[str] = mapped_column(String(40))
+    # Freitext/FK-Platzhalter - kein Person-Modell in diesem Durchgang (siehe CONCEPT.md
+    # Abschnitt 12, Phase 14 der Zielarchitektur).
+    created_by_person_id: Mapped[int | None] = mapped_column(nullable=True)
 
 
 class Decision(Base):

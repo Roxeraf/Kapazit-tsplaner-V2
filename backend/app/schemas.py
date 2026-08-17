@@ -118,9 +118,23 @@ class FteUpdate(BaseModel):
 # Zentrale Dokumentenablage, Tags & Kommunikation (siehe CONCEPT.md Abschnitt 6a)
 # ---------------------------------------------------------------------------
 
-# entity_type-Vokabular, geteilt zwischen TagLink und DocumentLink. "document" nur für
-# TagLink relevant (Dokumente sind selbst taggbar, aber nie Ziel eines DocumentLink).
+# entity_type-Vokabular, geteilt zwischen TagLink, DocumentLink und EntityRelation.
+# "document" nur für TagLink relevant (Dokumente sind selbst taggbar, aber nie Ziel eines
+# DocumentLink). Siehe Kapazitätsplaner-v2-Zielarchitektur, CONCEPT.md Abschnitt 12.
 EntityType = Literal["comment", "decision", "risk", "meeting_minutes", "task", "document"]
+
+# relation_type-Vokabular für EntityRelation (Master-MD Abschnitt 45, "Knowledge Layer").
+RelationType = Literal[
+    "related_to",
+    "resulted_in",
+    "based_on",
+    "follow_up",
+    "blocks",
+    "resolves",
+    "depends_on",
+    "supports",
+    "caused_by",
+]
 
 
 class DocumentUsageOut(BaseModel):
@@ -160,9 +174,45 @@ class DocumentLinkOut(BaseModel):
     erstellt_am: str
 
 
+class TagCategoryCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class TagCategoryOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+
+
 class TagOut(BaseModel):
     id: int
     name: str
+    category_id: int | None = None
+
+
+class TagUpdate(BaseModel):
+    category_id: int | None = None
+
+
+class EntityRelationCreate(BaseModel):
+    source_entity_type: EntityType
+    source_entity_id: int
+    target_entity_type: EntityType
+    target_entity_id: int
+    relation_type: RelationType
+    created_by_person_id: int | None = None
+
+
+class EntityRelationOut(BaseModel):
+    id: int
+    source_entity_type: str
+    source_entity_id: int
+    target_entity_type: str
+    target_entity_id: int
+    relation_type: str
+    created_at: str
+    created_by_person_id: int | None
 
 
 class DecisionCreate(BaseModel):

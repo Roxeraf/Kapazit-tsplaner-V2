@@ -140,3 +140,74 @@ def delete_links_for_entity(db: Session, entity_type: str, entity_id: int) -> No
     db.query(models.DocumentLink).filter(
         models.DocumentLink.entity_type == entity_type, models.DocumentLink.entity_id == entity_id
     ).delete()
+
+
+def create_relation(
+    db: Session,
+    source_entity_type: str,
+    source_entity_id: int,
+    target_entity_type: str,
+    target_entity_id: int,
+    relation_type: str,
+    created_by_person_id: int | None = None,
+) -> models.EntityRelation:
+    """Legt eine gerichtete, typisierte Beziehung zwischen zwei Entitäten an (z.B. Decision
+    `resulted_in` Task), siehe CONCEPT.md Abschnitt 12 (Knowledge Layer)."""
+    existing = (
+        db.query(models.EntityRelation)
+        .filter(
+            models.EntityRelation.source_entity_type == source_entity_type,
+            models.EntityRelation.source_entity_id == source_entity_id,
+            models.EntityRelation.target_entity_type == target_entity_type,
+            models.EntityRelation.target_entity_id == target_entity_id,
+            models.EntityRelation.relation_type == relation_type,
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+    relation = models.EntityRelation(
+        source_entity_type=source_entity_type,
+        source_entity_id=source_entity_id,
+        target_entity_type=target_entity_type,
+        target_entity_id=target_entity_id,
+        relation_type=relation_type,
+        created_at=_now(),
+        created_by_person_id=created_by_person_id,
+    )
+    db.add(relation)
+    db.flush()
+    return relation
+
+
+def relations_for(db: Session, entity_type: str, entity_id: int) -> list[models.EntityRelation]:
+    """Alle Relationen, in denen die Entität als Quelle oder Ziel auftritt."""
+    return (
+        db.query(models.EntityRelation)
+        .filter(
+            (
+                (models.EntityRelation.source_entity_type == entity_type)
+                & (models.EntityRelation.source_entity_id == entity_id)
+            )
+            | (
+                (models.EntityRelation.target_entity_type == entity_type)
+                & (models.EntityRelation.target_entity_id == entity_id)
+            )
+        )
+        .order_by(models.EntityRelation.created_at)
+        .all()
+    )
+
+
+def delete_relations_for_entity(db: Session, entity_type: str, entity_id: int) -> None:
+    """Löscht EntityRelation-Zeilen einer gelöschten Entität (als Quelle oder Ziel)."""
+    db.query(models.EntityRelation).filter(
+        (
+            (models.EntityRelation.source_entity_type == entity_type)
+            & (models.EntityRelation.source_entity_id == entity_id)
+        )
+        | (
+            (models.EntityRelation.target_entity_type == entity_type)
+            & (models.EntityRelation.target_entity_id == entity_id)
+        )
+    ).delete(synchronize_session=False)

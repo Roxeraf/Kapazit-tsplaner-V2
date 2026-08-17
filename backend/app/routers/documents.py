@@ -136,4 +136,37 @@ def list_tags(search: str | None = None, db: Session = Depends(get_db)):
     if search:
         query = query.filter(models.Tag.name.ilike(f"%{search}%"))
     tags = query.order_by(models.Tag.name).limit(50).all()
-    return [schemas.TagOut(id=t.id, name=t.name) for t in tags]
+    return [schemas.TagOut(id=t.id, name=t.name, category_id=t.category_id) for t in tags]
+
+
+@router.patch("/tags/{tag_id}", response_model=schemas.TagOut)
+def update_tag(tag_id: int, payload: schemas.TagUpdate, db: Session = Depends(get_db)):
+    tag = db.get(models.Tag, tag_id)
+    if tag is None:
+        raise HTTPException(status_code=404, detail="Tag nicht gefunden")
+    if payload.category_id is not None and db.get(models.TagCategory, payload.category_id) is None:
+        raise HTTPException(status_code=404, detail="Tag-Kategorie nicht gefunden")
+    tag.category_id = payload.category_id
+    db.commit()
+    db.refresh(tag)
+    return schemas.TagOut(id=tag.id, name=tag.name, category_id=tag.category_id)
+
+
+@router.get("/tag-categories", response_model=list[schemas.TagCategoryOut])
+def list_tag_categories(db: Session = Depends(get_db)):
+    categories = db.query(models.TagCategory).order_by(models.TagCategory.name).all()
+    return [
+        schemas.TagCategoryOut(id=c.id, name=c.name, description=c.description) for c in categories
+    ]
+
+
+@router.post("/tag-categories", response_model=schemas.TagCategoryOut, status_code=201)
+def create_tag_category(payload: schemas.TagCategoryCreate, db: Session = Depends(get_db)):
+    existing = db.query(models.TagCategory).filter(models.TagCategory.name == payload.name).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Tag-Kategorie mit diesem Namen existiert bereits")
+    category = models.TagCategory(name=payload.name, description=payload.description)
+    db.add(category)
+    db.commit()
+    db.refresh(category)
+    return schemas.TagCategoryOut(id=category.id, name=category.name, description=category.description)

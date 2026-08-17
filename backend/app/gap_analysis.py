@@ -15,15 +15,16 @@ GAP_SCHWELLE_GELB = 0.10
 GAP_SCHWELLE_ROT = 0.25
 
 
-def _soll_je_monat(db: Session, project: models.Project, monate: list[str]) -> dict[str, float]:
-    """Soll-FTE je Monat aus ResourceDemand (Phase 26.9 Legacy Cutover - ersetzt die
-    Summe aus dem alten FtePlan/ProjectFtePlan-Grid). ResourceDemand ist bereits
-    projektweit ohne Teilprojekt-Unterscheidung modelliert (siehe models.ResourceDemand)."""
+def _soll_je_monat(project: models.Project, monate: list[str]) -> dict[str, float]:
+    """Entspricht routers.projects._project_fte(): Summe aus Teilprojekten (Feinplanung),
+    falls vorhanden, sonst der direkt am Projekt gepflegte Wert (Grundplanung)."""
     soll = dict.fromkeys(monate, 0.0)
-    demands = db.query(models.ResourceDemand).filter(models.ResourceDemand.project_id == project.id).all()
-    for demand in demands:
-        if demand.period in soll:
-            soll[demand.period] += demand.fte
+    quellen = (
+        [f for sp in project.subprojects for f in sp.fte_plan] if project.subprojects else project.fte_plan
+    )
+    for eintrag in quellen:
+        if eintrag.monat in soll:
+            soll[eintrag.monat] += eintrag.wert_soll
     return {m: round(w, 2) for m, w in soll.items()}
 
 
@@ -51,7 +52,7 @@ def gap_status(gap_pct: float | None) -> str:
 def project_gap(db: Session, project: models.Project) -> dict:
     """Soll/Ist/Gap je Monat sowie Hochrechnung Projekt-/Jahresende für ein Projekt."""
     monate = berechne_monate(project.start_monat, project.anzahl_monate)
-    soll = _soll_je_monat(db, project, monate)
+    soll = _soll_je_monat(project, monate)
     ist = jira_sync.berechne_ist_fte(db, project)
     gap = {m: round(ist[m] - soll.get(m, 0.0), 2) for m in ist}
     hochrechnung = _hochrechnung(monate, ist)
@@ -83,9 +84,7 @@ def project_gap(db: Session, project: models.Project) -> dict:
 
 
 def projekte_fuer_team(db: Session, team_id: int | None) -> list[models.Project]:
-    """Projekte, optional gefiltert auf solche mit mind. einer ResourceAssignment einer
-    Person aus dem Team (Phase 26.9 Legacy Cutover - ersetzt den alten Assignment/TeamMember-
-    Join; Teamzugehörigkeit einer Person kommt seitdem aus ResourceProfile.team_id).
+    """Projekte, optional gefiltert auf solche mit mind. einer Zuordnung aus dem Team.
 
     on_hold/archivierte Projekte sind aus der aktiven Kapazitätsplanung ausgeblendet.
     Abgeschlossene Projekte bleiben sichtbar (Tracking-Anforderung).
@@ -97,13 +96,9 @@ def projekte_fuer_team(db: Session, team_id: int | None) -> list[models.Project]
     )
     if team_id is not None:
         query = (
-            query.join(models.ResourceDemand, models.ResourceDemand.project_id == models.Project.id)
-            .join(
-                models.ResourceAssignment,
-                models.ResourceAssignment.resource_demand_id == models.ResourceDemand.id,
-            )
-            .join(models.ResourceProfile, models.ResourceProfile.person_id == models.ResourceAssignment.person_id)
-            .filter(models.ResourceProfile.team_id == team_id)
+            query.join(models.Project.assignments)
+            .join(models.Assignment.team_member)
+            .filter(models.TeamMember.team_id == team_id)
             .distinct()
         )
     return query.all()

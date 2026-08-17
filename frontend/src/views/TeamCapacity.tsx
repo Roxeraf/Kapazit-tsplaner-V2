@@ -7,14 +7,14 @@ import type {
   JiraAccountMatch,
   JiraStatus,
   JiraSyncResult,
-  PortfolioUtilizationEntry,
-  Team,
+  ProjectSummary,
+  TeamWithMembers,
   UnassignedAuthor,
 } from "../types";
 
 export default function TeamCapacity() {
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [members, setMembers] = useState<PortfolioUtilizationEntry[]>([]);
+  const [teams, setTeams] = useState<TeamWithMembers[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [jiraStatus, setJiraStatus] = useState<JiraStatus | null>(null);
   const [syncResult, setSyncResult] = useState<JiraSyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -22,23 +22,23 @@ export default function TeamCapacity() {
   const [unassignedAuthors, setUnassignedAuthors] = useState<UnassignedAuthor[]>([]);
   const [dragOverTeamId, setDragOverTeamId] = useState<number | null>(null);
   const [teamToDelete, setTeamToDelete] = useState<{ id: number; name: string } | null>(null);
-  const [memberToDeactivate, setMemberToDeactivate] = useState<{ id: number; name: string } | null>(null);
+  const [memberToDelete, setMemberToDelete] = useState<{ id: number; name: string } | null>(null);
 
   const [newTeamName, setNewTeamName] = useState("");
   const [memberName, setMemberName] = useState("");
-  const [memberWeeklyHours, setMemberWeeklyHours] = useState(40);
+  const [memberWochenstunden, setMemberWochenstunden] = useState(40);
   const [memberJiraAccountId, setMemberJiraAccountId] = useState("");
   const [memberTeamId, setMemberTeamId] = useState<string>("");
   const [jiraQuery, setJiraQuery] = useState("");
   const [jiraMatches, setJiraMatches] = useState<JiraAccountMatch[]>([]);
 
   const load = () => {
-    Promise.all([api.listTeams(), api.getUtilization(), api.jiraStatus(), api.listUnassignedAuthors()])
-      .then(([t, u, j, a]) => {
+    Promise.all([api.listTeams(), api.listProjects(), api.jiraStatus(), api.listUnassignedAuthors()])
+      .then(([t, p, j, u]) => {
         setTeams(t);
-        setMembers(u);
+        setProjects(p);
         setJiraStatus(j);
-        setUnassignedAuthors(a);
+        setUnassignedAuthors(u);
       })
       .catch((e) => setError(String(e)));
   };
@@ -53,23 +53,18 @@ export default function TeamCapacity() {
     load();
   };
 
-  const createMember = async (name: string, jiraAccountId: string | null, weeklyHours: number, teamId: number | null) => {
-    const person = await api.createPerson({ display_name: name, jira_account_id: jiraAccountId });
-    await api.createResourceProfile(person.id, { team_id: teamId, weekly_hours: weeklyHours });
-  };
-
   const handleCreateMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!memberName.trim()) return;
-    await createMember(
-      memberName.trim(),
-      memberJiraAccountId.trim() || null,
-      memberWeeklyHours,
-      memberTeamId ? Number(memberTeamId) : null,
-    );
+    await api.createMember({
+      name: memberName.trim(),
+      jira_account_id: memberJiraAccountId.trim() || null,
+      wochenstunden: memberWochenstunden,
+      team_id: memberTeamId ? Number(memberTeamId) : null,
+    });
     setMemberName("");
     setMemberJiraAccountId("");
-    setMemberWeeklyHours(40);
+    setMemberWochenstunden(40);
     setMemberTeamId("");
     setJiraMatches([]);
     setJiraQuery("");
@@ -101,23 +96,29 @@ export default function TeamCapacity() {
   };
 
   const handleMemberFieldBlur = async (
-    personId: number,
-    field: "name" | "jira_account_id" | "weekly_hours",
+    memberId: number,
+    field: "name" | "jira_account_id" | "wochenstunden",
     raw: string,
   ) => {
-    if (field === "weekly_hours") {
+    if (field === "wochenstunden") {
       const value = Number(raw);
-      await api.updateResourceProfile(personId, { weekly_hours: Number.isFinite(value) ? value : 40 });
+      await api.updateMember(memberId, { wochenstunden: Number.isFinite(value) ? value : 40 });
     } else if (field === "jira_account_id") {
-      await api.updatePerson(personId, { jira_account_id: raw.trim() || null });
+      await api.updateMember(memberId, { jira_account_id: raw.trim() || null });
     } else {
-      await api.updatePerson(personId, { display_name: raw });
+      await api.updateMember(memberId, { name: raw });
     }
     load();
   };
 
-  const handleDropMemberOnTeam = async (personId: number, teamId: number) => {
-    await api.updateResourceProfile(personId, { team_id: teamId === 0 ? null : teamId });
+  const handleAddAssignment = async (memberId: number, projectId: string, fte: number) => {
+    if (!projectId) return;
+    await api.createAssignment(memberId, Number(projectId), fte);
+    load();
+  };
+
+  const handleDropMemberOnTeam = async (memberId: number, teamId: number) => {
+    await api.updateMember(memberId, { team_id: teamId === 0 ? null : teamId });
     load();
   };
 
@@ -128,20 +129,22 @@ export default function TeamCapacity() {
     load();
   };
 
-  const handleDeactivateMember = async () => {
-    if (!memberToDeactivate) return;
-    await api.updatePerson(memberToDeactivate.id, { active: false });
-    setMemberToDeactivate(null);
+  const handleDeleteMember = async () => {
+    if (!memberToDelete) return;
+    await api.deleteMember(memberToDelete.id);
+    setMemberToDelete(null);
     load();
   };
 
-  const handleCreateFromAuthor = async (author: UnassignedAuthor, weeklyHours: number) => {
-    await createMember(author.display_name, author.account_id, weeklyHours, null);
+  const handleCreateFromAuthor = async (author: UnassignedAuthor, wochenstunden: number) => {
+    await api.createMember({
+      name: author.display_name,
+      jira_account_id: author.account_id,
+      wochenstunden,
+      team_id: null,
+    });
     load();
   };
-
-  const teamName = (teamId: number | null) => teams.find((t) => t.id === teamId)?.name ?? null;
-  const membersByTeam = (teamId: number | null) => members.filter((m) => m.team_id === teamId);
 
   return (
     <div>
@@ -220,8 +223,8 @@ export default function TeamCapacity() {
         </div>
       )}
 
-      {members.length > 0 && (
-        <CollapsiblePanel title={`Alle Teammitglieder (${members.length})`}>
+      {teams.length > 0 && (
+        <CollapsiblePanel title={`Alle Teammitglieder (${teams.flatMap((t) => t.members).length})`}>
           <table className="planner" style={{ fontSize: "0.85rem" }}>
             <thead>
               <tr>
@@ -229,17 +232,24 @@ export default function TeamCapacity() {
                 <th style={{ textAlign: "left" }}>Team</th>
                 <th>Wochenstunden</th>
                 <th style={{ textAlign: "left" }}>Jira-Account-ID</th>
+                <th style={{ textAlign: "left" }}>Zuordnungen</th>
               </tr>
             </thead>
             <tbody>
-              {[...members]
-                .sort((a, b) => a.person_name.localeCompare(b.person_name))
+              {teams
+                .flatMap((t) => t.members)
+                .sort((a, b) => a.name.localeCompare(b.name))
                 .map((m) => (
-                  <tr key={m.person_id}>
-                    <td className="label">{m.person_name}</td>
+                  <tr key={m.id}>
+                    <td className="label">{m.name}</td>
                     <td style={{ textAlign: "left" }}>{m.team_name ?? "— ohne Team —"}</td>
-                    <td>{m.weekly_hours}</td>
+                    <td>{m.wochenstunden}</td>
                     <td style={{ textAlign: "left", color: "var(--text-muted)" }}>{m.jira_account_id ?? "–"}</td>
+                    <td style={{ textAlign: "left" }}>
+                      {m.assignments.length === 0
+                        ? "–"
+                        : m.assignments.map((a) => `${a.project_name} (${a.fte} FTE)`).join(", ")}
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -284,19 +294,21 @@ export default function TeamCapacity() {
               type="number"
               min={1}
               max={48}
-              value={memberWeeklyHours}
-              onChange={(e) => setMemberWeeklyHours(Number(e.target.value))}
+              value={memberWochenstunden}
+              onChange={(e) => setMemberWochenstunden(Number(e.target.value))}
             />
           </label>
           <label>
             Team
             <select value={memberTeamId} onChange={(e) => setMemberTeamId(e.target.value)}>
               <option value="">— ohne Team —</option>
-              {teams.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
+              {teams
+                .filter((t) => t.id !== 0)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
             </select>
           </label>
           <label>
@@ -370,46 +382,40 @@ export default function TeamCapacity() {
           onDrop={(e) => {
             e.preventDefault();
             setDragOverTeamId(null);
-            const personId = Number(e.dataTransfer.getData("text/plain"));
-            if (personId) handleDropMemberOnTeam(personId, team.id);
+            const memberId = Number(e.dataTransfer.getData("text/plain"));
+            if (memberId) handleDropMemberOnTeam(memberId, team.id);
           }}
         >
           <div className="toolbar" style={{ marginBottom: "0.25rem" }}>
             <h3 style={{ color: "var(--navy)", margin: 0 }}>{team.name}</h3>
-            <button
-              type="button"
-              className="btn secondary"
-              style={{ color: "var(--rot)", borderColor: "var(--rot)" }}
-              onClick={() => setTeamToDelete({ id: team.id, name: team.name })}
-            >
-              Team löschen
-            </button>
+            {team.id !== 0 && (
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ color: "var(--rot)", borderColor: "var(--rot)" }}
+                onClick={() => setTeamToDelete({ id: team.id, name: team.name })}
+              >
+                Team löschen
+              </button>
+            )}
           </div>
-          {membersByTeam(team.id).length === 0 && <p style={{ color: "var(--text-muted)" }}>Keine Mitglieder.</p>}
-          {membersByTeam(team.id).map((member) => (
+          {team.members.length === 0 && <p style={{ color: "var(--text-muted)" }}>Keine Mitglieder.</p>}
+          {team.members.map((member) => (
             <MemberRow
-              key={member.person_id}
+              key={member.id}
               member={member}
+              projects={projects}
               onFieldBlur={handleMemberFieldBlur}
-              onDeactivateMember={() => setMemberToDeactivate({ id: member.person_id, name: member.person_name })}
+              onAddAssignment={handleAddAssignment}
+              onDeleteAssignment={async (id) => {
+                await api.deleteAssignment(id);
+                load();
+              }}
+              onDeleteMember={() => setMemberToDelete({ id: member.id, name: member.name })}
             />
           ))}
         </div>
       ))}
-
-      {membersByTeam(null).length > 0 && (
-        <div className="card" style={{ marginTop: "0.75rem" }}>
-          <h3 style={{ color: "var(--navy)", margin: "0 0 0.25rem" }}>{teamName(null) ?? "Ohne Team"}</h3>
-          {membersByTeam(null).map((member) => (
-            <MemberRow
-              key={member.person_id}
-              member={member}
-              onFieldBlur={handleMemberFieldBlur}
-              onDeactivateMember={() => setMemberToDeactivate({ id: member.person_id, name: member.person_name })}
-            />
-          ))}
-        </div>
-      )}
 
       <ConfirmDialog
         open={teamToDelete !== null}
@@ -419,11 +425,11 @@ export default function TeamCapacity() {
         onCancel={() => setTeamToDelete(null)}
       />
       <ConfirmDialog
-        open={memberToDeactivate !== null}
-        title="Teammitglied deaktivieren"
-        message={`Teammitglied "${memberToDeactivate?.name}" wirklich deaktivieren? Die Person verschwindet aus der Kapazitätsplanung, bleibt aber (reaktivierbar) in der Administration erhalten.`}
-        onConfirm={handleDeactivateMember}
-        onCancel={() => setMemberToDeactivate(null)}
+        open={memberToDelete !== null}
+        title="Teammitglied entfernen"
+        message={`Teammitglied "${memberToDelete?.name}" wirklich entfernen? Zuordnungen zu Projekten gehen dabei verloren.`}
+        onConfirm={handleDeleteMember}
+        onCancel={() => setMemberToDelete(null)}
       />
     </div>
   );
@@ -434,9 +440,9 @@ function UnassignedAuthorRow({
   onCreate,
 }: {
   author: UnassignedAuthor;
-  onCreate: (author: UnassignedAuthor, weeklyHours: number) => void;
+  onCreate: (author: UnassignedAuthor, wochenstunden: number) => void;
 }) {
-  const [weeklyHours, setWeeklyHours] = useState(40);
+  const [wochenstunden, setWochenstunden] = useState(40);
 
   return (
     <div
@@ -455,12 +461,12 @@ function UnassignedAuthorRow({
           type="number"
           min={1}
           max={48}
-          value={weeklyHours}
-          onChange={(e) => setWeeklyHours(Number(e.target.value))}
+          value={wochenstunden}
+          onChange={(e) => setWochenstunden(Number(e.target.value))}
           style={{ width: "4rem" }}
         />
       </label>
-      <button type="button" className="btn secondary" onClick={() => onCreate(author, weeklyHours)}>
+      <button type="button" className="btn secondary" onClick={() => onCreate(author, wochenstunden)}>
         + Teammitglied anlegen
       </button>
     </div>
@@ -469,17 +475,26 @@ function UnassignedAuthorRow({
 
 function MemberRow({
   member,
+  projects,
   onFieldBlur,
-  onDeactivateMember,
+  onAddAssignment,
+  onDeleteAssignment,
+  onDeleteMember,
 }: {
-  member: PortfolioUtilizationEntry;
-  onFieldBlur: (personId: number, field: "name" | "jira_account_id" | "weekly_hours", raw: string) => void;
-  onDeactivateMember: () => void;
+  member: TeamWithMembers["members"][number];
+  projects: ProjectSummary[];
+  onFieldBlur: (memberId: number, field: "name" | "jira_account_id" | "wochenstunden", raw: string) => void;
+  onAddAssignment: (memberId: number, projectId: string, fte: number) => void;
+  onDeleteAssignment: (assignmentId: number) => void;
+  onDeleteMember: () => void;
 }) {
+  const [newProjectId, setNewProjectId] = useState("");
+  const [newFte, setNewFte] = useState(0.5);
+
   return (
     <div
       draggable
-      onDragStart={(e) => e.dataTransfer.setData("text/plain", String(member.person_id))}
+      onDragStart={(e) => e.dataTransfer.setData("text/plain", String(member.id))}
       style={{ borderTop: "1px solid var(--border)", padding: "0.75rem 0", cursor: "grab" }}
     >
       <div className="field-row" style={{ marginTop: 0, alignItems: "center" }}>
@@ -488,39 +503,86 @@ function MemberRow({
         </span>
         <label>
           Name
-          <input
-            defaultValue={member.person_name}
-            onBlur={(e) => onFieldBlur(member.person_id, "name", e.target.value)}
-          />
+          <input defaultValue={member.name} onBlur={(e) => onFieldBlur(member.id, "name", e.target.value)} />
         </label>
         <label>
           Wochenstunden
           <input
             type="number"
-            defaultValue={member.weekly_hours}
-            onBlur={(e) => onFieldBlur(member.person_id, "weekly_hours", e.target.value)}
+            defaultValue={member.wochenstunden}
+            onBlur={(e) => onFieldBlur(member.id, "wochenstunden", e.target.value)}
           />
         </label>
         <label>
           Jira-Account-ID
           <input
             defaultValue={member.jira_account_id ?? ""}
-            onBlur={(e) => onFieldBlur(member.person_id, "jira_account_id", e.target.value)}
+            onBlur={(e) => onFieldBlur(member.id, "jira_account_id", e.target.value)}
           />
         </label>
         <button
           type="button"
           className="btn secondary"
           style={{ alignSelf: "flex-end", color: "var(--rot)", borderColor: "var(--rot)" }}
-          onClick={onDeactivateMember}
+          onClick={onDeleteMember}
         >
-          Deaktivieren
+          Entfernen
         </button>
       </div>
 
-      <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-        Zugeordnet (aktuelle Periode): {member.zugeordnet_fte.toFixed(2)} FTE
-        {member.auslastung_pct !== null && ` (${member.auslastung_pct.toFixed(0)}% Auslastung)`}
+      <div style={{ marginTop: "0.5rem", fontSize: "0.85rem" }}>
+        <strong>Zuordnungen: </strong>
+        {member.assignments.length === 0 && <span style={{ color: "var(--text-muted)" }}>keine</span>}
+        {member.assignments.map((a) => (
+          <span key={a.id} className="legend-chip" style={{ marginRight: "0.5rem" }}>
+            {a.project_name} ({a.fte} FTE)
+            <button
+              type="button"
+              onClick={() => onDeleteAssignment(a.id)}
+              style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+
+      <div className="field-row" style={{ marginTop: "0.4rem" }}>
+        <label>
+          Projekt zuordnen
+          <select value={newProjectId} onChange={(e) => setNewProjectId(e.target.value)}>
+            <option value="">— wählen —</option>
+            {projects
+              .filter((p) => p.status === "aktiv")
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label>
+          FTE
+          <input
+            type="number"
+            min={0.1}
+            max={2}
+            step={0.1}
+            value={newFte}
+            onChange={(e) => setNewFte(Number(e.target.value))}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn secondary"
+          style={{ alignSelf: "flex-end" }}
+          onClick={() => {
+            onAddAssignment(member.id, newProjectId, newFte);
+            setNewProjectId("");
+          }}
+        >
+          + Zuordnen
+        </button>
       </div>
     </div>
   );

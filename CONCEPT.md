@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.16 — Phasen 13–26 der Kapazitätsplaner-v2-Zielarchitektur umgesetzt. Der
+**Status:** v0.17 — Phasen 13–26 der Kapazitätsplaner-v2-Zielarchitektur umgesetzt. Der
 KI-Readiness-Review ist abgeschlossen; ein produktiver KI-Agent bleibt bewusst deaktiviert,
 bis Identity, projektbezogene Autorisierung und Agent-Auditierung vorhanden sind (siehe
 Abschnitt 11 für den vollständigen Umsetzungsstand und Abschnitt 12.5 für das Review-Ergebnis).
@@ -929,7 +929,7 @@ Dieses Repo enthält:
     Personen bleiben read-only, Jira/Tempo-Credentials bleiben in der Laufzeitumgebung.
     Details siehe Abschnitt 12.4 (Phase 25 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–25 der Zielarchitektur (Abschnitt 12) umgesetzt.
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–26 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -1022,9 +1022,10 @@ Schedule-, Progress- und Utilization-Gap sowie einem Bündel-Endpoint `/projects
 (`/health-thresholds`), Project Control Cockpit (`GET /projects/{id}/cockpit`, siehe
 Abschnitt 11 Punkt 22). Phase 23: `routers/controlling.py` mit Capacity Heatmap,
 Allocation-/Schedule-/Progress-Gap und Baseline Deviations portfolioweit, Portfolio Health,
-Blocker-/Milestone-Portfolio, Team-/Rollenanalyse (siehe Abschnitt 11 Punkt 23). Alle übrigen
-aus der Master-MD (Administration-UI) bleiben für die jeweils zugeordnete spätere Phase
-vorgemerkt (siehe Phasenplan unten) — **noch nicht umgesetzt**.
+Blocker-/Milestone-Portfolio, Team-/Rollenanalyse (siehe Abschnitt 11 Punkt 23). Phase 24
+ergänzt Knowledge Experience, Phase 25 die Administration und Phase 26 den KI-Readiness-
+Review. Der technische Unterbau ist damit breit vorhanden; die fachlichen End-to-End-
+Workflows und ihre UI-Abdeckung werden im Post-Phase-26-Plan konsolidiert.
 
 **D — bewusst später (unverändert aus der Master-MD):**
 KI Project Agent, Vector-/Embedding-Layer, Enterprise-SSO, vollständiger Enterprise-Sync,
@@ -1157,6 +1158,318 @@ zu App-Rollen, projektbezogene Zugriffsscopes, dedizierte read-only Agent-Capabi
 Audit-Trail für Agent-Zugriffe umzusetzen. `productive_agent_enabled` bleibt deshalb im
 Readiness-Report fest auf `false`. Vector-/Embedding-RAG, autonome Schreibaktionen und
 automatische Ressourcenoptimierung bleiben weiterhin bewusst außerhalb des Scopes.
+
+
+## 13. Post-Phase-26: Funktionsreife statt weiterer Backend-Silos
+
+### 13.1 Warum der bisherige Status missverständlich war
+
+„Phase umgesetzt“ bedeutete in den Phasen 13–24 überwiegend: Datenmodell, Migration,
+Berechnung und REST-Endpunkt existieren. Das bedeutet **nicht automatisch**, dass ein
+Anwender den gesamten Vorgang in der GUI durchführen kann. Ab jetzt werden drei getrennte
+Reifegrade ausgewiesen:
+
+1. **Technischer Unterbau** — Modell, Migration und Berechnung existieren.
+2. **API-fähig** — validierter, getesteter Lese-/Schreibworkflow existiert.
+3. **Nutzerfähig** — der fachliche End-to-End-Workflow ist in der GUI vollständig bedienbar,
+   erklärt, validiert und bis zur Ursache drill-down-fähig.
+
+Eine Funktion gilt künftig erst dann als **fertig**, wenn alle drei Stufen erfüllt sind. Ein
+nur vorhandener Endpoint wird nicht mehr als abgeschlossenes Produktfeature bezeichnet.
+
+### 13.2 Ehrliche Funktionsinventur
+
+| Domäne | Technischer Unterbau | API | GUI / tatsächlicher Workflow | Bewertung |
+|---|---|---|---|---|
+| Portfolio und Projekt-Workspace | vorhanden | vorhanden | Dashboard und Workspace nutzbar | **nutzbar, aber Cockpit-/Drill-down-Ausbau offen** |
+| bisheriges Monats-Gantt und FTE-Soll | vorhanden | vorhanden | vollständig bedienbar, Entwurfs-/Speichern-Workflow | **heute produktivster Planungsweg** |
+| `PlanPhase` und `Milestone` | vorhanden | CRUD vorhanden | keine Bedienoberfläche; altes Gantt schreibt nicht dorthin | **Backend-Insel, nicht produktiv nutzbar** |
+| Baselines | vorhanden | Erstellen/Lesen/Vergleichen vorhanden | keine Baseline-Verwaltung oder Vergleichsansicht | **Backend-Insel** |
+| ResourceDemand / ResourceAssignment | vorhanden | CRUD vorhanden | kein Rollenbedarf-/Zuordnungsworkflow | **Backend-Insel** |
+| Real Capacity | vorhanden | Kalender, Feiertage, Arbeitszeiten, Abwesenheiten und interne Allokation vorhanden | Administration zeigt nur Kalender-Grunddaten | **API-fähig, GUI stark unvollständig** |
+| GAP Engine | Berechnungen vorhanden | Einzel- und Portfolio-Endpunkte vorhanden | bestehende Gap-Seite nutzt überwiegend die alte Soll-/Ist-Sicht | **berechenbar, aber neue GAP-Arten kaum bedienbar** |
+| Project Health / Cockpit | vorhanden | vorhanden | Projektübersicht nutzt den strukturierten Cockpit-Endpoint noch nicht durchgängig | **Backend stärker als GUI** |
+| Blocker | Modell und Portfolio vorhanden | CRUD/Activity vorhanden | kein vollständiger Blocker-Workflow mit Owner, Waiting-for, Next Action und Impact | **fachlich unvollständig in der GUI** |
+| Knowledge Layer | Suche, Dossiers, Context und Relations vorhanden | vorhanden | bis auf Tags/Readiness keine echte Knowledge Experience | **Backend-Insel** |
+| Administration | Grundworkflow vorhanden | vorhanden | viele Stammdaten anleg-/aktivierbar | **teilweise nutzbar**; ResourceProfile, PersonSkill, Holidays, WorkingTime, Absence und Tag-AI-Metadaten fehlen in der GUI |
+| Rollen und Permissions | Modelle und Matrix vorhanden | vorhanden | Matrix administrierbar, aber keine Identität/Rollenzuweisung und keine Durchsetzung | **Konfiguration ohne Zugriffsschutz** |
+| KI-Readiness | Audit vorhanden | read-only Endpoint | in Administration sichtbar | **Review nutzbar; kein KI-Agent** |
+
+Diese Matrix bestätigt die Wahrnehmung, dass viele Funktionen „vorhanden“, aber noch nicht
+als geschlossener Arbeitsablauf nutzbar sind. Der nächste Plan priorisiert deshalb vertikale
+End-to-End-Slices statt weiterer Modelle und isolierter Endpoints.
+
+### 13.3 Was `PlanPhase` konkret bedeutet
+
+#### Heutiger Zustand
+
+Die sichtbare Planung arbeitet mit Monatszellen und kurzen Codes:
+
+```text
+Teilprojekt Integration
+
+             Aug 26   Sep 26   Okt 26
+Test            t        t
+GoLive                              g
+```
+
+Technisch sind das mehrere unabhängige Zellen (`GanttPhase`/`ProjectGanttPhase`). Sie sagen:
+„In diesem Monat ist Code `t` aktiv.“ Sie besitzen aber keine stabile fachliche Identität für
+**die eine Testphase**, keinen Owner, keinen Fortschritt und keine getrennten Plan-/Forecast-/
+Actual-Daten.
+
+#### Zielzustand
+
+Eine `PlanPhase` ist ein dauerhaft adressierbares fachliches Arbeitspaket:
+
+```text
+PlanPhase #4711
+Name / phase_type       Integrationstest
+Teilprojekt             Integration
+Bearbeiteter Plan       01.08.2026 – 30.09.2026
+Baseline                01.08.2026 – 15.09.2026
+Forecast                01.08.2026 – 10.10.2026
+Actual                  03.08.2026 – offen
+Status                  laufend
+Fortschritt             65 %
+Owner                   Person A
+```
+
+Das Gantt zeigt danach **dieselbe PlanPhase** nur als Balken. Verschiebt ein Nutzer den Balken,
+wird die PlanPhase geändert. Die Monatszellen werden daraus berechnet und sind keine zweite
+Datenquelle mehr.
+
+#### Warum das benötigt wird
+
+Nur eine stabile PlanPhase-ID ermöglicht zuverlässig:
+
+- Baseline versus Forecast derselben Phase,
+- Schedule- und Progress-Gap,
+- Abhängigkeiten wie „Abnahme hängt vom Integrationstest ab“,
+- Verknüpfung von Blockern, Aufgaben, Dokumenten und Entscheidungen,
+- ResourceDemand je Phase,
+- erklärbares Project Health und späteren KI-Kontext.
+
+#### Was `PlanPhase` ausdrücklich nicht bedeutet
+
+- Das einfache Gantt wird **nicht abgeschafft**.
+- Nutzer müssen nicht wie in MS Project hunderte Vorgänge verwalten.
+- Eine Monatszelle wird nicht dauerhaft parallel zur PlanPhase gepflegt.
+- Ein Gantt-Code wird nicht blind pro Monat in viele PlanPhase-Zeilen kopiert.
+
+#### Verbindliche Source-of-Truth-Entscheidung
+
+```text
+PlanPhase                         = fachliche und schreibbare Wahrheit
+Gantt-Balken / Monatsraster       = editierbare Projektion der PlanPhase
+BaselineSnapshot                  = unveränderlicher historischer Planstand
+Forecast                          = aktuelle Erwartung
+Actual                            = tatsächlich eingetretener Verlauf
+```
+
+Für die aktuell bearbeitete Planung fehlen im bestehenden `PlanPhase`-Modell noch explizite
+`planned_start`/`planned_end`-Felder. Diese werden vor dem UI-Cutover additiv ergänzt. Die
+bestehenden `baseline_*`-Felder bleiben die schnell lesbare Referenz auf die aktuell geltende
+Baseline; `BaselineSnapshot` bleibt die unveränderliche historische Source of Truth. Damit
+werden bearbeiteter Plan und Forecast nicht fälschlich gleichgesetzt.
+
+#### Beispiel der einmaligen Migration
+
+Aus zusammenhängenden alten Zellen:
+
+```text
+Aug 26 = t
+Sep 26 = t
+```
+
+wird im Migrationsvorschlag genau eine PlanPhase:
+
+```text
+phase_type     = Test
+planned_start  = 2026-08-01
+planned_end    = 2026-09-30
+precision      = MONTH
+legacy_source  = subproject_gantt
+```
+
+Nicht zusammenhängende Blöcke werden getrennte Vorschläge. Der Code `?` wird **nicht** blind
+migriert: Der Nutzer entscheidet in einer Vorschau, ob es ein Milestone oder eine unklare
+PlanPhase ist. Monatsgenaue Legacy-Daten geben keine künstliche Tagesgenauigkeit vor; deshalb
+wird ihre Präzision als `MONTH` gekennzeichnet.
+
+### 13.4 Verfeinerter Umsetzungsplan 27–33
+
+#### Phase 27 – Stabilisierung und Feature-Transparenz
+
+**Ziel:** Der bestehende breite Unterbau wird messbar stabil; jede UI zeigt klar, ob Daten
+fehlen oder ein Feature noch nicht bedienbar ist.
+
+**Backend:**
+
+- `pytest`-/TestClient-Infrastruktur mit isolierter SQLite-Datenbank,
+- Migrationslauf `0001 → head` sowie Upgrade einer repräsentativen Bestandsdatenbank,
+- API-Vertragstests für Planning, Baseline, Capacity, GAP, Health, Knowledge und Admin,
+- PostgreSQL-CI-Lauf,
+- standardisierte Pagination, Validierungsfehler und Konfliktantworten,
+- Datenqualitätschecks ohne die falsche Annahme „keine Datensätze = 100 % vollständig“.
+
+**Frontend:**
+
+- Loading-, Empty-, Error- und Permission-Zustände,
+- klare Kennzeichnung „noch nicht konfiguriert“ statt leerer Kacheln,
+- automatisierte Tests für Administration und Readiness,
+- Feature-Reifegrad nur in Development/Admin sichtbar, nicht als technische Details im
+  normalen Projektworkflow.
+
+**Definition of Done:** CI prüft Build, Lint, Backendtests, Migrationen und zentrale
+End-to-End-Verträge. Phase 28 beginnt erst auf dieser abgesicherten Basis.
+
+#### Phase 28 – Planungs-Cutover: Gantt auf `PlanPhase`
+
+**Ziel:** Das bekannte Gantt bleibt einfach bedienbar, schreibt aber in die fachliche Source
+of Truth.
+
+**Schritt 28A — Datenvertrag:**
+
+- `planned_start`, `planned_end`, `date_precision` und `legacy_source` ergänzen,
+- Regeln für Phase Type, Milestone, Owner, Status und Progress definieren,
+- Plan/Baseline/Forecast/Actual in API und UI eindeutig benennen,
+- PlanPhase-/Milestone-Validierung: Ende nicht vor Start, Progress 0–100, Actual nur plausibel.
+
+**Schritt 28B — Migrationsvorschau:**
+
+- read-only Analyse der alten Projekt-/Teilprojekt-Zellen,
+- Gruppierung zusammenhängender Codes,
+- Vorschau mit Warnungen und Konflikten,
+- explizite Bestätigung pro Projekt,
+- idempotente Ausführung mit Herkunftsreferenz und Rollback-Bericht.
+
+**Schritt 28C — UI-Cutover:**
+
+- Gantt liest PlanPhases/Milestones,
+- Drag/Resize ändert `planned_*`, nicht alte Monatszellen,
+- Detailpanel für Owner, Status, Progress, Forecast und Actual,
+- alte Monatsendpunkte nach erfolgreichem Cutover read-only,
+- kein dauerhafter Dual-Write.
+
+**Definition of Done:** Ein Nutzer plant, verschiebt und aktualisiert eine Phase ausschließlich
+über `PlanPhase`; Cockpit, GAP, Baseline und Knowledge Context zeigen sofort dieselbe Änderung.
+
+#### Phase 29 – Vertikaler Project-Control-Workflow
+
+**Ziel:** Ein Projektleiter kann einen vollständigen Steuerungskreislauf ohne Swagger oder
+manuelle Datenbankpflege bedienen.
+
+**Projektplanung:** PlanPhase-/Milestone-Details, Abhängigkeiten und Baseline erstellen/
+vergleichen.
+
+**Kapazität:** ResourceDemand je Phase und Monat planen, Skills hinterlegen, Personen zuordnen,
+Allocation Gap unmittelbar erklären.
+
+**Steuerung:** Blocker mit Owner, Caused-by, Waiting-for, Next Action, Impact und betroffenen
+Milestones/Phasen pflegen; aus Blocker/Decision/Discussion Aufgaben erzeugen.
+
+**Cockpit:** tatsächlicher `GET /projects/{id}/cockpit` als Projektübersicht mit Drill-down in
+die oben genannten Bearbeitungsdialoge.
+
+**Definition of Done:** Der Ablauf „Phase verzögert → Blocker erfassen → Milestone betroffen →
+Forecast ändern → Schedule Health aktualisiert → Maßnahme zuweisen“ ist vollständig in der GUI
+bedienbar und automatisiert getestet.
+
+#### Phase 30 – Capacity und Personen konsolidieren
+
+**Ziel:** `Person + ResourceProfile + ResourceAssignment` ersetzen den parallelen Legacy-Pfad
+über `TeamMember + Assignment`.
+
+- ResourceProfile, PersonSkill, WorkingTime, Holiday, Absence und InternalAllocation vollständig
+  administrierbar machen,
+- Jira-Identität an Person bzw. `ExternalIdentity` binden,
+- Legacy Assignment in Demand/Assignment überführen,
+- Utilization gegen reale verfügbare Kapazität rechnen,
+- TeamMember-Endpunkte zunächst als Kompatibilitätsschicht markieren, dann read-only stellen,
+- keine zwei unabhängig pflegbaren Wochenstundenwerte mehr.
+
+**Definition of Done:** Heatmap, Utilization, GAP und Projektzuordnung verwenden dieselbe Person,
+dieselbe verfügbare Kapazität und dieselben Assignments.
+
+#### Phase 31 – Controlling- und Knowledge-Experience
+
+**Ziel:** Vorhandene Backend-Aggregate werden zu steuerbaren GUI-Workflows.
+
+- Capacity Heatmap nach Person, Team und Rolle,
+- Portfolio Health, Allocation-/Schedule-/Progress-Gaps,
+- Blocker- und Milestone-Portfolio,
+- Drill-down Portfolio → Projekt → Phase/Milestone → Ursache,
+- Knowledge Search, Tag-Dossier, kombinierte Tags, Related Entities und Dokument-„Verwendet
+  in“-Sicht,
+- Restaufwand/EAC über offene Jira-Issues und Remaining Estimate,
+- nachvollziehbare Quellen- und Berechnungsanzeige bei jeder Kennzahl.
+
+**Definition of Done:** Kein neues Controlling-Widget endet bei einer Zahl; jede Kennzahl führt
+zu den fachlichen Datensätzen und einer möglichen Steuerungsaktion.
+
+#### Phase 32 – Enterprise Identity, Authorization und Audit
+
+**Ziel:** Fachliche Permissions werden tatsächlich durchgesetzt, ohne eine zweite Enterprise-
+Identity-Plattform zu bauen.
+
+- Portal-Vertrag für OIDC/JWT oder vertrauenswürdige Proxy-Claims festlegen,
+- Enterprise Subject mit Person verknüpfen,
+- Claims/Rollen auf AppPermissions mappen,
+- Projekt-Scope über ProjectMembership durchsetzen,
+- deny-by-default für schreibende APIs,
+- Audit für Login-Kontext, Exporte, Adminänderungen und spätere Agent-Zugriffe,
+- dedizierte read-only Agent-Capabilities definieren.
+
+**Definition of Done:** Backend-Autorisierung ist serverseitig getestet; ausgeblendete Buttons
+sind nur UX und niemals die Sicherheitsgrenze.
+
+#### Phase 33 – Szenario und späterer read-only KI-Pilot
+
+**Reihenfolge innerhalb der Phase:**
+
+1. Szenarien als isolierte Deltas, die reale Planung nie überschreiben,
+2. Readiness erneut ausführen,
+3. nur bei bestandenem Authorization-Gate ein projektgescopter read-only KI-Pilot,
+4. Antworten mit Quellen und fachlicher Herleitung,
+5. vollständiger Agent-Audit-Trail,
+6. keine autonome Schreibaktion, Ressourcenverschiebung oder Blocker-Erstellung.
+
+Ein produktiver KI-Agent ist weiterhin ein eigener Freigabeentscheid und nicht automatisch
+mit Phase 33 aktiviert.
+
+### 13.5 Priorisierte GUI-Lieferpakete
+
+Damit Nutzer früher echten Mehrwert erhalten, wird Phase 29 nicht als großer Big Bang gebaut,
+sondern in vorführbaren Paketen:
+
+1. **Planungspaket:** PlanPhase + Milestone + Baseline im bestehenden Planungstab.
+2. **Steuerungspaket:** Blocker + Relationen + Cockpit-Drill-down.
+3. **Kapazitätspaket:** Demand + Assignment + Allocation Gap je Phase.
+4. **Real-Capacity-Paket:** Profile + Arbeitszeit + Feiertag + Abwesenheit + interne Zeit.
+5. **Controlling-Paket:** Portfolio-Aggregate mit Ursache und Bearbeitungslink.
+6. **Knowledge-Paket:** Suche + Tag-Dossier + Related Entities + Dokumentkontext.
+
+Jedes Paket umfasst Modell/Migration, API, GUI, Empty/Error-Zustände, Berechtigungsentwurf,
+Tests und Dokumentation. Erst dann wird es in der Reifematrix als „nutzerfähig“ markiert.
+
+### 13.6 Unmittelbar nächster Sprint
+
+Der nächste Sprint ist **Phase 27 plus die fachliche Spezifikation 28A**, nicht sofort der
+vollständige PlanPhase-Umbau. Konkrete Ergebnisse:
+
+1. Test- und CI-Grundgerüst für Backend und Frontend,
+2. automatisierte Verträge für die bereits vorhandenen Phase-17–26-Endpunkte,
+3. aktueller Datenqualitätsbericht gegen eine anonymisierte Bestandskopie,
+4. klickbarer Planungstab-Prototyp: alter Monatsmodus versus PlanPhase-Balken und Detailpanel,
+5. schriftlich bestätigte Mappingregeln für `p/k/t/s/g/?`, Teilprojekte, nicht
+   zusammenhängende Blöcke und Monatspräzision,
+6. Alembic-Entwurf für `planned_start`, `planned_end`, `date_precision`, `legacy_source`,
+7. Cutover-/Rollback-Plan ohne dauerhaften Dual-Write.
+
+Erst nach Abnahme dieser sieben Ergebnisse beginnt Migration 28B. So bleibt die heute
+funktionierende einfache Planung erhalten, während die neue Architektur schrittweise echte
+Nutzerfunktionalität erhält.
 
 Details zu Vision, Gesamtmodell und Steuerungskreislauf siehe die Master-Architektur-MD
 ("Kapazitätsplaner v2 – Gesamtarchitektur- und Umsetzungsplan").

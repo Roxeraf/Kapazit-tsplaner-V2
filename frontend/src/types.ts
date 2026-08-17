@@ -439,6 +439,25 @@ export interface EntityRelation {
   created_by_person_id: number | null;
 }
 
+// Phase 26.5: Tag-Dossiers (Phase 24 der Zielarchitektur, backend/app/routers/knowledge.py) -
+// ein Tag oder eine Kombination ("#Kunde + #GoLive") wird zu einem dynamischen Dossier.
+export interface KnowledgeEntity {
+  entity_type: EntityType;
+  entity_id: number;
+  project_id: number | null;
+  label: string | null;
+  tags: string[];
+}
+
+export interface TagDossier {
+  tags: string[];
+  mode: "and" | "or";
+  project_id: number | null;
+  counts: Record<string, number>;
+  entities: KnowledgeEntity[];
+  activity: ActivityItem[];
+}
+
 // Phase 26.2: PlanPhase/Milestone (Phase 17 der Zielarchitektur, backend/app/routers/planning.py)
 // - Zielarchitektur-native Entitäten, ersetzen ab jetzt das alte Gantt/FTE-Raster als
 // Bedienoberfläche. status ist im Backend bewusst Freitext (kein Enum) - die folgenden

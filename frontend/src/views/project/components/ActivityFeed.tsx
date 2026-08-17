@@ -1,18 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../api/client";
+import TagChip from "../../../components/TagChip";
+import { ENTITY_TYPE_META as TYPE_META } from "../../../entityTypeMeta";
 import type { ActivityItem, EntityType } from "../../../types";
-
-const TYPE_META: Record<EntityType, { icon: string; label: string }> = {
-  comment: { icon: "💬", label: "Diskussion" },
-  decision: { icon: "✓", label: "Entscheidung" },
-  risk: { icon: "⚠", label: "Risiko" },
-  meeting_minutes: { icon: "📅", label: "Meeting" },
-  task: { icon: "☑", label: "Aufgabe" },
-  blocker: { icon: "🔴", label: "Blocker" },
-  plan_phase: { icon: "📌", label: "Phase" },
-  milestone: { icon: "🚩", label: "Milestone" },
-  document: { icon: "📄", label: "Dokument" },
-};
 
 // Kontextuelle "aus diesem Objekt erstellen"-Aktionen je Quelltyp (Phase 26.4). Jede Aktion
 // legt zuerst die Folge-Entität über den bestehenden Create-Endpoint an, danach eine
@@ -166,9 +156,7 @@ export default function ActivityFeed({
               {item.tags.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.25rem 0" }}>
                   {item.tags.map((t) => (
-                    <span key={t} style={{ fontSize: "0.75rem", color: "var(--blau)" }}>
-                      #{t}
-                    </span>
+                    <TagChip key={t} name={t} />
                   ))}
                 </div>
               )}

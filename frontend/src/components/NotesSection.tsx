@@ -3,6 +3,7 @@ import type { Comment } from "../types";
 import AttachmentList from "./AttachmentList";
 import AttachmentPicker from "./AttachmentPicker";
 import ConfirmDialog from "./ConfirmDialog";
+import TagChip from "./TagChip";
 import TagInput from "./TagInput";
 
 function formatTimestamp(iso: string): string {
@@ -82,9 +83,7 @@ export default function NotesSection({
               {n.tags.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginBottom: "0.2rem" }}>
                   {n.tags.map((t) => (
-                    <span key={t} style={{ fontSize: "0.75rem", color: "var(--blau)" }}>
-                      #{t}
-                    </span>
+                    <TagChip key={t} name={t} />
                   ))}
                 </div>
               )}

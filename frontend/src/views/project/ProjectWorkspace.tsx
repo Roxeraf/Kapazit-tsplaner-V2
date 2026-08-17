@@ -3,6 +3,8 @@ import { Outlet, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Tabs from "../../components/Tabs";
+import TagDossierPanel from "../../components/TagDossierPanel";
+import { TagDossierProvider } from "../../tagDossier";
 import { useUnsavedChanges } from "../../unsavedChanges";
 import { useGuardedNavigate } from "../../useGuardedNavigate";
 import type { ProjectDetail } from "../../types";
@@ -48,7 +50,8 @@ export default function ProjectWorkspace() {
   if (!project) return <p>Lade Projekt …</p>;
 
   return (
-    <div>
+    <TagDossierProvider>
+      <div>
       {error && (
         <div
           className="card"
@@ -101,6 +104,8 @@ export default function ProjectWorkspace() {
         }}
         onCancel={() => setShowLeaveConfirm(false)}
       />
-    </div>
+      <TagDossierPanel projectId={project.id} />
+      </div>
+    </TagDossierProvider>
   );
 }

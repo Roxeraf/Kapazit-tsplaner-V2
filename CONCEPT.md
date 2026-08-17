@@ -1051,7 +1051,31 @@ Dieses Repo enthält:
       einer Diskussions-Karte erzeugt korrekt zwei Requests — `POST .../decisions` dann
       `POST /entity-relations` mit `target_entity_id` der neuen Entscheidung —, Blocker-
       Unteransicht zeigt korrekte Partei-/Tage-Anzeige), keine Konsolenfehler.
-    - **26.5–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
+    - **26.5 (Knowledge Integration) — ✅ erledigt.** Klick auf einen Tag öffnet jetzt ein
+      Dossier-Sidepanel (`TagDossierPanel.tsx`, `GET /knowledge/tags/dossier`) statt nur lokal
+      zu filtern — mehrere Tags kombinierbar mit UND/ODER-Umschalter, "Weiteren Tag
+      kombinieren"-Eingabe. Kein Backend-Change nötig (vollständig seit Phase 24 vorhanden,
+      nur ungenutzt). Neuer globaler Kontext `frontend/src/tagDossier.tsx`
+      (`TagDossierProvider`/`useTagDossier`, analog `unsavedChanges.tsx`), in
+      `ProjectWorkspace.tsx` um alle Tabs gelegt, damit jede Komponente einen Tag-Klick zum
+      Panel durchreichen kann, ohne Props durch die Tab-Hierarchie zu schleifen. Neue
+      wiederverwendbare `TagChip.tsx` ersetzt die bisherigen reinen `<span>#{tag}</span>`-
+      Anzeigen an allen zehn Fundstellen (`NotesSection`, `DecisionList`, `RiskList`,
+      `TaskList`, `MeetingMinutesList`, `PlanPhaseList`, `MilestoneList`, `BlockerList`,
+      `ActivityFeed`, `ProjectDocumentsTab`). Gemeinsames Modul
+      `frontend/src/entityTypeMeta.ts` (Icon/Label je `EntityType`) aus `ActivityFeed.tsx`
+      extrahiert, damit Feed und Dossier-Panel dieselbe Quelle nutzen statt zu driften. Der
+      bereits bestehende, unveränderte lokale Tag-Filter in der Toolbar von
+      `ProjectCommunicationTab.tsx` (filtert die aktuell sichtbare Unteransicht, andere
+      Funktion als das projektübergreifende Dossier) bleibt bewusst zusätzlich bestehen — beide
+      sind visuell unterscheidbar (Toolbar: umrandete Pill-Buttons; `TagChip`: reiner Text-Link,
+      exakt wie zuvor). Verifiziert: curl-Szenario exakt wie Phase-24-Beispiel (Diskussion
+      `#Kunde #Schnittstelle`, Aufgabe `#Schnittstelle #GoLive`, Milestone `#Kunde #GoLive`) —
+      `mode=or` liefert alle drei Entitäten, `mode=and` korrekt nur den Milestone; `npm run
+      build` fehlerfrei; Playwright-Durchlauf gegen echten Dev-Server (Tag-Klick öffnet Panel,
+      zweiten Tag kombinieren schaltet automatisch auf UND, ODER-Umschalter zeigt sofort alle
+      drei Treffer korrekt an), keine Konsolenfehler.
+    - **26.6–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
 
 Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit Unterschritt 26.1 begonnen, siehe Punkt 26 oben.
 
@@ -1238,7 +1262,7 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
+| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅, 26.5 Knowledge Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
 | 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
 | 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
 | 29 | AI Project Agent | später, siehe Bucket D unten |

@@ -48,6 +48,7 @@ import type {
   RelationType,
   ResourceAssignment,
   ResourceDemand,
+  TagDossier,
   Risk,
   RiskLevel,
   RiskStatus,
@@ -323,6 +324,13 @@ export const api = {
     target_entity_id: number;
     relation_type: RelationType;
   }) => request<EntityRelation>("/entity-relations", { method: "POST", body: JSON.stringify(payload) }),
+
+  // Tag-Dossiers (Phase 26.5, backend/app/routers/knowledge.py)
+  getTagDossier: (tags: string[], mode: "and" | "or" = "and", projectId?: number) => {
+    const query = new URLSearchParams({ tags: tags.join(","), mode });
+    if (projectId !== undefined) query.set("project_id", String(projectId));
+    return request<TagDossier>(`/knowledge/tags/dossier?${query.toString()}`);
+  },
 
   exportPptxUrl: (projectId: number) => `${API_BASE}/projects/${projectId}/export/pptx`,
   exportPortfolioPptxUrl: () => `${API_BASE}/projects/export/pptx/portfolio`,

@@ -4,6 +4,7 @@ import AttachmentList from "../../../components/AttachmentList";
 import AttachmentPicker from "../../../components/AttachmentPicker";
 import ConfirmDialog from "../../../components/ConfirmDialog";
 import PersonPicker from "../../../components/PersonPicker";
+import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
 import usePeopleMap from "../../../hooks/usePeopleMap";
 import { MILESTONE_STATUS_LABELS, type Milestone, type MilestoneStatus, type SubprojectDetail } from "../../../types";
@@ -180,9 +181,7 @@ export default function MilestoneList({
             {m.tags.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
                 {m.tags.map((t) => (
-                  <span key={t} style={{ fontSize: "0.75rem", color: "var(--blau)" }}>
-                    #{t}
-                  </span>
+                  <TagChip key={t} name={t} />
                 ))}
               </div>
             )}

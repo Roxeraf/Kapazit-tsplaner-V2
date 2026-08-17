@@ -4,6 +4,7 @@ import AttachmentList from "../../../components/AttachmentList";
 import AttachmentPicker from "../../../components/AttachmentPicker";
 import ConfirmDialog from "../../../components/ConfirmDialog";
 import PersonPicker from "../../../components/PersonPicker";
+import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
 import usePeopleMap from "../../../hooks/usePeopleMap";
 import { TASK_STATUS_LABELS, type Task, type TaskStatus } from "../../../types";
@@ -118,9 +119,7 @@ export default function TaskList({
             {t.tags.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
                 {t.tags.map((tag) => (
-                  <span key={tag} style={{ fontSize: "0.75rem", color: "var(--blau)" }}>
-                    #{tag}
-                  </span>
+                  <TagChip key={tag} name={tag} />
                 ))}
               </div>
             )}

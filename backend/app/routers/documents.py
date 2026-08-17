@@ -130,13 +130,27 @@ def delete_document_link(link_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+def _tag_out(t: models.Tag) -> schemas.TagOut:
+    return schemas.TagOut(
+        id=t.id,
+        name=t.name,
+        category_id=t.category_id,
+        description=t.description,
+        color=t.color,
+        active=t.active,
+        ai_relevant=t.ai_relevant,
+        ai_description=t.ai_description,
+        synonyms=[s.strip() for s in t.synonyms.split(",")] if t.synonyms else [],
+    )
+
+
 @router.get("/tags", response_model=list[schemas.TagOut])
 def list_tags(search: str | None = None, db: Session = Depends(get_db)):
     query = db.query(models.Tag)
     if search:
         query = query.filter(models.Tag.name.ilike(f"%{search}%"))
     tags = query.order_by(models.Tag.name).limit(50).all()
-    return [schemas.TagOut(id=t.id, name=t.name, category_id=t.category_id) for t in tags]
+    return [_tag_out(t) for t in tags]
 
 
 @router.patch("/tags/{tag_id}", response_model=schemas.TagOut)
@@ -144,12 +158,18 @@ def update_tag(tag_id: int, payload: schemas.TagUpdate, db: Session = Depends(ge
     tag = db.get(models.Tag, tag_id)
     if tag is None:
         raise HTTPException(status_code=404, detail="Tag nicht gefunden")
-    if payload.category_id is not None and db.get(models.TagCategory, payload.category_id) is None:
-        raise HTTPException(status_code=404, detail="Tag-Kategorie nicht gefunden")
-    tag.category_id = payload.category_id
+    changes = payload.model_dump(exclude_unset=True)
+    if "category_id" in changes and changes["category_id"] is not None:
+        if db.get(models.TagCategory, changes["category_id"]) is None:
+            raise HTTPException(status_code=404, detail="Tag-Kategorie nicht gefunden")
+    if "synonyms" in changes:
+        synonyms = changes.pop("synonyms")
+        tag.synonyms = ", ".join(s.strip() for s in synonyms if s.strip()) if synonyms else None
+    for field, value in changes.items():
+        setattr(tag, field, value)
     db.commit()
     db.refresh(tag)
-    return schemas.TagOut(id=tag.id, name=tag.name, category_id=tag.category_id)
+    return _tag_out(tag)
 
 
 @router.get("/tag-categories", response_model=list[schemas.TagCategoryOut])

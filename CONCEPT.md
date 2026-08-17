@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.5 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13+14 (Technisches Fundament, Personen/Organisation/Permissions) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.6 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–15 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -399,7 +399,39 @@ Dieses Repo enthält:
     Best-Effort-Mapping traf korrekt/verweigerte korrekt bei Mehrdeutigkeit. Kein
     Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 14 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13/14 der Zielarchitektur (Abschnitt 12) umgesetzt.
+15. **Phase 15 (Semantic Knowledge Foundation, Kapazitätsplaner-v2-Zielarchitektur):**
+    `TagCategory`/`EntityRelation`/Entity-/Relation-Type-Vokabular wurden bereits in Phase 13
+    geliefert (Master-MD listet sie in Abschnitt 60 sowohl unter Phase 13 als auch Phase 15 —
+    keine Doppelarbeit). Neu in diesem Durchgang: **Tag-AI-Metadata** (Migration `0004`,
+    additiv) — `Tag` um `description`, `color`, `active` (NOT NULL mit `server_default`, da
+    bestehende Zeilen befüllt sind), `ai_relevant`, `ai_description`, `synonyms` erweitert
+    (Master-MD Abschnitt 43). `synonyms` wird kommagetrennt gespeichert (kein Array-Typ in
+    SQLite) und als `list[str]` über `TagOut`/`TagUpdate` exponiert; `PATCH /tags/{id}`
+    unterstützt jetzt alle neuen Felder (vorher nur `category_id`). Und der **Knowledge Query
+    Layer** (Master-MD Abschnitt 46, `backend/app/routers/knowledge.py` erweitert, neue
+    Helper in `entity_links.py`: `entity_summary`, `list_entity_summaries`,
+    `search_entities`, öffentliches `ENTITY_TYPES`-Vokabular): `GET /knowledge/entities`
+    (alle Entitäten eines Typs, optional projektgefiltert, inkl. Tags), `GET
+    /knowledge/search` (Volltextsuche über Titel/Text aller taggable Entitäten **und** über
+    Tag-Namen — ein Treffer auf einen Tag liefert die damit verknüpften Entitäten; noch kein
+    Vector-RAG), `GET /knowledge/context` (Tags+Dokumente+Relationen einer einzelnen Entität
+    an einem Ort — die "Wissenskarte", gedacht als Grundlage für spätere KI-
+    Kontextassemblierung), `GET /knowledge/relations` (breitere Filterkombination als das
+    Phase-13-`GET /entity-relations`, das genau eine Entität voraussetzt: `relation_type`/
+    `entity_type`+`entity_id`/`project_id` beliebig kombinierbar), `GET
+    /knowledge/project/{id}` (Wissenskontext-Aggregation: Entity-Counts je Typ, im Projekt
+    tatsächlich verwendete Tags, alle Relationen, die Projekt-Entitäten betreffen).
+    `/knowledge/tags` wurde bewusst **nicht** dupliziert — dafür existiert bereits `GET /tags`
+    seit Phase 13. Verifiziert per curl: Tag-AI-Metadata setzen/lesen, Volltextsuche über
+    Titel-Match und Tag-Match, Wissenskarte einer Entscheidung inkl. Relation zu einer
+    Aufgabe, projektgefilterte Relations-Abfrage, Projekt-Aggregation (korrekte Counts/Tags/
+    Relationen), 404 bei unbekannter Entität, 422 bei ungültigem `entity_type`. Migration
+    gegen frische und simulierte bestehende DB (Tags ohne die neuen Spalten) getestet —
+    bestehende Zeilen bekommen korrekte Defaults (`active=true`, `ai_relevant=false`), kein
+    Datenverlust. Kein Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 15 als erledigt
+    markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13/14/15 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -472,7 +504,9 @@ vorschlägt — siehe Abschnitt 6a), `PlanHistory` (Audit-Trail), `Comment`, `De
 **C — neu, davon umgesetzt:**
 Phase 13: `TagCategory`, `EntityRelation`, Entity-/Relation-Type-Vokabular (siehe Abschnitt 11
 Punkt 13). Phase 14: `Person`, `ResourceProfile`, `ProjectRole`, `ProjectMembership`,
-`Permission`, `AppRole`, `RolePermission` (siehe Abschnitt 11 Punkt 14). Alle übrigen aus der
+`Permission`, `AppRole`, `RolePermission` (siehe Abschnitt 11 Punkt 14). Phase 15: Tag-AI-
+Metadata (`description`/`color`/`active`/`ai_relevant`/`ai_description`/`synonyms`),
+Knowledge Query Layer (`/knowledge/*`, siehe Abschnitt 11 Punkt 15). Alle übrigen aus der
 Master-MD (`Blocker`, `PlanPhase`, `Milestone`, `BaselineSnapshot`/`BaselineEntry`,
 `ResourceRole`, `Skill`/`PersonSkill`, `ResourceDemand`,
 `CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte GAP-Engine,
@@ -544,14 +578,14 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13 und 14 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14). Phasen 15–26 sind Ausblick
+Phase 13–15 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15). Phasen 16–26 sind Ausblick
 auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
 | 13 | Technisches Fundament | ✅ Alembic, TagCategory, EntityRelation |
 | 14 | Personen, Organisation & Permissions | ✅ Person, ResourceProfile, ProjectRole, ProjectMembership, Permission, AppRole |
-| 15 | Semantic Knowledge Foundation | Tag-Taxonomie, standardisierte Entity-/Relation-Types, Knowledge Query Layer |
+| 15 | Semantic Knowledge Foundation | ✅ Tag-AI-Metadata, Knowledge Query Layer (`/knowledge/*`) |
 | 16 | Activity & Blocker Core | Blocker (caused_by/waiting_for), Discussion Threading, Decision Context |
 | 17 | Project Planning Core | PlanPhase, Milestone, Dependencies (Gantt bleibt UI) |
 | 18 | Baseline Management | BaselineSnapshot, BaselineEntry, Baseline vs Forecast |

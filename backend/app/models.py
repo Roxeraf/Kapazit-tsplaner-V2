@@ -443,13 +443,24 @@ class TagCategory(Base):
 
 
 class Tag(Base):
-    """Systemweit wiederverwendbares Tag (nicht projektgebunden)."""
+    """Systemweit wiederverwendbares Tag (nicht projektgebunden). AI-Metadata-Felder (Phase
+    15, siehe Master-MD Abschnitt 43 / CONCEPT.md Abschnitt 12) beschreiben ein Tag
+    semantisch für den späteren Knowledge Layer/KI-Agenten (Phase 26) - rein additiv,
+    bestehende Tags bleiben ohne diese Angaben gültig."""
 
     __tablename__ = "tags"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("tag_categories.id"), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+    ai_relevant: Mapped[bool] = mapped_column(default=False)
+    ai_description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Kommagetrennt gespeichert (kein Array-Typ in SQLite) - als list[str] exponiert, siehe
+    # schemas.TagOut.synonyms.
+    synonyms: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class TagLink(Base):

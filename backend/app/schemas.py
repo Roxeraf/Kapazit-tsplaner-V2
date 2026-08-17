@@ -194,10 +194,22 @@ class TagOut(BaseModel):
     id: int
     name: str
     category_id: int | None = None
+    description: str | None = None
+    color: str | None = None
+    active: bool = True
+    ai_relevant: bool = False
+    ai_description: str | None = None
+    synonyms: list[str] = []
 
 
 class TagUpdate(BaseModel):
     category_id: int | None = None
+    description: str | None = None
+    color: str | None = None
+    active: bool | None = None
+    ai_relevant: bool | None = None
+    ai_description: str | None = None
+    synonyms: list[str] | None = None
 
 
 class EntityRelationCreate(BaseModel):
@@ -218,6 +230,48 @@ class EntityRelationOut(BaseModel):
     relation_type: str
     created_at: str
     created_by_person_id: int | None
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Query Layer (Phase 15, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 46) -
+# strukturierte Zugriffsschicht über alle taggable Entitäten, noch kein Vector-RAG/KI-Agent.
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeEntityOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    project_id: int | None
+    label: str | None
+    tags: list[str] = []
+
+
+class KnowledgeSearchResult(BaseModel):
+    entity_type: str
+    entity_id: int
+    project_id: int | None
+    label: str | None
+    match: str  # "text" | "tag:<Tag-Name>"
+
+
+class KnowledgeContextOut(BaseModel):
+    """"Wissenskarte" einer einzelnen Entität - Tags, Dokumente und Relationen (Quelle wie
+    Ziel) an einem Ort, gedacht als Grundlage für spätere KI-Kontextassemblierung."""
+
+    entity_type: str
+    entity_id: int
+    project_id: int | None
+    label: str | None
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+    relations: list[EntityRelationOut] = []
+
+
+class KnowledgeProjectContextOut(BaseModel):
+    project_id: int
+    counts: dict[str, int]
+    tags: list[str] = []
+    relations: list[EntityRelationOut] = []
 
 
 class DecisionCreate(BaseModel):

@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.11 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–20 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.12 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–21 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core, Baseline Management, Capacity Planning Core, Real Capacity, GAP Engine) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -634,7 +634,66 @@ Dieses Repo enthält:
     `/resource-roles`) regressionsfrei. Kein Frontend-Umbau. Details siehe Abschnitt 12.4
     (Phase 20 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–20 der Zielarchitektur (Abschnitt 12) umgesetzt.
+21. **Phase 21 (GAP Engine, Kapazitätsplaner-v2-Zielarchitektur):** **Keine neue Migration**
+    — die GAP Engine ist bewusst rein berechnend (Master-MD Abschnitt 21: "kein rein
+    Reporting-Feature", aber auch keine neue Persistenz) und verbindet Projektplanung
+    (`PlanPhase`/`Milestone`, Phase 17), Kapazitätsplanung (`ResourceDemand`, Phase 19;
+    Available Capacity, Phase 20) und Ist-Daten (Jira, bestehend) zu den sechs in Master-MD
+    Abschnitt 22 definierten GAP-Arten — "Bestehende Soll-/Ist-Logik wird nicht entfernt,
+    sondern integriert" wörtlich umgesetzt: `gap_analysis.project_gap()` (seit Phase 3
+    unverändert) wird 1:1 wiederverwendet, nicht neu gebaut. Refactoring vorab:
+    `VOLLZEIT_WOCHENSTUNDEN` (bisher lokal in `routers/team.py`) nach `constants.py`
+    verschoben (einzige FTE-Referenzquelle); die Available-Capacity-Berechnung aus Phase 20
+    wurde aus `routers/real_capacity.py` in ein neues gemeinsames Modul
+    `backend/app/capacity_calc.py` extrahiert (`compute_person_capacity()`, analog zu
+    `entity_links.py` als Cross-Router-Helfer), damit `routers/gap_engine.py` sie
+    mitverwenden kann, ohne router-übergreifend zu importieren.
+    - **Allocation Gap** (`fte − assigned_fte`): direkt als neues Feld in
+      `ResourceDemandOut.allocation_gap` (kein neuer Endpoint nötig, reine
+      Pydantic-Erweiterung, keine Migration).
+    - **Capacity Gap** (`GET /gap-engine/capacity?period=&resource_role_id=`, Available
+      Capacity minus Resource Demand): **portfolioweit** über alle kapazitätsrelevanten
+      Personen berechnet, `resource_role_id` filtert nur die Bedarfsseite — es gibt **keine
+      Person↔ResourceRole-Zuordnung** im Datenmodell (weder in der Master-MD noch bisher
+      hier eingeführt), eine rollenscharfe Kapazitätsseite wäre nicht belastbar berechenbar;
+      diese Einschränkung ist bewusst und dokumentiert, keine vergessene Anforderung.
+    - **Effort Gap** (`GET /projects/{id}/gaps/effort`): reiner Wrapper um
+      `gap_analysis.project_gap()`, unverändert.
+    - **Schedule Gap** (`GET /projects/{id}/gaps/schedule`): **live**, nicht auf einen
+      `BaselineSnapshot` angewiesen (ergänzt, ersetzt nicht, die Snapshot-basierten
+      Deviations aus Phase 18) — je `PlanPhase`/`Milestone` sowohl "Baseline vs Forecast" als
+      auch "Forecast vs Actual" in Tagen.
+    - **Progress Gap** (`GET /projects/{id}/gaps/progress`): Expected Progress (zeitlicher
+      Anteil zwischen Forecast-/Baseline-Start und -Ende bis heute, 0–100 % geclamped) minus
+      `PlanPhase.progress`, in Prozentpunkten.
+    - **Utilization Gap** (`GET /people/{id}/gaps/utilization?period=`): zugeordnetes FTE
+      (`ResourceAssignment`, Phase 19) im Verhältnis zu Available Capacity (Phase 20) gegen
+      eine feste Ziel-Auslastung von 100 % (keine konfigurierbare Ziel-Auslastung in diesem
+      Durchgang).
+    - **Drill-down** (Master-MD Abschnitt 21/25): einfache Form über
+      `GET /projects/{id}/gaps`, das Effort-/Schedule-/Progress-Gap eines Projekts an einer
+      Stelle bündelt; der volle hierarchische Portfolio→Team→Projekt→Phase-Drill-down
+      (Abschnitt 52) bleibt bewusst Controlling (Phase 22/23), nicht Teil dieses Durchgangs.
+    - **`GapSnapshot`-Entscheidung** (in Phase 13 offen gelassen, siehe Abschnitt 12.3 Frage
+      11): bleibt dormant/ungenutzt. Die GAP Engine rechnet konsequent **live** — wie bereits
+      `gap_analysis.py`, die Phase-18-Deviations und die Phase-19/20-Aggregationen —, keine
+      historisierten Snapshots. Eine Reaktivierung von `GapSnapshot` für GAP-Trendverläufe
+      über Zeit bleibt eine mögliche spätere Controlling-Erweiterung (Phase 23), nicht Teil
+      der GAP Engine selbst.
+    Verifiziert per curl an einem durchgängigen Szenario: Allocation Gap (0,8 FTE Bedarf, 0,5
+    zugeordnet → `allocation_gap=0.3`), Capacity Gap (0,8 FTE Bedarf ggü. 1,0 FTE verfügbarer
+    Kapazität → `capacity_gap_fte=0.2`, mit und ohne `resource_role_id`-Filter identisch, wie
+    erwartet), Utilization Gap (0,5/1,0 = 50 %, Ziel 100 % → `utilization_gap_pp=-50.0`),
+    Schedule Gap (PlanPhase `baseline_end`→`forecast_end` +8 Tage, Milestone
+    `baseline_date`→`forecast_date` +14 Tage, `forecast_vs_actual_days` korrekt berechnet),
+    Progress Gap (heute vor Forecast-Start → `expected=0`, `actual=30` → `+30pp`), Effort-Gap-
+    Wrapper und Bündel-Endpoint liefern konsistente Werte, 404 bei unbekanntem Projekt/Person.
+    Regressionscheck: `/gap` (Legacy, unverändert), `/people/{id}/capacity` (nach Extraktion
+    nach `capacity_calc.py` weiterhin identisches Ergebnis), `/team/utilization` (nach
+    `VOLLZEIT_WOCHENSTUNDEN`-Verschiebung weiterhin korrekt) — alle regressionsfrei. Kein
+    Frontend-Umbau. Details siehe Abschnitt 12.4 (Phase 21 als erledigt markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–21 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -719,10 +778,12 @@ Knowledge Query Layer (`/knowledge/*`, siehe Abschnitt 11 Punkt 15). Phase 16: `
 Abschnitt 11 Punkt 18). Phase 19: `ResourceRole`, `Skill`, `PersonSkill`, `ResourceDemand`,
 `ResourceAssignment`, Commitment-Level (siehe Abschnitt 11 Punkt 19). Phase 20:
 `CapacityCalendar`, `Holiday`, `WorkingTime`, `Absence`, `InternalAllocation`, Available-
-Capacity-Berechnung (siehe Abschnitt 11 Punkt 20). Alle übrigen aus der Master-MD
-(strukturierte GAP-Engine, mehrdimensionales Project Health, Administration-UI) bleiben für
-die jeweils zugeordnete spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht
-umgesetzt**.
+Capacity-Berechnung (siehe Abschnitt 11 Punkt 20). Phase 21: GAP-Engine
+(`routers/gap_engine.py`) mit Capacity-, Effort- (Wiederverwendung von `gap_analysis.py`),
+Schedule-, Progress- und Utilization-Gap sowie einem Bündel-Endpoint `/projects/{id}/gaps`
+(siehe Abschnitt 11 Punkt 21). Alle übrigen aus der Master-MD (mehrdimensionales Project
+Health, Administration-UI) bleiben für die jeweils zugeordnete spätere Phase vorgemerkt (siehe
+Phasenplan unten) — **noch nicht umgesetzt**.
 
 **D — bewusst später (unverändert aus der Master-MD):**
 KI Project Agent, Vector-/Embedding-Layer, Enterprise-SSO, vollständiger Enterprise-Sync,
@@ -794,8 +855,8 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–20 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20). Phasen 21–26
-sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
+Phase 13–21 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17/18/19/20/21). Phasen
+22–26 sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
@@ -807,7 +868,7 @@ sind Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 | 18 | Baseline Management | ✅ BaselineSnapshot, BaselineEntry, Baseline vs Forecast, Deviations |
 | 19 | Capacity Planning Core | ✅ ResourceRole, Skill, PersonSkill, ResourceDemand, ResourceAssignment, Commitment-Level |
 | 20 | Real Capacity | ✅ CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation, Available Capacity |
-| 21 | GAP Engine | Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Drill-down |
+| 21 | GAP Engine | ✅ Capacity/Allocation/Effort/Schedule/Progress/Utilization-Gap, Bündel-Endpoint |
 | 22 | Project Control & Health | mehrdimensionales Project Health, Project Control Cockpit |
 | 23 | Controlling & Capacity Intelligence | Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio |
 | 24 | Knowledge Experience | Tag-Dossiers, kombinierte Tags, semantische Suche |

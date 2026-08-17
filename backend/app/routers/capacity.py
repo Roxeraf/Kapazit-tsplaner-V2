@@ -132,11 +132,12 @@ def delete_person_skill(person_skill_id: int, db: Session = Depends(get_db)):
 
 def _resource_demand_out(db: Session, demand: models.ResourceDemand) -> schemas.ResourceDemandOut:
     role = db.get(models.ResourceRole, demand.resource_role_id)
-    assigned_fte = (
+    assignments = (
         db.query(models.ResourceAssignment)
         .filter(models.ResourceAssignment.resource_demand_id == demand.id)
         .all()
     )
+    assigned_fte = round(sum(a.fte for a in assignments), 2)
     return schemas.ResourceDemandOut(
         id=demand.id,
         project_id=demand.project_id,
@@ -148,7 +149,8 @@ def _resource_demand_out(db: Session, demand: models.ResourceDemand) -> schemas.
         commitment_level=demand.commitment_level,
         erstellt_am=demand.erstellt_am,
         aktualisiert_am=demand.aktualisiert_am,
-        assigned_fte=round(sum(a.fte for a in assigned_fte), 2),
+        assigned_fte=assigned_fte,
+        allocation_gap=round(demand.fte - assigned_fte, 2),
     )
 
 

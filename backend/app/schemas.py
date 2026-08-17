@@ -691,7 +691,10 @@ class ResourceDemandOut(BaseModel):
     commitment_level: str
     erstellt_am: str
     aktualisiert_am: str
-    assigned_fte: float  # Summe der ResourceAssignment.fte - reine Aggregation, kein Gap
+    assigned_fte: float  # Summe der ResourceAssignment.fte
+    # Allocation Gap (Phase 21, Master-MD Abschnitt 22): fte - assigned_fte. Negativ =
+    # Unterdeckung (weniger zugeordnet als bedarf), positiv = Überdeckung.
+    allocation_gap: float
 
 
 class ResourceAssignmentCreate(BaseModel):
@@ -1172,3 +1175,79 @@ class ForecastSummary(BaseModel):
     gap_gesamt: float
     gap_pct: float | None
     status: str
+
+
+# ---------------------------------------------------------------------------
+# GAP Engine (Phase 21, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 21/22). Verbindet
+# Projektplanung (PlanPhase/Milestone, Phase 17) + Kapazitätsplanung (ResourceDemand, Phase
+# 19; Available Capacity, Phase 20) + Ist-Daten (Jira, bestehend) + Forecast zu den in der
+# Master-MD Abschnitt 22 definierten GAP-Arten. Rein berechnete Endpunkte, keine neuen
+# Tabellen - die bestehende Soll-/Ist-Logik oben (GapAnalysis) wird wiederverwendet, nicht
+# ersetzt (Effort Gap).
+# ---------------------------------------------------------------------------
+
+
+class CapacityGapOut(BaseModel):
+    """Demand/Capacity Gap = Available Capacity - Resource Demand (Master-MD Abschnitt 22).
+    Portfolioweit über alle kapazitätsrelevanten Personen, da es keine Person<->ResourceRole-
+    Zuordnung im Datenmodell gibt (siehe CONCEPT.md Abschnitt 12.3) - resource_role_id
+    filtert nur die Bedarfsseite, nicht die Kapazitätsseite."""
+
+    period: str
+    resource_role_id: int | None
+    demand_fte: float
+    available_fte: float
+    capacity_gap_fte: float
+    persons_considered: int
+
+
+class ScheduleGapEntry(BaseModel):
+    """Schedule Gap (live, nicht auf einen BaselineSnapshot angewiesen - siehe Phase 18 für
+    die Snapshot-basierte Variante). Deckt sowohl 'Baseline vs Forecast' als auch 'Forecast
+    vs Actual' ab (Master-MD Abschnitt 21)."""
+
+    entity_type: str  # "plan_phase" | "milestone"
+    entity_id: int
+    label: str | None
+    baseline_date: str | None
+    forecast_date: str | None
+    actual_date: str | None
+    baseline_vs_forecast_days: int | None
+    forecast_vs_actual_days: int | None
+
+
+class ProgressGapEntry(BaseModel):
+    """Progress Gap = Expected Progress - Actual Progress, in Prozentpunkten (Master-MD
+    Abschnitt 22). Expected Progress wird aus dem zeitlichen Anteil zwischen Start und Ende
+    (Forecast, ersatzweise Baseline) bis heute berechnet."""
+
+    plan_phase_id: int
+    label: str
+    expected_progress_pct: float | None
+    actual_progress_pct: float | None
+    progress_gap_pp: float | None
+
+
+class UtilizationGapOut(BaseModel):
+    """Utilization Gap = tatsächliche/erwartete Auslastung ggü. Ziel-Auslastung (Master-MD
+    Abschnitt 22). target_pct ist fix 100% (volle Auslastung der verfügbaren Kapazität) -
+    keine konfigurierbare Ziel-Auslastung in diesem Durchgang."""
+
+    person_id: int
+    period: str
+    assigned_fte: float
+    available_fte: float
+    utilization_pct: float | None
+    target_pct: float
+    utilization_gap_pp: float | None
+
+
+class ProjectGapsOut(BaseModel):
+    """Bündelt Effort-/Schedule-/Progress-Gap eines Projekts an einer Stelle - einfache Form
+    des in Master-MD Abschnitt 21/25 geforderten Drill-downs. Der volle hierarchische
+    Portfolio-Drill-down (Abschnitt 52) bleibt Controlling (Phase 22/23)."""
+
+    project_id: int
+    effort: GapAnalysis
+    schedule: list[ScheduleGapEntry]
+    progress: list[ProgressGapEntry]

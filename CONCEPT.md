@@ -1075,7 +1075,26 @@ Dieses Repo enthält:
       build` fehlerfrei; Playwright-Durchlauf gegen echten Dev-Server (Tag-Klick öffnet Panel,
       zweiten Tag kombinieren schaltet automatisch auf UND, ODER-Umschalter zeigt sofort alle
       drei Treffer korrekt an), keine Konsolenfehler.
-    - **26.6–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
+    - **26.6 (Cockpit Integration) — ✅ erledigt.** `ProjectOverviewTab.tsx` nutzt jetzt
+      `GET /projects/{id}/cockpit` (`routers/health.py`, seit Phase 22 vollständig vorhanden,
+      bisher ungenutzt) statt einzelner Gap-/Risiko-/Entscheidungs-/Aufgaben-Fetches. Kein
+      Backend-Change nötig. Neue Health-Sektion "Project Control" zeigt alle neun
+      Health-Dimensionen (Gesamt/Termine/Kapazität/Aufwand/Fortschritt/Risiken/Blocker/
+      Milestones/Kunde) als farbige Punkte mit Tooltip-Erklärung, dazu aktuelle Phase,
+      Forecast-Ende, Kapazität (Bedarf/Zugeordnet/Gap der aktuellen Periode), Blocker nach
+      Partei aufgeschlüsselt, Aufgaben-Kennzahlen sowie "Aktuelle Themen" als klickbare
+      `TagChip`s (öffnen das 26.5-Dossier-Panel). Milestones-Liste ergänzt. `GapAnalysis`/
+      `GapStatus`-Ampel entfällt zugunsten der Overall-Health-Badge (dieselbe
+      `gruen/gelb/rot/grau`-CSS-Klasse wiederverwendet). "Letzte Notizen"/"Letzte Änderungen"
+      bleiben als eigene, schlanke Fetches bestehen (nicht Teil des Cockpit-Schemas, weiterhin
+      eigenständig sinnvoll). Verifiziert: curl-Szenario angelehnt an das Master-MD-/Phase-22-
+      Beispiel (PlanPhase mit 19 Tagen Verzug + 10% Fortschritt, Milestone verpasst, kritischer
+      Kunden-Blocker, Kapazitätslücke -0,8 FTE) — Cockpit liefert exakt die neun erwarteten
+      Health-Werte (`overall`/`schedule`/`capacity`/`progress`/`blockers`/`milestones`/
+      `customer` rot, `risks` grün, `effort` grau mangels Soll-Daten); `npm run build`
+      fehlerfrei; Playwright-Screenshot bestätigt alle Werte 1:1 wie vom Backend geliefert,
+      keine Konsolenfehler.
+    - **26.7–26.9 — offen**, siehe Abschnitt 12.4 für die Kurzbeschreibung je Unterschritt.
 
 Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–25 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt; Phase 26 (Functional Integration) ist mit Unterschritt 26.1 begonnen, siehe Punkt 26 oben.
 
@@ -1262,7 +1281,7 @@ und die nachfolgende Phase-25-Entscheidung). Phase 26 bleibt Ausblick auf Basis 
 | 23 | Controlling & Capacity Intelligence | ✅ Capacity Heatmap, Portfolio Health, Blocker-/Milestone-Portfolio, Rollenanalyse |
 | 24 | Knowledge Experience | ✅ Tag-Dossiers, kombinierte Tags, semantische Suche (Synonyme/AI-Beschreibung), Related Entities, Activity Integration |
 | 25 | Administration UX | ✅ zentrale UI für Personen/Teams, Rollen/Permissions, Resource Roles/Skills, Tags/Taxonomie, Health-Schwellwerte, Capacity-Konfiguration und Integrationsstatus |
-| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅, 26.5 Knowledge Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
+| 26 | Functional Integration | 🔶 in Arbeit (26.1 Person Integration ✅, 26.2 Planning Integration ✅, 26.3 Capacity Integration ✅, 26.4 Activity Integration ✅, 26.5 Knowledge Integration ✅, 26.6 Cockpit Integration ✅) — bisherige Backend-Bausteine (Phase 13–25) zu End-to-End-Workflows im Frontend verbinden statt neuer Modelle, siehe Abschnitt 11 Punkt 26 für den Unterschritt-Fortschritt (26.1–26.9) |
 | 27 | UX Consolidation | reine UI-Politur (Drawer/Picker/Inline-Editing/Board/Timeline) nach Abschluss von Phase 26, keine Architekturänderungen |
 | 28 | KI-Readiness Review | Prüfung vor KI-Agent-Implementierung |
 | 29 | AI Project Agent | später, siehe Bucket D unten |

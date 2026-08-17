@@ -45,6 +45,7 @@ import type {
   ProjectMembership,
   ProjectStatus,
   ProjectSummary,
+  ProjectControlCockpit,
   RelationType,
   ResourceAssignment,
   ResourceDemand,
@@ -324,6 +325,9 @@ export const api = {
     target_entity_id: number;
     relation_type: RelationType;
   }) => request<EntityRelation>("/entity-relations", { method: "POST", body: JSON.stringify(payload) }),
+
+  // Project Control Cockpit (Phase 26.6, backend/app/routers/health.py)
+  getCockpit: (projectId: number) => request<ProjectControlCockpit>(`/projects/${projectId}/cockpit`),
 
   // Tag-Dossiers (Phase 26.5, backend/app/routers/knowledge.py)
   getTagDossier: (tags: string[], mode: "and" | "or" = "and", projectId?: number) => {

@@ -439,6 +439,94 @@ export interface EntityRelation {
   created_by_person_id: number | null;
 }
 
+// Phase 26.6: Project Control Cockpit (Phase 22 der Zielarchitektur,
+// backend/app/routers/health.py) - bündelt Health, aktuelle Phase, Forecast-Ende,
+// Milestones, Kapazität, Blocker-/Aufgaben-Zusammenfassung und Tags an einer Stelle.
+export type HealthStatus = "gruen" | "gelb" | "rot" | "grau";
+
+export const HEALTH_STATUS_COLOR: Record<HealthStatus, string> = {
+  gruen: "var(--gruen)",
+  gelb: "var(--gelb)",
+  rot: "var(--rot)",
+  grau: "var(--grau)",
+};
+
+export interface HealthDimension {
+  status: HealthStatus;
+  value: number | null;
+  explanation: string;
+}
+
+export interface ProjectHealth {
+  project_id: number;
+  project_name: string;
+  overall: HealthDimension;
+  schedule: HealthDimension;
+  capacity: HealthDimension;
+  effort: HealthDimension;
+  progress: HealthDimension;
+  risks: HealthDimension;
+  blockers: HealthDimension;
+  milestones: HealthDimension;
+  customer: HealthDimension;
+}
+
+export const HEALTH_DIMENSION_LABELS: Record<keyof Omit<ProjectHealth, "project_id" | "project_name">, string> = {
+  overall: "Gesamt",
+  schedule: "Termine",
+  capacity: "Kapazität",
+  effort: "Aufwand",
+  progress: "Fortschritt",
+  risks: "Risiken",
+  blockers: "Blocker",
+  milestones: "Milestones",
+  customer: "Kunde",
+};
+
+export interface CockpitMilestoneEntry {
+  id: number;
+  name: string;
+  baseline_date: string | null;
+  forecast_date: string | null;
+  actual_date: string | null;
+  status: string;
+}
+
+export interface CockpitCapacity {
+  period: string;
+  demand_fte: number;
+  assigned_fte: number;
+  allocation_gap_fte: number;
+}
+
+export interface CockpitBlockers {
+  open_total: number;
+  customer: number;
+  internal: number;
+  third_party: number;
+  unknown: number;
+}
+
+export interface CockpitTasks {
+  open_total: number;
+  overdue: number;
+}
+
+export interface ProjectControlCockpit {
+  project_id: number;
+  project_name: string;
+  kunde: string | null;
+  projektleiter: string | null;
+  health: ProjectHealth;
+  current_phase: string | null;
+  forecast_end: string | null;
+  milestones: CockpitMilestoneEntry[];
+  capacity: CockpitCapacity;
+  blockers: CockpitBlockers;
+  tasks: CockpitTasks;
+  tags: string[];
+}
+
 // Phase 26.5: Tag-Dossiers (Phase 24 der Zielarchitektur, backend/app/routers/knowledge.py) -
 // ein Tag oder eine Kombination ("#Kunde + #GoLive") wird zu einem dynamischen Dossier.
 export interface KnowledgeEntity {

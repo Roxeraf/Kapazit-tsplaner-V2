@@ -126,7 +126,10 @@ class FteUpdate(BaseModel):
 # entity_type-Vokabular, geteilt zwischen TagLink, DocumentLink und EntityRelation.
 # "document" nur für TagLink relevant (Dokumente sind selbst taggbar, aber nie Ziel eines
 # DocumentLink). Siehe Kapazitätsplaner-v2-Zielarchitektur, CONCEPT.md Abschnitt 12.
-EntityType = Literal["comment", "decision", "risk", "meeting_minutes", "task", "document", "blocker"]
+EntityType = Literal[
+    "comment", "decision", "risk", "meeting_minutes", "task", "document", "blocker",
+    "plan_phase", "milestone",
+]
 
 # relation_type-Vokabular für EntityRelation (Master-MD Abschnitt 45, "Knowledge Layer").
 RelationType = Literal[
@@ -461,6 +464,107 @@ class BlockerOut(BaseModel):
     owner_team_id: int | None
     next_action: str | None
     impact: str | None
+    erstellt_am: str
+    aktualisiert_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+# ---------------------------------------------------------------------------
+# PlanPhase & Milestone (Phase 17, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 8/9/10).
+# Zielarchitektur-native Entitäten, englische Feldnamen. Additiv - kein Sync mit dem
+# bestehenden Gantt-Grid (GanttPhase/ProjectGanttPhase bleiben unverändert die Bedienoberfläche).
+# ---------------------------------------------------------------------------
+
+
+class PlanPhaseCreate(BaseModel):
+    subproject_id: int | None = None
+    phase_type: str
+    baseline_start: str | None = None
+    baseline_end: str | None = None
+    forecast_start: str | None = None
+    forecast_end: str | None = None
+    actual_start: str | None = None
+    actual_end: str | None = None
+    status: str = "geplant"  # geplant/laufend/abgeschlossen/verzoegert
+    progress: float | None = None
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    tags: list[str] = []
+
+
+class PlanPhaseUpdate(BaseModel):
+    subproject_id: int | None = None
+    phase_type: str | None = None
+    baseline_start: str | None = None
+    baseline_end: str | None = None
+    forecast_start: str | None = None
+    forecast_end: str | None = None
+    actual_start: str | None = None
+    actual_end: str | None = None
+    status: str | None = None
+    progress: float | None = None
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    tags: list[str] | None = None
+
+
+class PlanPhaseOut(BaseModel):
+    id: int
+    project_id: int
+    subproject_id: int | None
+    phase_type: str
+    baseline_start: str | None
+    baseline_end: str | None
+    forecast_start: str | None
+    forecast_end: str | None
+    actual_start: str | None
+    actual_end: str | None
+    status: str
+    progress: float | None
+    owner_person_id: int | None
+    owner_team_id: int | None
+    erstellt_am: str
+    aktualisiert_am: str
+    tags: list[str] = []
+    documents: list[DocumentOut] = []
+
+
+class MilestoneCreate(BaseModel):
+    subproject_id: int | None = None
+    name: str
+    baseline_date: str | None = None
+    forecast_date: str | None = None
+    actual_date: str | None = None
+    status: str = "geplant"  # geplant/gefaehrdet/erreicht/verpasst
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    tags: list[str] = []
+
+
+class MilestoneUpdate(BaseModel):
+    subproject_id: int | None = None
+    name: str | None = None
+    baseline_date: str | None = None
+    forecast_date: str | None = None
+    actual_date: str | None = None
+    status: str | None = None
+    owner_person_id: int | None = None
+    owner_team_id: int | None = None
+    tags: list[str] | None = None
+
+
+class MilestoneOut(BaseModel):
+    id: int
+    project_id: int
+    subproject_id: int | None
+    name: str
+    baseline_date: str | None
+    forecast_date: str | None
+    actual_date: str | None
+    status: str
+    owner_person_id: int | None
+    owner_team_id: int | None
     erstellt_am: str
     aktualisiert_am: str
     tags: list[str] = []

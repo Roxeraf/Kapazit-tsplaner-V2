@@ -600,3 +600,56 @@ class Blocker(Base):
     impact: Mapped[str | None] = mapped_column(String(500), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
     aktualisiert_am: Mapped[str] = mapped_column(String(40))
+
+
+class PlanPhase(Base):
+    """Fachliche Source of Truth für Projektplanung (Phase 17, Master-MD Abschnitt 8/9).
+    Zielarchitektur-native Entität - englische Feldnamen wie Person/Blocker. Additiv und
+    bewusst NICHT automatisch aus GanttPhase/ProjectGanttPhase synchronisiert: das
+    bestehende Gantt-Grid bleibt bis auf Weiteres unverändert die Bedienoberfläche (siehe
+    CONCEPT.md Abschnitt 12.3 Frage 5) - kein Big-Bang-Wechsel, keine zweite unabhängige
+    Planungswahrheit wird hier vorausgesetzt, PlanPhase startet leer und wird schrittweise
+    befüllt. Plan/Baseline/Forecast/Actual werden sauber getrennt (Baseline/Forecast/Actual
+    hier bereits vorbereitet, BaselineSnapshot/-Entry folgen in Phase 18)."""
+
+    __tablename__ = "plan_phases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    subproject_id: Mapped[int | None] = mapped_column(ForeignKey("subprojects.id"), nullable=True)
+    # Freitext (nicht der 1-Zeichen-Phasencode aus GanttPhase) - z.B. "Pflichtenheft",
+    # "Konfiguration", "Migrationstest". Bewusst offen statt Enum, siehe Master-MD Abschnitt 7.
+    phase_type: Mapped[str] = mapped_column(String(100))
+    baseline_start: Mapped[str | None] = mapped_column(String(10), nullable=True)  # ISO "YYYY-MM-DD"
+    baseline_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    forecast_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    forecast_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    actual_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    actual_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="geplant")  # geplant/laufend/abgeschlossen/verzoegert
+    progress: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0-100
+    owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
+    owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+    aktualisiert_am: Mapped[str] = mapped_column(String(40))
+
+
+class Milestone(Base):
+    """Echtes Steuerungsobjekt (Phase 17, Master-MD Abschnitt 10) - Zielarchitektur-native
+    Entität, englische Feldnamen. Additiv, siehe PlanPhase-Docstring: kein Sync mit dem
+    bestehenden Gantt-Meilensteincode ('?')."""
+
+    __tablename__ = "milestones"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    subproject_id: Mapped[int | None] = mapped_column(ForeignKey("subprojects.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(200))
+    baseline_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # ISO "YYYY-MM-DD"
+    forecast_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    actual_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="geplant")  # geplant/gefaehrdet/erreicht/verpasst
+    owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
+    owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    erstellt_am: Mapped[str] = mapped_column(String(40))
+    aktualisiert_am: Mapped[str] = mapped_column(String(40))

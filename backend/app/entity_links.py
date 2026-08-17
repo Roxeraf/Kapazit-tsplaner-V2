@@ -16,6 +16,8 @@ _ENTITY_LABEL_PREFIX = {
     "meeting_minutes": "Meeting",
     "task": "Aufgabe",
     "blocker": "Blocker",
+    "plan_phase": "Planphase",
+    "milestone": "Milestone",
 }
 
 # Registry für den Knowledge Query Layer (Phase 15, siehe CONCEPT.md Abschnitt 12/46):
@@ -29,6 +31,8 @@ _ENTITY_REGISTRY: dict[str, tuple[type, str]] = {
     "task": (models.Task, "titel"),
     "document": (models.Document, "dateiname"),
     "blocker": (models.Blocker, "title"),
+    "plan_phase": (models.PlanPhase, "phase_type"),
+    "milestone": (models.Milestone, "name"),
 }
 
 # Öffentliches Vokabular für Aufrufer außerhalb dieses Moduls (z.B. routers/knowledge.py,
@@ -99,6 +103,12 @@ def _resolve_entity_label(db: Session, entity_type: str, entity_id: int) -> str:
     elif entity_type == "blocker":
         row = db.get(models.Blocker, entity_id)
         text = row.title if row else None
+    elif entity_type == "plan_phase":
+        row = db.get(models.PlanPhase, entity_id)
+        text = row.phase_type if row else None
+    elif entity_type == "milestone":
+        row = db.get(models.Milestone, entity_id)
+        text = row.name if row else None
     if text is None:
         return f"{prefix} #{entity_id} (gelöscht)"
     return f"{prefix} „{text}“"

@@ -1,6 +1,6 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Status:** v0.7 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–16 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
+**Status:** v0.8 — Projekt-Workspace, Kommunikation/Dokumentenablage, Controlling-Erweiterung sowie Phase 13–17 (Technisches Fundament, Personen/Organisation/Permissions, Semantic Knowledge Foundation, Activity & Blocker Core, Project Planning Core) der Kapazitätsplaner-v2-Zielarchitektur umgesetzt (siehe Abschnitt 11 für den vollständigen Umsetzungsstand, Abschnitt 12 für die Zielarchitektur)
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
 **Ziel-Umgebung:** Integration als Kachel im BUILD-Bereich des plx.crew Portals (`crew-portal.pure-lox.com`)
 
@@ -475,7 +475,49 @@ Dieses Repo enthält:
     Spalten) getestet — kein Datenverlust. Kein Frontend-Umbau. Details siehe Abschnitt 12.4
     (Phase 16 als erledigt markiert).
 
-Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–16 der Zielarchitektur (Abschnitt 12) umgesetzt.
+17. **Phase 17 (Project Planning Core, Kapazitätsplaner-v2-Zielarchitektur):** Migration
+    `0006` (additiv, zwei neue Tabellen `plan_phases`/`milestones`, keine Änderung an
+    bestehenden Tabellen). Neue Modelle **`PlanPhase`** (`project_id`, `subproject_id`
+    nullable, `phase_type` Freitext, `baseline_start`/`baseline_end`, `forecast_start`/
+    `forecast_end`, `actual_start`/`actual_end`, `status`, `progress`, `owner_person_id`,
+    `owner_team_id`) und **`Milestone`** (`project_id`, `subproject_id` nullable, `name`,
+    `baseline_date`, `forecast_date`, `actual_date`, `status`, `owner_person_id`,
+    `owner_team_id`) — Master-MD Abschnitt 8/9/10, englische Feldnamen wie die übrigen
+    Zielarchitektur-nativen Entitäten. **Wichtig, wie in der Master-MD selbst gefordert
+    (Abschnitt 8/9 "kein Big-Bang-Wechsel"):** Das bestehende Gantt-Grid
+    (`GanttPhase`/`ProjectGanttPhase`, `routers/projects.py`) bleibt **unverändert** die
+    Bedienoberfläche und einzige Quelle für die Monatsplanung im Frontend. `PlanPhase`/
+    `Milestone` sind bewusst additiv und starten **leer** — es gibt in diesem Durchgang
+    **keinen automatischen Sync** aus den bestehenden Gantt-Zellen, da dafür erst ein
+    Migrationspfad (1-Zeichen-Phasencode+Monat → strukturierte Start-/End-Daten) definiert
+    werden müsste, der laut CONCEPT.md Abschnitt 12.3 Frage 5 bewusst erst UI-getrieben in
+    einer späteren Phase entschieden wird, nicht vorab. `PlanPhase`/`Milestone` sind ab sofort
+    parallel nutzbar (z.B. für Projekte, die von Anfang an strukturiert geplant werden
+    sollen), ohne dass eine zweite, konkurrierende Planungswahrheit für bestehende Projekte
+    entsteht — bestehende Projekte haben schlicht keine `PlanPhase`/`Milestone`-Einträge, bis
+    sie explizit angelegt werden. **Dependencies** zwischen PlanPhases/Milestones (auch
+    projektübergreifend) laufen über das bestehende `EntityRelation`-Modell
+    (`relation_type=depends_on`) — keine neue Modellierung, analog zur Task-Origins-
+    Entscheidung aus Phase 16. Beide Entitäten sind taggbar/dokumentverknüpfbar und im
+    Knowledge Layer sichtbar (`EntityType` um `"plan_phase"`/`"milestone"` erweitert,
+    `entity_links`-Registry ergänzt — `/knowledge/*`-Endpunkte funktionieren automatisch ohne
+    Codeänderung dort, da sie generisch über das Vokabular iterieren). CRUD unter
+    `/projects/{id}/plan-phases` bzw. `/projects/{id}/milestones`
+    (`backend/app/routers/planning.py`, neuer Router nach dem Decision/Risk/Task-Muster),
+    `subproject_id` wird gegen das Projekt validiert (404 bei unbekanntem Teilprojekt, 422
+    bei Teilprojekt eines anderen Projekts), `owner_person_id`/`owner_team_id` gegen
+    Person/Team (404). Lösch-Kaskaden in `delete_project` (Bulk) und `delete_subproject`
+    ergänzt (TagLink/DocumentLink/EntityRelation). Verifiziert per curl: PlanPhase/Milestone
+    anlegen inkl. Owner/Tags, Cross-Projekt-`subproject_id` korrekt mit 422 abgelehnt,
+    Relation Milestone→`depends_on`→PlanPhase im Knowledge-Context sichtbar und nach Löschung
+    der PlanPhase korrekt entfernt, `/knowledge/project/{id}` zählt beide neuen Typen korrekt
+    mit. Migration gegen frische DB und simulierte bestehende DB (mit befüllten
+    `project_gantt_phases`) getestet — bestehende Gantt-Daten bleiben unverändert erhalten,
+    kein Datenverlust, Downgrade/Upgrade-Round-Trip sauber. Bestehende Gantt-/GAP-/Activity-
+    Feed-Endpunkte weiterhin regressionsfrei. Kein Frontend-Umbau. Details siehe Abschnitt
+    12.4 (Phase 17 als erledigt markiert).
+
+Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der Excel-Migrationslauf für Bestandsdaten, der offene Jira-Issues-Endpoint für den Jira-Tab, sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Damit sind alle in Abschnitt 9 geplanten Phasen inkl. Schritt 10 (Aufgaben-Datenmodell) sowie Phase 13–17 der Zielarchitektur (Abschnitt 12) umgesetzt.
 
 ---
 
@@ -532,10 +574,12 @@ vorschlägt — siehe Abschnitt 6a), `PlanHistory` (Audit-Trail), `Comment`, `De
 `tempo_client.py`, `jira_sync.py`, `JiraWorklogCache`).
 
 **B — vorhanden, aber erweiterungsbedürftig (spätere Phasen, nicht Teil dieses Durchgangs):**
-- `GanttPhase`/`ProjectGanttPhase` (1-Zeichen-Phasencode, reine Monatszellen) → Basis für ein
-  strukturiertes `PlanPhase`-Modell (Phase 17). Das Gantt-Grid bleibt dabei laut Master-MD die
-  Bedienoberfläche; `PlanPhase` wird schrittweise die fachliche Source of Truth dahinter,
-  ohne zwei parallele Wahrheiten zu erzeugen (siehe Frage 5 unten).
+- `GanttPhase`/`ProjectGanttPhase` (1-Zeichen-Phasencode, reine Monatszellen) → `PlanPhase`
+  existiert seit Phase 17 als strukturiertes Modell daneben (additiv, siehe Abschnitt 11
+  Punkt 17), aber noch **ohne** Sync: Das Gantt-Grid bleibt weiterhin unverändert die
+  Bedienoberfläche und einzige Quelle für bestehende Projekte; `PlanPhase` wird erst in einer
+  späteren, UI-getriebenen Phase schrittweise zur befüllten fachlichen Source of Truth (siehe
+  Frage 5 unten) — bewusst kein Sync-Automatismus ohne definierten Migrationspfad.
 - `backend/app/gap_analysis.py` (Soll/Ist/Gap + Trendfortschreibung) → Basis für die künftige
   GAP-Engine mit getrennten GAP-Arten (Phase 21). Die heutige Logik wird nicht ersetzt,
   sondern als ein Fall (Capacity-/Effort-Gap) in das größere Modell integriert.
@@ -552,9 +596,10 @@ Punkt 13). Phase 14: `Person`, `ResourceProfile`, `ProjectRole`, `ProjectMembers
 Metadata (`description`/`color`/`active`/`ai_relevant`/`ai_description`/`synonyms`),
 Knowledge Query Layer (`/knowledge/*`, siehe Abschnitt 11 Punkt 15). Phase 16: `Blocker`
 (`caused_by_party`/`waiting_for_party`), `Comment.parent_id` (Discussion Threading),
-`Decision.begruendung` (Decision Context), Activity Feed (siehe Abschnitt 11 Punkt 16). Alle
-übrigen aus der Master-MD (`PlanPhase`, `Milestone`, `BaselineSnapshot`/`BaselineEntry`,
-`ResourceRole`, `Skill`/`PersonSkill`, `ResourceDemand`,
+`Decision.begruendung` (Decision Context), Activity Feed (siehe Abschnitt 11 Punkt 16). Phase
+17: `PlanPhase`, `Milestone`, Dependencies über `EntityRelation` (siehe Abschnitt 11 Punkt
+17). Alle übrigen aus der Master-MD (`BaselineSnapshot`/`BaselineEntry`, `ResourceRole`,
+`Skill`/`PersonSkill`, `ResourceDemand`,
 `CapacityCalendar`/`Holiday`/`Absence`/`InternalAllocation`, strukturierte GAP-Engine,
 mehrdimensionales Project Health, Administration-UI) bleiben für die jeweils zugeordnete
 spätere Phase vorgemerkt (siehe Phasenplan unten) — **noch nicht umgesetzt**.
@@ -585,12 +630,17 @@ automatische Ressourcenoptimierung.
    nicht unbeobachtet mit einem zweiten `weekly_hours`-Wert auseinanderlaufen kann;
    `ResourceProfile` wird erst bei Bedarf explizit angelegt (`POST
    /people/{id}/resource-profile`). `jira_account_id` bleibt vorerst an `TeamMember`.
-5. **`GanttPhase` → `PlanPhase` ohne zwei Sources of Truth:** Phase 17 führt `PlanPhase` als
-   zusätzliches, strukturierteres Modell ein (Baseline/Forecast/Actual-Start/-Ende statt nur
-   Monat+Code). Das bestehende Gantt-Grid bleibt die Bedienoberfläche (UI ändert sich nicht);
-   im Hintergrund wird `PlanPhase` schrittweise befüllt und der GAP/Health-Berechnung
-   vorgezogen, bis `GanttPhase` nur noch eine abgeleitete Darstellung von `PlanPhase` ist,
-   nicht mehr selbst Source of Truth. Kein Big-Bang-Wechsel.
+5. **`GanttPhase` → `PlanPhase` ohne zwei Sources of Truth:** ✅ Modell seit Phase 17
+   umgesetzt (Baseline/Forecast/Actual-Start/-Ende statt nur Monat+Code), **Sync/UI-Wechsel
+   bewusst noch offen**. Das bestehende Gantt-Grid bleibt unverändert die Bedienoberfläche und
+   einzige Quelle für bestehende Projekte; `PlanPhase` startet leer. Der noch offene Schritt
+   (spätere Phase, UI-getrieben): entweder ein Migrationsskript, das bestehende
+   `GanttPhase`/`ProjectGanttPhase`-Zellen einmalig in `PlanPhase`-Zeilen überführt (Monat+Code
+   → Start-/Enddatum-Bereich je zusammenhängendem Block), oder ein Umbau der Planung-Tab-UI,
+   die direkt gegen `PlanPhase` schreibt und `GanttPhase` nur noch als abgeleitete
+   Zellen-Darstellung berechnet. Beides ist bewusst nicht Teil von Phase 17, um keinen
+   Sync-Automatismus ohne definierten UI-Bedarf zu bauen (Prinzip: Komplexität nur dort
+   hinzufügen, wo sie konkrete Projektsteuerung verbessert).
 6. **Bestehende Soll-/Ist-GAP-Logik in die künftige GAP-Engine:** `gap_analysis.project_gap()`
    liefert bereits Soll/Ist/Gap/Hochrechnung je Projekt/Monat — das entspricht in der
    GAP-Engine-Terminologie der Master-MD im Kern dem Capacity-/Effort-Gap. Phase 21 kapselt
@@ -624,8 +674,8 @@ automatische Ressourcenoptimierung.
 
 ### 12.4 Phasenplan 13–26 (Ausblick)
 
-Phase 13–16 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16). Phasen 17–26 sind Ausblick
-auf Basis der Master-MD, **noch nicht umgesetzt**:
+Phase 13–17 sind umgesetzt (siehe Abschnitt 11 Punkt 13/14/15/16/17). Phasen 18–26 sind
+Ausblick auf Basis der Master-MD, **noch nicht umgesetzt**:
 
 | Phase | Titel | Kerninhalt |
 |---|---|---|
@@ -633,7 +683,7 @@ auf Basis der Master-MD, **noch nicht umgesetzt**:
 | 14 | Personen, Organisation & Permissions | ✅ Person, ResourceProfile, ProjectRole, ProjectMembership, Permission, AppRole |
 | 15 | Semantic Knowledge Foundation | ✅ Tag-AI-Metadata, Knowledge Query Layer (`/knowledge/*`) |
 | 16 | Activity & Blocker Core | ✅ Blocker (caused_by/waiting_for), Discussion Threading, Decision Context, Activity Feed |
-| 17 | Project Planning Core | PlanPhase, Milestone, Dependencies (Gantt bleibt UI) |
+| 17 | Project Planning Core | ✅ PlanPhase, Milestone, Dependencies (Gantt bleibt unverändert UI) |
 | 18 | Baseline Management | BaselineSnapshot, BaselineEntry, Baseline vs Forecast |
 | 19 | Capacity Planning Core | ResourceRole, Skill, PersonSkill, ResourceDemand, Commitment-Level |
 | 20 | Real Capacity | CapacityCalendar, WorkingTime, Holiday, Absence, InternalAllocation |

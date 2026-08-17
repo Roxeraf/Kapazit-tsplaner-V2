@@ -35,6 +35,7 @@ export interface ProjectSummary {
   anzahl_monate: number;
   reihenfolge: number;
   status: ProjectStatus;
+  projektleiter: string | null;
   projektleiter_person_id: number | null;
   monate: string[];
 }
@@ -43,6 +44,8 @@ export interface SubprojectDetail {
   id: number;
   name: string;
   reihenfolge: number;
+  phasen: Record<string, PhaseCode[]>;
+  fte: Record<string, number>;
 }
 
 export interface SubprojectListItem {
@@ -55,13 +58,45 @@ export interface SubprojectListItem {
 export interface ProjectDetail extends ProjectSummary {
   jira_component: string | null;
   jira_project_key: string | null;
+  phasen: Record<string, PhaseCode[]>;
+  fte: Record<string, number>;
+  aus_teilprojekten: boolean;
   ist: Record<string, number>;
   subprojects: SubprojectDetail[];
+  team_assignments: ProjectAssignment[];
 }
 
 export interface Team {
   id: number;
   name: string;
+}
+
+export interface TeamWithMembers extends Team {
+  members: TeamMember[];
+}
+
+export interface Assignment {
+  id: number;
+  project_id: number;
+  project_name: string;
+  fte: number;
+}
+
+export interface ProjectAssignment {
+  id: number;
+  team_member_id: number;
+  member_name: string;
+  fte: number;
+}
+
+export interface TeamMember {
+  id: number;
+  name: string;
+  jira_account_id: string | null;
+  wochenstunden: number;
+  team_id: number | null;
+  team_name: string | null;
+  assignments: Assignment[];
 }
 
 export interface JiraStatus {
@@ -264,27 +299,14 @@ export interface Risk {
   documents: Document[];
 }
 
-// Ersetzt MemberUtilization (Phase 26.9 Legacy Cutover) - Person/ResourceProfile statt
-// TeamMember, periodenscharf statt statisch (siehe backend/app/capacity_calc.py).
-export interface PortfolioUtilizationEntry {
-  person_id: number;
-  person_name: string;
+export interface MemberUtilization {
+  member_id: number;
+  member_name: string;
   team_id: number | null;
   team_name: string | null;
-  jira_account_id: string | null;
-  weekly_hours: number;
   kapazitaet_fte: number;
   zugeordnet_fte: number;
   auslastung_pct: number | null;
-}
-
-export interface ResourceProfile {
-  id: number;
-  person_id: number;
-  team_id: number | null;
-  weekly_hours: number;
-  capacity_relevant: boolean;
-  active: boolean;
 }
 
 export interface KpiSummary {
@@ -677,7 +699,7 @@ export interface CandidatePerson {
 }
 
 // Fachliche Administration (Phase 25)
-export interface AdminPerson { id: number; external_id: string | null; display_name: string; email: string | null; source: "LOCAL" | "ENTERPRISE_PLATFORM"; active: boolean; jira_account_id: string | null }
+export interface AdminPerson { id: number; external_id: string | null; display_name: string; email: string | null; source: "LOCAL" | "ENTERPRISE_PLATFORM"; active: boolean }
 // Phase 26.1: Person ist auch außerhalb der Administration die Grundlage für den
 // projektweiten PersonPicker (Projektleiter/Owner-Felder/Projektteam) - gleiche Form wie
 // AdminPerson, eigener Alias statt Import aus dem Administration-Kontext.

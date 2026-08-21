@@ -57,6 +57,7 @@ _ACTIVITY_TIMESTAMP_FIELD: dict[str, str] = {
     "blocker": "erstellt_am",
     "plan_phase": "erstellt_am",
     "milestone": "erstellt_am",
+    "baseline_snapshot": "created_at",
 }
 
 ACTIVITY_ENTITY_TYPES: tuple[str, ...] = tuple(_ACTIVITY_TIMESTAMP_FIELD.keys())

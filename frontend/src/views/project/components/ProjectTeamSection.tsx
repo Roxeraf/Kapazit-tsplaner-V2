@@ -50,6 +50,10 @@ export default function ProjectTeamSection({ projectId }: { projectId: number })
   return (
     <div>
       <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Projektteam</h3>
+      <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: "-0.3rem" }}>
+        Wer am Projekt beteiligt ist - das ist unabhängig von der Kapazitätsbesetzung (FTE-Zuordnung im
+        Planung-Tab). Eine Person hier hinzuzufügen erzeugt keine automatische FTE-Zuordnung.
+      </p>
       {error && <p style={{ color: "var(--rot)" }}>{error}</p>}
       {memberships.length === 0 ? (
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Noch niemand zugeordnet.</p>

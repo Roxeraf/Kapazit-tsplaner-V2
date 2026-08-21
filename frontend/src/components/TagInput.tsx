@@ -1,23 +1,40 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 
+// P12.1 (Tag Experience Completion): an jedem taggbaren Objekt soll der User 1) einen
+// vorhandenen Tag suchen/auswählen oder 2) direkt einen neuen erstellen können, ohne in die
+// Administration zu wechseln. Backend erstellt einen unbekannten Tag-Namen beim Speichern
+// automatisch (entity_links.sync_tags) - hier geht es nur um die Klarheit der UX: existierende
+// Treffer vs. "existiert nicht -> erstellen" sind sichtbar unterschieden (statt einer
+// einzelnen Freitext-Eingabe ohne Rückmeldung).
 export default function TagInput({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }) {
   const [draft, setDraft] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [searchedTerm, setSearchedTerm] = useState<string | null>(null);
 
   useEffect(() => {
     if (!draft.trim()) {
       setSuggestions([]);
+      setSearchedTerm(null);
       return;
     }
     const handle = setTimeout(() => {
+      const term = draft.trim();
       api
-        .listTags(draft.trim())
-        .then((tags) => setSuggestions(tags.map((t) => t.name).filter((name) => !value.includes(name))))
+        .listTags(term)
+        .then((tags) => {
+          setSuggestions(tags.map((t) => t.name).filter((name) => !value.includes(name)));
+          setSearchedTerm(term);
+        })
         .catch(() => setSuggestions([]));
     }, 200);
     return () => clearTimeout(handle);
   }, [draft, value]);
+
+  const trimmedDraft = draft.trim();
+  const exactMatch = suggestions.some((s) => s.toLowerCase() === trimmedDraft.toLowerCase());
+  const alreadyChosen = value.some((v) => v.toLowerCase() === trimmedDraft.toLowerCase());
+  const showCreateHint = trimmedDraft.length > 0 && searchedTerm === trimmedDraft && !exactMatch && !alreadyChosen;
 
   const addTag = (name: string) => {
     const trimmed = name.trim();
@@ -25,6 +42,7 @@ export default function TagInput({ value, onChange }: { value: string[]; onChang
     onChange([...value, trimmed]);
     setDraft("");
     setSuggestions([]);
+    setSearchedTerm(null);
   };
 
   const removeTag = (name: string) => onChange(value.filter((t) => t !== name));
@@ -70,6 +88,19 @@ export default function TagInput({ value, onChange }: { value: string[]; onChang
               #{s}
             </button>
           ))}
+        </div>
+      )}
+      {showCreateHint && (
+        <div style={{ marginTop: "0.35rem", fontSize: "0.78rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          <span style={{ color: "var(--text-muted)" }}>„{trimmedDraft}“ existiert nicht</span>
+          <button
+            type="button"
+            className="btn secondary"
+            style={{ fontSize: "0.75rem", padding: "0.1rem 0.5rem" }}
+            onClick={() => addTag(trimmedDraft)}
+          >
+            + #{trimmedDraft} erstellen
+          </button>
         </div>
       )}
     </div>

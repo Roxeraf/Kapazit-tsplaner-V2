@@ -106,7 +106,11 @@ export default function ResourceDemandGrid({ projectId, periods }: { projectId: 
 
   return (
     <div>
-      <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Ressourcen</h3>
+      <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Projektkapazität nach Monat</h3>
+      <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: "-0.4rem" }}>
+        Projektweiter Ressourcenbedarf je Monat - unabhängig vom Phasenaufwand einzelner Phasen (Tab "Kapazität"
+        im Phasen-Drawer). Zwei getrennte Achsen, keine automatische Synchronisierung.
+      </p>
       {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
 
       {visibleRoleIds.length === 0 ? (

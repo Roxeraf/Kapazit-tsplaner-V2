@@ -543,6 +543,15 @@ export interface TagDossier {
   activity: ActivityItem[];
 }
 
+// P16.5 (Aktuelle Themen): welche Tags im Projekt tatsächlich verwendet werden -
+// backend/app/routers/knowledge.py get_project_knowledge_context.
+export interface KnowledgeProjectContext {
+  project_id: number;
+  counts: Record<string, number>;
+  tags: string[];
+  relations: EntityRelation[];
+}
+
 // Phase 26.2/P11: PlanPhase/Milestone (Phase 17 der Zielarchitektur, backend/app/routers/planning.py)
 // - Zielarchitektur-native Entitäten, ersetzen ab jetzt das alte Gantt/FTE-Raster als
 // Bedienoberfläche. status ist im Backend bewusst Freitext (kein Enum) - die folgenden
@@ -650,6 +659,7 @@ export interface BaselineSnapshotSummary {
   id: number;
   project_id: number;
   name: string;
+  reason: string | null;
   created_at: string;
   created_by_person_id: number | null;
   entry_count: number;
@@ -668,10 +678,24 @@ export interface BaselineSnapshot {
   id: number;
   project_id: number;
   name: string;
+  reason: string | null;
   created_at: string;
   created_by_person_id: number | null;
   tags: string[];
   entries: BaselineEntry[];
+}
+
+// Planstand-Vergleich (backend/app/baseline_calc.py compute_deviations, Abschnitt 5.3/13.4
+// CONCEPT.md): rohe Feld-Deltas, das Frontend formatiert sie in Fachsprache
+// (siehe planstandFieldLabels.ts), keine Rohfeldnamen im UI.
+export interface BaselineDeviation {
+  entity_type: EntityType;
+  entity_id: number;
+  label: string | null;
+  field: string;
+  baseline_value: string | null;
+  current_value: string | null;
+  delta_days: number | null;
 }
 
 // Phase 26.3: ResourceDemand/ResourceAssignment (Phase 19 der Zielarchitektur,

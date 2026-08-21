@@ -808,10 +808,15 @@ freigegeben/gelockt** (Codebase Validation Matrix + vollständige Herleitung sie
 Abschnitt 35 "Final Lock Addendum" mit den in diesem Durchgang eingearbeiteten Korrekturen).
 **BD-10/BD-11/BD-12/BD-13 sind CLOSED** (Abschnitt 14) — es gibt keine offene
 Architekturentscheidung mehr, nur noch die technische Umsetzung (Implementierungspakete
-B-1–B-8, siehe Pass-2-Dokument Abschnitt 30). **Löst Abschnitt 6a (P18 Pass 1) fachlich ab**
-(Begründung: Abschnitt 2 des Pass-2-Dokuments). Beschreibt Zielverhalten, kein Ist-Zustand — bis
-zur tatsächlichen Implementierung gilt technisch unverändert Abschnitt 6. **Keine Migration
-wurde ausgeführt, kein Produktcode/Frontend wurde geändert.**
+B-1–B-8, siehe Pass-2-Dokument Abschnitt 35.5). **Löst Abschnitt 6a (P18 Pass 1) fachlich ab**
+(Begründung: Abschnitt 2 des Pass-2-Dokuments). Beschreibt Zielverhalten, **teilweise bereits
+Ist-Zustand:** Paket **B-1 (Hierarchy Domain Foundation) ist implementiert** (additive
+Schema-Grundlage: `PlanPhase.parent_phase_id`/`reihenfolge`, `Milestone.plan_phase_id`,
+`PlanHistory.plan_phase_id`, `ResourceRole.is_system_role` + Seed "Ohne Rolle" — siehe 16.7).
+Diese Spalten existieren, werden aber von **keinem** Endpoint gelesen/geschrieben/validiert —
+kein Backend-Guard, keine Datenmigration, kein Frontend nutzt sie. Bis B-2/B-3/B-4/B-5
+umgesetzt sind, gilt operativ unverändert Abschnitt 6 (Subprojects/Grobplanung bleiben die
+tatsächlich wirksame Planungsebene).
 
 ### 6b.1 Kernidee
 
@@ -1705,6 +1710,37 @@ plan ab.
   spezifiziert und nicht mehr durch eine offene BD blockiert, sollte aber wie jede
   produktionswirksame Datenmigration erst nach expliziter Umsetzungsfreigabe durch das Team
   ausgeführt werden (kein automatischer Trigger durch diesen Dokumentations-Durchgang).
+
+### 16.7 P18 Implementierung — B-1 Hierarchy Domain Foundation (dieser Durchgang)
+
+**Erstes Umsetzungspaket der PlanPhase-only-Zielarchitektur (Abschnitt 6b), Validation Gate
+bestanden.** Rein additive Schema-Grundlage, exakt wie in Abschnitt 6b.1/6b.1a/6b.8 und
+Pass-2-Dokument Abschnitt 35.5 (Paket B-1) spezifiziert — bewusst **ohne** jede
+Backend-Logik, API-Änderung oder Datenmigration (folgt in B-2/B-3/B-4/B-5):
+
+- Neue Alembic-Revision `0005_p18_hierarchy_foundation` (additiv, `check_migrations.py` grün:
+  Kettenintegrität, Upgrade base→head, kein Drift zu `models.py`, Seeds vollständig,
+  Downgrade/Upgrade-Roundtrip sauber).
+- `PlanPhase.parent_phase_id` (self-referencing FK, nullable, indiziert) und
+  `PlanPhase.reihenfolge` (Integer, NOT NULL, default 0) — Grundlage der Hierarchie
+  (Tiefenvalidierung ≤ 3 Ebenen und Zyklenprüfung folgen als Backend-Guard in B-3).
+- `Milestone.plan_phase_id` (nullable FK, `ON DELETE SET NULL`, indiziert) — ersetzt
+  `subproject_id` fachlich (Abschnitt 6b.8); `subproject_id` bleibt compat-only bestehen.
+- `PlanHistory.plan_phase_id` (nullable FK, `ON DELETE SET NULL`, indiziert) — Voraussetzung
+  für die in Abschnitt 6b.1a spezifizierte Historisierung des `plan_fte`-Werts beim
+  Leaf→Parent-Übergang (Schreibpfad folgt in B-3).
+- `ResourceRole.is_system_role` (Boolean, NOT NULL, default false) + Seed-Zeile "Ohne Rolle"
+  (`is_system_role = true`, einmalig per Migration angelegt) — technische Trägerschicht für
+  die in Abschnitt 6b.4 spezifizierte direkte Personenzuordnung ohne erzwungene Rollenauswahl.
+  Governance-Regeln (nicht löschbar, im normalen Rollen-Picker ausgeblendet, kein
+  Skill-Matching, keine eigenständige Rolle in Reporting/Controlling) sind mit diesem Flag
+  technisch möglich, werden aber **noch nicht** durchgesetzt — das ist Backend-Scope von B-3/B-4.
+- `check_migrations.py` um eine Seed-Verifikation ergänzt (Systemrolle "Ohne Rolle" existiert
+  nach jedem Rebuild genau einmal).
+- **Keine Verhaltensänderung an bestehenden Endpunkten** — alle neuen Spalten sind bislang
+  ungenutzt (kein Router liest/schreibt sie), Regressionsrisiko minimal.
+- **Nächstes Paket:** B-2 (Migration Tooling, Dry-Run-Skript) und B-3 (Phase Tree API) —
+  siehe Pass-2-Dokument Abschnitt 35.5.
 
 ---
 

@@ -167,17 +167,96 @@ def compute_person_capacity_for_range(
     )
 
 
+def compute_project_monthly_capacity(
+    db: Session, project_id: int, periods: list[str] | None = None
+) -> dict[str, float]:
+    """Projektkapazität(Monat), AUSSCHLIESSLICH aus PlanPhase.plan_fte abgeleitet (P18/B-5,
+    CONCEPT.md Abschnitt 6b.6) - EINE Berechnungsquelle statt der früheren
+    ResourceDemand-Summe. Summe von monthly_distribution() über ALLE PlanPhases des Projekts,
+    in Stunden. Kein explizites Leaf-Filtering nötig: eine Parent-Phase trägt nach dem B-3-
+    Lifecycle (Abschnitt 6b.1a) immer plan_fte=None und liefert damit automatisch {} bei
+    monthly_distribution() - sie trägt niemals selbst zur Summe bei, nur ihre Leaf-Nachfahren.
+    periods=None liefert alle Monate, die von mindestens einer Phase berührt werden;
+    andernfalls wird exakt für die übergebenen Perioden aufgefüllt (0.0 falls keine Phase
+    diesen Monat berührt).
+
+    Lokaler (Funktions-Body-)Import von phase_metrics_calc: vermeidet einen Circular Import,
+    da phase_metrics_calc.py bereits von capacity_calc.py importiert (count_weekdays_in_range)
+    - beide Module sind zum Aufrufzeitpunkt dieser Funktion längst vollständig geladen."""
+    from . import phase_metrics_calc
+
+    phases = db.query(models.PlanPhase).filter(models.PlanPhase.project_id == project_id).all()
+    totals: dict[str, float] = {}
+    for phase in phases:
+        distribution = phase_metrics_calc.monthly_distribution(
+            phase.plan_fte, phase.forecast_start, phase.forecast_end
+        )
+        for period, hours in distribution.items():
+            totals[period] = totals.get(period, 0.0) + hours
+    totals = {period: round(hours, 2) for period, hours in totals.items()}
+    if periods is None:
+        return totals
+    return {period: totals.get(period, 0.0) for period in periods}
+
+
+def hours_to_fte_equivalent(hours: float, period: str) -> float:
+    """Stunden -> FTE-Äquivalent für einen Monats-Bucket (Abschnitt 6a.6: "Stunden /
+    (Werktage_Monat × 8)"), z.B. für die UI-Rückrechnung einer Projektkapazität-Zeile oder um
+    eine PlanPhase-abgeleitete Kapazität mit dem bestehenden FTE-basierten
+    CapacityGapOut/CockpitCapacity-Schema kompatibel zu halten (keine Schema-Änderung, nur
+    Berechnung dahinter, B-5)."""
+    year, month = parse_period(period)
+    weekdays = _weekdays_in_month(year, month)
+    if weekdays == 0:
+        return 0.0
+    hours_per_day = VOLLZEIT_WOCHENSTUNDEN / 5
+    return round(hours / (weekdays * hours_per_day), 4)
+
+
+def compute_portfolio_planphase_demand_fte(db: Session, period: str) -> float:
+    """Portfolioweite Projektkapazität(Monat), ausschließlich aus PlanPhase.plan_fte
+    abgeleitet (P18/B-5, Abschnitt 6b.6) - Summe über alle Projekte, als FTE-Äquivalent.
+    Ersetzt die frühere ResourceDemand.fte-Summe als rollen-unabhängige Bedarfsseite von
+    compute_capacity_gap(); eine rollen-gefilterte Abfrage (resource_role_id gesetzt) bleibt
+    unverändert auf der optionalen Rollen-Aufschlüsselung (ResourceDemand), da Rolle keine
+    Dimension der PlanPhase-Kapazität ist (Abschnitt 6b.4)."""
+    total_hours = 0.0
+    for (project_id,) in db.query(models.Project.id).all():
+        distribution = compute_project_monthly_capacity(db, project_id, periods=[period])
+        total_hours += distribution.get(period, 0.0)
+    return hours_to_fte_equivalent(total_hours, period)
+
+
 def compute_capacity_gap(db: Session, period: str, resource_role_id: int | None = None) -> schemas.CapacityGapOut:
     """Demand/Capacity Gap = Available Capacity - Resource Demand (Master-MD Abschnitt 22).
     Portfolioweit über alle kapazitätsrelevanten Personen, da es keine Person<->ResourceRole-
     Zuordnung im Datenmodell gibt (siehe CONCEPT.md Abschnitt 12.3) - resource_role_id
     filtert nur die Bedarfsseite, nicht die Kapazitätsseite. Aus routers/gap_engine.py (Phase
     21) extrahiert, damit routers/controlling.py (Phase 23) dieselbe Berechnung für die
-    Capacity Heatmap über mehrere Perioden hinweg wiederverwenden kann."""
-    demand_query = db.query(models.ResourceDemand).filter(models.ResourceDemand.period == period)
+    Capacity Heatmap über mehrere Perioden hinweg wiederverwenden kann.
+
+    P18/B-5 (CONCEPT.md Abschnitt 6b.6): ohne Rollenfilter kommt die Bedarfsseite jetzt
+    ausschließlich aus PlanPhase.plan_fte (compute_portfolio_planphase_demand_fte) statt aus
+    einer ResourceDemand-Summe - es gibt keine Rollen-Dimension auf Projektkapazitätsebene
+    mehr (Abschnitt 6b.4). Ein gesetzter resource_role_id-Filter bleibt bewusst auf der
+    optionalen Rollen-Aufschlüsselung (ResourceDemand) - das ist die einzige Stelle, an der
+    Rolleninformation überhaupt existiert, und wird durch B-5 nicht ersetzt, nur nicht mehr
+    als Quelle der rollen-unabhängigen Gesamtkapazität verwendet."""
     if resource_role_id is not None:
-        demand_query = demand_query.filter(models.ResourceDemand.resource_role_id == resource_role_id)
-    demand_fte = round(sum(d.fte for d in demand_query.all()), 2)
+        demand_fte = round(
+            sum(
+                d.fte
+                for d in db.query(models.ResourceDemand)
+                .filter(
+                    models.ResourceDemand.period == period,
+                    models.ResourceDemand.resource_role_id == resource_role_id,
+                )
+                .all()
+            ),
+            2,
+        )
+    else:
+        demand_fte = round(compute_portfolio_planphase_demand_fte(db, period), 2)
 
     persons = (
         db.query(models.Person)

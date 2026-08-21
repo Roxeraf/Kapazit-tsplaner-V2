@@ -883,6 +883,17 @@ class PersonCapacityOut(BaseModel):
     absence_days: int
 
 
+class ProjectMonthlyCapacityEntry(BaseModel):
+    """Ein Monat der abgeleiteten Projektkapazität (P18/B-5, CONCEPT.md Abschnitt 6b.6) -
+    reine AUSWERTUNG, kein Eingabefeld: SUM(monthly_distribution(leaf.plan_fte, ...)) über
+    alle Leaf-PlanPhases des Projekts. Read-only, UI-Label "Projektkapazität" (nicht
+    "ResourceDemand")."""
+
+    period: str
+    hours: float
+    fte_equivalent: float
+
+
 class PersonCapacityRangeOut(BaseModel):
     """Bereichsbasierte Variante von PersonCapacityOut (P18/B-4, CONCEPT.md Abschnitt
     6b.5/6b.11) - für die Available-Capacity-Prüfung über einen ganzen PlanPhase-Zeitraum

@@ -5,10 +5,10 @@ Folgt demselben CRUD-Muster wie routers/people.py/planning.py."""
 
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import capacity_calc, models, schemas
+from .. import capacity_calc, constants, models, schemas
 from ..database import get_db
 
 router = APIRouter(tags=["capacity"])
@@ -205,6 +205,29 @@ def _check_plan_phase(db: Session, project_id: int, plan_phase_id: int | None) -
 def _check_resource_role(db: Session, resource_role_id: int) -> None:
     if db.get(models.ResourceRole, resource_role_id) is None:
         raise HTTPException(status_code=404, detail="Ressourcenrolle nicht gefunden")
+
+
+@router.get("/projects/{project_id}/capacity/monthly", response_model=list[schemas.ProjectMonthlyCapacityEntry])
+def get_project_monthly_capacity(
+    project_id: int, periods: list[str] | None = Query(default=None), db: Session = Depends(get_db)
+):
+    """P18/B-5 (CONCEPT.md Abschnitt 6b.6/6b.13, Abschnitt 13 der Aufgabenstellung):
+    "Derived Monthly & Portfolio Capacity" - Projektkapazität(Monat) ausschließlich aus
+    PlanPhase.plan_fte abgeleitet, read-only. KEINE monatliche Projektplanung - dieser
+    Endpunkt liefert nur eine Auswertung, kein Eingabefeld existiert dafür.
+    periods im "Apr 26"-Format (z.B. ["Okt 26", "Nov 26"]); ohne Angabe wird der
+    Projekt-Default-Zeitraum (Project.start_monat/anzahl_monate) verwendet."""
+    project = _get_project_or_404(db, project_id)
+    resolved_periods = periods or constants.berechne_monate(project.start_monat, project.anzahl_monate)
+    monthly_hours = capacity_calc.compute_project_monthly_capacity(db, project_id, periods=resolved_periods)
+    return [
+        schemas.ProjectMonthlyCapacityEntry(
+            period=period,
+            hours=hours,
+            fte_equivalent=capacity_calc.hours_to_fte_equivalent(hours, period),
+        )
+        for period, hours in monthly_hours.items()
+    ]
 
 
 @router.get("/projects/{project_id}/resource-demands", response_model=list[schemas.ResourceDemandOut])

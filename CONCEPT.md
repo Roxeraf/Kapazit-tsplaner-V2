@@ -1888,6 +1888,61 @@ wirksam (CONCEPT.md Abschnitt 6b.1/6b.1a/6b.3/6b.9, Pass-2-Dokument Abschnitt 35
   capacity`, Anschluss an Controlling/GAP/Cockpit — blockiert produktiv erst nach
   ausgeführter B-2-Migration) — siehe Pass-2-Dokument Abschnitt 35.5.
 
+### 16.11 P18 Implementierung — B-5 Derived Monthly & Portfolio Capacity (dieser Durchgang)
+
+**Fünftes Umsetzungspaket, Validation Gate bestanden** (CONCEPT.md Abschnitt 6b.6, Abschnitt
+13 der Aufgabenstellung — bewusst NICHT "Monthly Planning" genannt, Pass-2-Dokument Abschnitt
+35.5 Paket B-5). **Wichtig:** produktiv wirksam wird der Cutover erst, nachdem B-2 tatsächlich
+gegen die Zieldaten ausgeführt wurde (noch nicht geschehen) — bis dahin können in einer
+Produktiv-DB weiterhin `ResourceDemand(plan_phase_id IS NULL)`-Zeilen existieren, die von den
+unten beschriebenen Endpunkten schlicht nicht mehr gelesen werden (kein Fehler, aber auch
+keine Berücksichtigung mehr — Grund, warum B-2 zuerst ausgeführt werden muss).
+
+- **`phase_metrics_calc.monthly_distribution(plan_fte, forecast_start, forecast_end) ->
+  dict[str, float]`** (neu): werktage-anteilige Monatsverteilung der Planstunden einer Phase,
+  1:1 nach der in Abschnitt 6a.6 spezifizierten und jetzt verifizierten Formel (kein
+  Feiertagsabzug, kein 50/50-Split).
+- **`capacity_calc.compute_project_monthly_capacity(db, project_id, periods=None) ->
+  dict[str, float]`** (neu): Summe von `monthly_distribution` über **alle** `PlanPhase`s des
+  Projekts, in Stunden. Kein explizites Leaf-Filtering nötig — eine Parent-Phase trägt nach
+  dem B-3-Lifecycle immer `plan_fte=None` und liefert damit automatisch `{}` bei
+  `monthly_distribution`, ohne eigenen Beitrag zur Summe. **Das ist jetzt die einzige
+  Berechnungsquelle für "Projektkapazität(Monat)"** — kein `ResourceDemand`-Summenmodell mehr.
+- **`GET /projects/{id}/capacity/monthly?periods=`** (neu, additiv): read-only Auswertung
+  (Stunden + FTE-Äquivalent je Monat), UI-Label "Projektkapazität" — kein Eingabefeld, kein
+  `ResourceDemandGrid`-Ersatz. Default-Zeitraum aus `Project.start_monat`/`anzahl_monate`.
+- **`GET /projects/{id}/cockpit` (Capacity-Block)**: `demand_fte` kommt jetzt ausschließlich
+  aus `compute_project_monthly_capacity` (verifiziert: eine bewusst falsche
+  `ResourceDemand.fte` im aktuellen Monat verändert das Ergebnis nicht mehr). `assigned_fte`
+  bleibt unverändert die Summe der `ResourceAssignment.fte` (Personenauslastung ist ein
+  eigenes, von `plan_fte` unabhängiges Konzept, Abschnitt 6b.10/Abschnitt 15 der
+  Aufgabenstellung — Projektbedarf ≠ Personenbelegung, beide Werte dürfen auseinanderlaufen).
+- **`capacity_calc.compute_capacity_gap`** (Portfolio-GAP, genutzt von `GET
+  /gap-engine/capacity` und `GET /controlling/capacity-heatmap`): ohne `resource_role_id`
+  kommt die Bedarfsseite jetzt aus `compute_portfolio_planphase_demand_fte` (Summe der
+  PlanPhase-abgeleiteten Kapazität über alle Projekte, als FTE-Äquivalent) statt aus einer
+  `ResourceDemand`-Summe. Ein gesetzter `resource_role_id`-Filter bleibt bewusst auf der
+  optionalen Rollen-Aufschlüsselung (`ResourceDemand`) — Rolle ist keine Dimension der
+  PlanPhase-Kapazität (Abschnitt 6b.4), das ist die einzige Stelle, an der Rolleninformation
+  überhaupt existiert.
+- **Rollen-Governance vervollständigt** (Rest von Abschnitt 6b.4/35.3, nach der in B-4
+  offengelassenen Lücke): `GET /controlling/allocation-gaps` und `GET /controlling/roles`
+  blenden die interne Systemrolle "Ohne Rolle" jetzt aus — sie erscheint nicht mehr als
+  eigenständige, gleichwertige Rolle neben echten Rollen wie "Senior Consultant".
+- **Bewusst NICHT verändert:** Response-Schemas der bestehenden Endpunkte
+  (`CapacityGapOut`/`PortfolioAllocationGapEntry`/`RoleAnalysisEntry`/`CockpitCapacity`) —
+  nur die Berechnung dahinter wechselt, keine neue API-Landschaft (B-5-Vorgabe).
+- **Verifikation:** `backend/scripts/test_derived_monthly_capacity.py` — prüft
+  `monthly_distribution` exakt gegen das vollständig durchgerechnete Red-Bull-WMS-Beispiel aus
+  Abschnitt 6a.6 (112,0 h Oktober / 160,0 h November), `compute_project_monthly_capacity`
+  inkl. Parent-Ignoranz, den neuen Endpoint, den Cockpit-Cutover (inkl. Beweis, dass die alte
+  `ResourceDemand`-Summe nicht mehr einfließt) und die Rollen-Governance. Alle Prüfungen
+  grün, `check_migrations.py`/B-2/B-3/B-4-Skripte weiterhin grün (keine Schema-Änderung in
+  diesem Paket).
+- **Nächstes Paket:** B-6 (PlanPhase Tree UX: Baum-UI in Liste/Gantt/Workspace, Löschverhalten
+  gemäß BD-11 in der UI) — größtes verbleibendes Frontend-Einzelpaket, siehe Pass-2-Dokument
+  Abschnitt 35.5.
+
 ---
 
 ## 17. Historie / Architecture Decision Log

@@ -3,15 +3,26 @@
 **PlanPhase als einzige Planungseinheit / Hierarchische Phasen statt Grob-/Feinplanung und
 Teilprojekte**
 
-Status: **Design/Architekturprüfung. Keine Implementierung in diesem Durchgang.** Kein Code,
-keine Migration, keine Frontend-Änderung. Dieses Dokument prüft den in
+Status: **FINAL LOCKED ARCHITECTURE.** Ursprünglich Design/Architekturprüfung (Abschnitte 1–34);
+mit dem Final-Lock-Review (**Abschnitt 35**, CONCEPT.md Abschnitt 16.6) sind BD-10 bis BD-13
+**geschlossen**, drei Korrekturen gegenüber dem ursprünglichen Entwurf eingearbeitet und ein
+finaler B-1–B-8-Implementierungsplan festgelegt. **Weiterhin gilt: keine Implementierung in
+diesem Durchgang.** Kein Code, keine Migration, keine Frontend-Änderung wurde vorgenommen.
+**Abschnitt 35 ist die aktuell maßgebliche Fassung** — wo er einer früheren Aussage in
+Abschnitt 1–34 widerspricht (insbesondere Abschnitt 9.1 Parent-`plan_fte`-Lifecycle, Abschnitt
+11 Rollen-Governance, Abschnitt 20 Migration, Abschnitt 28 BD-Status), gilt Abschnitt 35; die
+älteren Abschnitte bleiben unverändert im Dokument stehen (kein stilles Überschreiben einer
+bereits durchgeführten, sauberen Analyse), sind an den betroffenen Stellen aber zusätzlich
+inline als korrigiert markiert.
+
+Dieses Dokument prüft den in
 [`CONCEPT.md`](CONCEPT.md) Abschnitt 6a und [`P18_DESIGN_AND_IMPLEMENTATION_PLAN.md`](P18_DESIGN_AND_IMPLEMENTATION_PLAN.md)
 spezifizierten Grob-/Feinplanung-Ansatz ("P18 Pass 1") gegen eine grundsätzliche Alternative:
 **PlanPhase als hierarchische, einzige Planungseinheit** ("P18 Pass 2"). Ergebnis dieses
 Durchgangs: **Pass 2 löst Pass 1 fachlich ab.** CONCEPT.md Abschnitt 6a bleibt als historisches
 Design im Dokument stehen (nicht gelöscht — es war ein realer, sauber durchgeführter
 Analysedurchgang), wird aber als **superseded** markiert; der neue Abschnitt 6b beschreibt das
-jetzt empfohlene Zielbild.
+jetzt final gelockte Zielbild.
 
 ---
 
@@ -278,6 +289,13 @@ bereits bestehenden Tabelle, plus ein query-seitiges Prädikat (`has_children`),
 
 ### 9.1 Kein neues Statusfeld
 
+> ⚠️ **Korrigiert in Abschnitt 35.1.** Die Tabelle unten (Zeile "Parent hat noch einen alten
+> `plan_fte`-Wert…") beschreibt ein automatisches Wieder-Sichtbarwerden des alten `plan_fte`,
+> sobald alle Kinder gelöscht werden. **Das gilt nicht mehr** — siehe Abschnitt 35.1 für die
+> korrigierte Regel (kein automatisches Reaktivieren, `plan_fte → NULL` beim ersten Kind,
+> Historisierung über `plan_history`). Der Rest dieses Abschnitts (kein neues Statusfeld,
+> `has_children` als berechnetes Prädikat) bleibt unverändert gültig.
+
 Die Auftragsvorgabe fragt explizit, ob `phase_kind = leaf|parent` nötig ist, oder ob
 `has_children` reicht. **Antwort: `has_children` reicht, kein neues Feld.**
 
@@ -357,6 +375,11 @@ vereinbarten Tiefenbegrenzung (Abschnitt 9.3).
 ---
 
 ## 11. ResourceDemand / Assignment UX
+
+> ⚠️ **Ergänzt in Abschnitt 35.3.** Die Empfehlung unten (Option A, System-`ResourceRole`
+> "Ohne Rolle") bleibt gültig, wird aber um verbindliche Governance-Regeln ergänzt (nicht
+> löschbar, im normalen Picker ausgeblendet, nicht in Reporting/Skill-Matching als echte Rolle
+> behandelt) — siehe Abschnitt 35.3 und CONCEPT.md Abschnitt 6b.4.
 
 **Befund (Abschnitt 3):** `ResourceDemand.resource_role_id` ist NOT NULL — und zwar **schon
 heute**, unabhängig von Grob-/Fein-/Hierarchie-Frage. Auch die heutige Phasenachse
@@ -637,6 +660,12 @@ Abschnitt 8).
 
 ## 20. Migration Existing Grob-Demands
 
+> ⚠️ **Korrigiert in Abschnitt 35.2.** Die unten beschriebene Strategie (**eine** Leaf-Phase
+> "Grobplanung (migriert)" mit `plan_fte = NULL` über den gesamten Zeitraum) wurde revidiert —
+> sie widerspricht dem Zielprinzip, dass `plan_fte` die operative Source of Truth jeder
+> Leaf-Phase ist. Es gilt die korrigierte Strategie in Abschnitt 35.2 (Parent-Phase +
+> Monats-Leaf-Kinder mit aus `SUM(ResourceDemand.fte)` abgeleitetem initialem `plan_fte`).
+
 **Ausgangslage:** `ResourceDemand`-Zeilen mit `plan_phase_id = NULL` sind heute produktiv
 nutzbar (Grobplanung ist seit Phase 26 aktiv, `ResourceDemandGrid.tsx` existiert und wird laut
 CONCEPT.md 6.1 bereits verwendet) — es kann echte Daten geben, die nicht verloren gehen dürfen.
@@ -879,6 +908,11 @@ Kein dauerhafter Hybrid-Zustand (Option C, Abschnitt 6) — nur ein kurzer, gepl
 
 ## 28. Business Decisions
 
+> ⚠️ **Alle vier BDs unten sind seit Abschnitt 35.4 CLOSED.** Die Tabelle bleibt als Aufzeichnung
+> des Entscheidungsprozesses (Frage, ursprüngliche Empfehlung, Begründung) stehen; die
+> **finale** Entscheidung — inkl. der Korrektur bei BD-11 (blockieren statt kaskadieren) — steht
+> in Abschnitt 35.4.
+
 **Prinzip (wie in der Auftragsvorgabe gefordert): nur echte offene Entscheidungen, keine
 technischen Detailfragen als BD verkleidet.** Im Unterschied zu Pass 1 (drei BDs, alle mit der
 Begründung "ändert heute sichtbare Zahlen") sind die meisten hier geprüften Detailfragen
@@ -886,12 +920,12 @@ Begründung "ändert heute sichtbare Zahlen") sind die meisten hier geprüften D
 Zyklenprävention, Milestone-Bindung) technisch eindeutig beantwortet (siehe jeweiliger
 Abschnitt) und **keine** BD.
 
-| ID | Frage | Empfehlung | Warum trotzdem offen |
-|---|---|---|---|
-| BD-10 | Maximale Hierarchietiefe: 2 oder 3 Ebenen? (Abschnitt 9.3) | 3 (deckt beide in der Auftragsvorgabe genutzten Beispielmuster ab) | Reine UX-/Produktentscheidung (mehr Tiefe = mehr potenzielle Komplexität für Nutzer:innen), keine technische Notwendigkeit für eine bestimmte Zahl. |
-| BD-11 | Löschverhalten einer Parent-Phase mit Kindern: kaskadierend löschen (wie heute bei `Subproject`, Abschnitt 3.1) vs. blockieren vs. Kinder eine Ebene hochstufen ("reparenting")? | Kaskadierend löschen mit explizitem Bestätigungsdialog (Anzahl betroffener Nachfahren + Kapazitäts-Summe anzeigen) — konsistent mit dem bestehenden `delete_subproject`-Verhalten | Destruktive Operation an Nutzerdaten — verdient explizite Produkt-/UX-Freigabe, auch wenn die technische Umsetzung (Cascade, analog zu `delete_subproject`) bereits vollständig spezifizierbar ist. |
-| BD-12 | Migrationsstrategie für bestehende `Subproject`- und Grob-`ResourceDemand`-Daten: automatisiertes Einmal-Skript (Abschnitt 20/22, empfohlen) vs. manuelle Nachplanung durch Projektleiter:innen vs. Übergangs-UI mit beiden Modellen parallel? | Automatisiertes, deterministisches Skript mit Vorher-/Nachher-Report (Abschnitt 20/22/27) | Berührt echte, historisch gewachsene Planungsdaten — eine Entscheidung mit Wertungscharakter ("ist eine automatische 1:1-Übersetzung ausreichend treu, oder wollen Projektleiter:innen die Migration lieber selbst kuratieren"), keine rein technische Frage. |
-| BD-13 | Soll `Konkretisierungsgrad`/"Planungsreife" als Kennzahl in irgendeiner Form weiterleben (z. B. neu definiert als "Anteil des Projektzeitraums, der durch terminierte Leaf-Phasen abgedeckt ist"), oder wird sie ersatzlos gestrichen (Abschnitt 13/26)? | Ersatzlos streichen — die Kennzahl war eine Krücke der Zwei-Achsen-Architektur, keine eigenständig wertvolle Fachkennzahl | Produktentscheidung: manche Nutzer:innen mochten die "X % konkretisiert"-Anzeige aus Pass 1 (6a.14) möglicherweise unabhängig von ihrem ursprünglichen Zweck — sollte vor dem endgültigen Streichen kurz abgefragt werden. |
+| ID | Frage | Ursprüngliche Empfehlung (dieser Abschnitt) | Warum ursprünglich offen | **Finaler Status** |
+|---|---|---|---|---|
+| BD-10 | Maximale Hierarchietiefe: 2 oder 3 Ebenen? (Abschnitt 9.3) | 3 (deckt beide in der Auftragsvorgabe genutzten Beispielmuster ab) | Reine UX-/Produktentscheidung (mehr Tiefe = mehr potenzielle Komplexität für Nutzer:innen), keine technische Notwendigkeit für eine bestimmte Zahl. | **CLOSED — 3 Ebenen** (unverändert übernommen, Abschnitt 35.4) |
+| BD-11 | Löschverhalten einer Parent-Phase mit Kindern: kaskadierend löschen (wie heute bei `Subproject`, Abschnitt 3.1) vs. blockieren vs. Kinder eine Ebene hochstufen ("reparenting")? | Kaskadierend löschen mit explizitem Bestätigungsdialog — konsistent mit dem bestehenden `delete_subproject`-Verhalten | Destruktive Operation an Nutzerdaten — verdient explizite Produkt-/UX-Freigabe. | **CLOSED — abweichend von der ursprünglichen Empfehlung: Standard-`DELETE` blockiert (409), Subtree-Delete als separate, stark bestätigte Aktion** (Abschnitt 35.4/35.1) |
+| BD-12 | Migrationsstrategie für bestehende `Subproject`- und Grob-`ResourceDemand`-Daten: automatisiertes Einmal-Skript (Abschnitt 20/22, empfohlen) vs. manuelle Nachplanung durch Projektleiter:innen vs. Übergangs-UI mit beiden Modellen parallel? | Automatisiertes, deterministisches Skript mit Vorher-/Nachher-Report (Abschnitt 20/22/27) | Berührt echte, historisch gewachsene Planungsdaten. | **CLOSED — automatisiert/deterministisch mit Dry-Run + Report, wie empfohlen** (Konkrete Grobplanungs-Strategie korrigiert, Abschnitt 35.2/35.4) |
+| BD-13 | Soll `Konkretisierungsgrad`/"Planungsreife" als Kennzahl in irgendeiner Form weiterleben, oder wird sie ersatzlos gestrichen (Abschnitt 13/26)? | Ersatzlos streichen | Produktentscheidung, sollte kurz abgefragt werden. | **CLOSED — ersatzlos gestrichen, wie empfohlen** (Abschnitt 35.4) |
 
 **Nicht als BD aufgenommen, weil bereits eindeutig beantwortet:**
 - Leaf/Parent-Statusfeld → kein neues Feld nötig (`has_children` berechnet, Abschnitt 9.1).
@@ -1174,3 +1208,525 @@ BD-unabhängige Pakete nicht auf die langsamste Entscheidung warten zu lassen.
 bestehen — es wird durch diesen Durchgang **fachlich abgelöst**, nicht gelöscht (derselbe
 Grundsatz wie bei `Subproject`/Grobplanung selbst: kein Drop-and-Pray, auch nicht bei
 Dokumenten).
+
+> ⚠️ **Diese Empfehlung wurde in Abschnitt 35 final gelockt:** BD-10–13 sind **CLOSED**, drei
+> Korrekturen (Parent-`plan_fte`-Lifecycle, Grobplanungs-Migration, Rollen-Governance) wurden
+> eingearbeitet, und der Implementierungsplan wurde zu B-1–B-8 final aktualisiert. Abschnitt 35
+> ist die aktuell maßgebliche Fassung dieses Dokuments — lies **zuerst Abschnitt 35**, wenn du
+> nur eine Sache aus diesem Dokument liest.
+
+---
+
+## 35. FINAL LOCK — Korrekturen, geschlossene Business Decisions, finaler B-1–B-8-Plan
+
+Dieser Abschnitt ist das Ergebnis des Final-Lock-Reviews (CONCEPT.md Abschnitt 16.6). Er
+korrigiert drei Punkte des ursprünglichen Entwurfs (Abschnitte 1–34 oben, die dafür an den
+betroffenen Stellen inline mit einem Korrektur-Hinweis versehen wurden, aber nicht gelöscht
+sind), schließt BD-10–13 final und ersetzt Abschnitt 30/31/32/33/34 durch die unten
+aktualisierte Fassung.
+
+### 35.1 Korrektur — Parent-`plan_fte`-Lifecycle
+
+**Problem am ursprünglichen Entwurf (Abschnitt 9.1):** Der Entwurf ließ `plan_fte` beim
+Übergang Leaf→Parent unverändert in der DB stehen und sah vor, dass der alte Wert **automatisch
+und ohne Zusatzlogik** wieder operativ sichtbar wird, sobald alle Kinder gelöscht werden
+("augenblicklich wieder Leaf … ihr alter `plan_fte`-Wert wird augenblicklich wieder sichtbar").
+Das ist fachlich nicht akzeptabel: ein historischer, ggf. Monate alter Kapazitätswert dürfte
+dann ohne bewusste Bestätigung als aktuelle Planung gelten, nur weil die letzte Unterphase
+gelöscht wurde.
+
+**Zielregel:** Der bisherige Planungszustand muss historisch nachvollziehbar bleiben, aber eine
+Parent-Phase besitzt zu keinem Zeitpunkt eine operative eigene Kapazität — und wird eine
+Parent-Phase wieder zum Leaf, wird **niemals automatisch** ein alter `plan_fte`-Wert
+reaktiviert. Die Phase braucht eine bewusste, neue Kapazitätsbestätigung.
+
+**Geprüfte Varianten:**
+
+| Variante | Beschreibung | Bewertung |
+|---|---|---|
+| A | `plan_fte` beim ersten Kind auf `NULL` setzen, Änderung via Audit-Trail historisieren | **Empfohlen.** Kein neues Fachfeld (`previous_plan_fte` o. ä.), nur eine generische, additive Audit-Spalten-Erweiterung. `plan_fte = NULL` beim Parent→Leaf-Rückweg verhindert eine Reaktivierung *by construction* — es gibt schlicht keinen Wert, der zurückkommen könnte. |
+| B | `plan_fte` physisch erhalten, aber separate Confirmation-State-Logik ("gültig"/"unbestätigt") | Verworfen — bräuchte ein neues Statusfeld/-Flag auf `PlanPhase` (z. B. `plan_fte_confirmed: bool`), obwohl A dasselbe Ergebnis ohne neues Fachfeld erreicht. Mehr Komplexität ohne Mehrwert. |
+| C | Andere Lösung | Keine identifiziert, die einen echten Vorteil gegenüber A hätte. |
+
+**Empfehlung: Variante A.** Konkrete Umsetzung:
+
+1. **Additive Migration:** `plan_history` erhält eine neue, nullable, indizierte Spalte
+   `plan_phase_id` (FK auf `plan_phases.id`) — dasselbe additive Muster wie
+   `parent_phase_id`/`reihenfolge` auf `PlanPhase` (Abschnitt 23). `plan_history` ist bereits
+   heute die etablierte Audit-Trail-Tabelle (`bereich`/`feld`/`alter_wert`/`neuer_wert`), hat
+   aber noch keine `plan_phase_id`-Spalte — nötig, um den Audit-Eintrag eindeutig einer Phase
+   zuzuordnen (heute nur `project_id`/`subproject_id`).
+2. **Schreibpfad (im `create_plan_phase`-Endpoint, sobald `parent_phase_id` eines Requests auf
+   eine bislang kinderlose Phase zeigt — Übergang `has_children: false → true`):** Backend
+   schreibt einen `PlanHistory`-Eintrag (`plan_phase_id = <Phase>`, `bereich =
+   "phase_struktur"`, `feld = "plan_fte"`, `alter_wert = str(alter plan_fte)`, `neuer_wert =
+   None`) und setzt anschließend `PlanPhase.plan_fte = NULL` für die neue Parent-Phase.
+3. **Rückweg (letztes Kind gelöscht/reparentet, `has_children: true → false`):** **keine**
+   Sonderbehandlung — `plan_fte` bleibt `NULL`, die Phase verhält sich exakt wie jede andere
+   frisch angelegte Leaf-Phase ohne Kapazität (Testfall B, Abschnitt 35.6). Die UI zeigt "Kein
+   Plan-FTE gesetzt — bitte Kapazität bestätigen", identisch zum Neuanlage-Flow.
+4. **Zusätzliche, bereits bestehende Historisierungsquelle:** Ein vor der Umwandlung explizit
+   festgehaltener `BaselineSnapshot` zeigt den alten `plan_fte`-Wert weiterhin unverändert
+   (Abschnitt 16) — Nutzer:innen, die den historischen Wert nachschlagen wollen, haben zwei
+   unabhängige Quellen (Audit-Trail + ggf. Planstand), aber **keine** davon reaktiviert
+   automatisch den operativen Wert.
+
+**Betroffene Doku-Korrektur:** Abschnitt 9.1 (Tabelle, Zeile 1) beschreibt noch das alte,
+falsche Verhalten und wurde inline markiert; Abschnitt 8 (Domain-Modell-Kommentar `plan_fte =
+inert (bleibt in DB, zählt nicht operativ, kein Auto-Clear)`) ist ebenfalls durch diese
+Korrektur überholt — richtig ist **"kein Auto-Clear" → "Auto-Clear zu `NULL` mit
+Historisierung"**.
+
+### 35.2 Korrektur — Migration der bestehenden Grobplanung
+
+**Problem am ursprünglichen Entwurf (Abschnitt 20):** Eine einzelne Leaf-Phase "Grobplanung
+(migriert)" mit `plan_fte = NULL` über den gesamten Projektzeitraum, mit allen migrierten
+`ResourceDemand`-Zeilen darunter. Das widerspricht dem Zielprinzip, dass `plan_fte` die
+operative Source of Truth **jeder** Leaf-Phase ist — die migrierte Phase wäre ein dauerhafter
+Sonderfall ("Demand trägt Kapazität, obwohl `plan_fte` NULL bleibt"), und die Monatskapazität
+wäre für diese Phase über `monthly_distribution(plan_fte=NULL, …)` nicht sauber berechenbar.
+
+**Korrigierte Strategie:** Pro Projekt mit mindestens einer `ResourceDemand(plan_phase_id IS
+NULL)`-Zeile:
+
+1. Lege **eine** neue Top-Level-**Parent**-`PlanPhase` an: `phase_type = "Grobplanung
+   (migriert)"`, `parent_phase_id = NULL`. Zeitraum wird nicht manuell gesetzt, sondern ergibt
+   sich automatisch aus den im nächsten Schritt angelegten Kindern (Abschnitt 9.2,
+   `derive_parent_bounds`).
+2. Ermittle die Menge der distinkten `period`-Werte ("Apr 26"-Format) über alle
+   `ResourceDemand(plan_phase_id IS NULL)`-Zeilen dieses Projekts.
+3. Lege für **jede** dieser Perioden eine neue **Leaf**-`PlanPhase` als Kind der Parent-Phase
+   aus Schritt 1 an: `phase_type = "Grobplanung <Monatsname Jahr>"` (z. B. "Grobplanung
+   Oktober 2026"), `forecast_start` = 1. Tag des Monats, `forecast_end` = letzter Tag des
+   Monats, `parent_phase_id = <Parent aus Schritt 1>`.
+4. **Ausnahme, ausdrücklich nur für diesen einmaligen Migrationsschritt (keine neue
+   Laufzeitregel):** `plan_fte` der neuen Monats-Leaf-Phase wird initial aus der **Summe** der
+   `ResourceDemand.fte`-Werte dieser Periode abgeleitet (Beispiel: Senior Consultant 0,80 +
+   Consultant 0,70 → `plan_fte = 1,50`), weil diese Summe die bisher führende Monatsplanung
+   repräsentiert. Nach der Migration gilt sofort wieder uneingeschränkt: `plan_fte` ist führend,
+   keine automatische Synchronisierung aus `SUM(ResourceDemand.fte)` (Abschnitt 3/CONCEPT.md
+   Abschnitt 3) — die Migration liest `ResourceDemand.fte` **einmalig**, danach nie wieder.
+5. Alle `ResourceDemand`-Zeilen dieser Periode erhalten `plan_phase_id = <neue Monats-Leaf-Phase
+   aus Schritt 3>` — `period`-Werte bleiben unverändert (redundant zum Zeitraum der Leaf-Phase,
+   aber kein Informationsverlust, keine Rundung, keine Aggregation).
+6. `ResourceAssignment`-Zeilen sind über den unveränderten `resource_demand_id`-FK automatisch
+   mitmigriert (Abschnitt 21, unverändert gültig).
+
+**Beispiel** (Altbestand Okt 0,50 / Nov 1,50 / Dez 0,80 FTE):
+
+```
+Grobplanung (migriert)                      [Parent, Zeitraum = 01.10.–31.12., abgeleitet]
+  ├── Grobplanung Oktober 2026    01.10.–31.10.   plan_fte = 0,50   [Leaf]
+  ├── Grobplanung November 2026   01.11.–30.11.   plan_fte = 1,50   [Leaf]
+  └── Grobplanung Dezember 2026   01.12.–31.12.   plan_fte = 0,80   [Leaf]
+```
+
+**Warum das besser ist als Pass 1s Ansatz oder der ursprüngliche Pass-2-Entwurf:** jede
+operative Leaf-Phase hat ein echtes `plan_fte`, Monatskapazität bleibt über
+`monthly_distribution` reproduzierbar, kein Sonderfall "Demand trägt Kapazität, `plan_fte`
+NULL", und jede Monats-Leaf-Phase kann ab sofort individuell weiter in echte Phasen aufgeteilt
+werden (derselbe Lifecycle wie jede andere Phase, Abschnitt 10) — die Migration produziert
+direkt einen sinnvollen Startzustand für die Konkretisierung, statt eines dauerhaften
+Sonderfalls.
+
+**Betroffene Doku-Korrektur:** Abschnitt 20 beschreibt noch die alte, einzelne-Leaf-Strategie
+und wurde inline markiert. Abschnitt 27 (Rollout-Schritt 3) und Abschnitt 30/Paket B-5 (unten,
+Abschnitt 35.5) sind entsprechend aktualisiert.
+
+### 35.3 Korrektur/Ergänzung — Rollen-Governance für die interne System-Rolle
+
+Die Empfehlung in Abschnitt 11 (Option A, System-`ResourceRole` "Ohne Rolle"/"Allgemein")
+bleibt **unverändert korrekt**, wird aber um verbindliche Governance-Regeln ergänzt, die im
+ursprünglichen Entwurf fehlten:
+
+- **Nicht löschbar** — Admin-UI blendet den Löschen-Button für diese Rolle aus, Backend lehnt
+  einen Löschversuch mit `409` ab.
+- **Im normalen Rollen-Picker ausgeblendet** — `GET /resource-roles` für UI-Zwecke filtert sie
+  standardmäßig heraus (ein interner `is_system_role`-Flag auf `ResourceRole`, additiv, oder
+  eine Filterung über einen bekannten Namen/ID-Konstante — Implementierungsdetail für B-1/B-3).
+- **Keine echte Rolle in Reporting/Skill-Analysen** — `GET /controlling/roles` und vergleichbare
+  Rollen-Auswertungen blenden sie aus oder weisen sie separat als "ohne Rollenzuordnung" aus,
+  nie als eigenständige, gleichwertige Rolle neben "Senior Consultant" etc.
+- **Kein Skill-Matching** — `GET /resource-demands/{id}/candidates` filtert für einen Demand mit
+  dieser Rolle **nicht** nach Skill (es gibt keine fachliche Rollenanforderung, die gematcht
+  werden könnte).
+- **UI-Bezeichnung:** eine direkte Personenzuordnung wird nie als "Rolle: Ohne Rolle"
+  beschriftet — sichtbar ist ausschließlich "Mitarbeiter zugeordnet: Name, X FTE".
+
+Kein neues Modell nötig — ein additives Boolean-Feld `is_system_role` auf `ResourceRole` (falls
+eine Namens-/ID-Konstante nicht robust genug ist) ist die einzige potenzielle Schemaänderung,
+und selbst die ist optional (Implementierungsentscheidung B-1, kein Blocker für diesen Lock).
+
+### 35.4 Finaler Business-Decision-Status
+
+**Alle vier Business Decisions dieses Durchgangs sind CLOSED.** Es wurden **keine neuen BDs**
+identifiziert — die Prüfung, ob das Schließen von BD-10–13 neue offene Fragen aufwirft, ergab
+ausschließlich Umsetzungsdetails (Abschnitt 35.1–35.3), keine neue Entscheidung mit
+Wertungscharakter.
+
+| ID | Finale Entscheidung |
+|---|---|
+| BD-10 | **3 Ebenen.** Unverändert gegenüber der ursprünglichen Empfehlung (Abschnitt 9.3). Backend validiert beim Schreiben (Zyklen, Tiefe, Projekt-Grenze), Frontend bietet auf Ebene 3 kein "+ Unterphase hinzufügen" mehr an. |
+| BD-11 | **Standard-`DELETE` einer Parent-Phase mit Kindern wird blockiert (`409`).** Abweichend von der ursprünglichen Empfehlung ("kaskadierend, analog `delete_subproject`") — siehe Begründung unten. Reparenting der Kinder oder eine separate, stark bestätigte "Gesamten Zweig löschen"-Aktion (mit Auswirkungsanzeige auf Assignments/Collaboration/Milestones/Documents, auditierbar) sind die vorgesehenen Wege. |
+| BD-12 | **Automatisierte, deterministische Migration mit Dry-Run-Modus und Vorher-/Nachher-Report.** Wie ursprünglich empfohlen; die konkrete Grobplanungs-Migrationsstrategie ist korrigiert (Abschnitt 35.2). Report enthält mindestens: Projekte, PlanPhases vorher/nachher, Subprojects vorher/nachher, ResourceDemands, ResourceAssignments, Milestones, betroffene Comments/Tasks/Blocker/Decisions, FTE-Summen, Orphan-Checks, Hierarchietiefe-Checks. |
+| BD-13 | **"Konkretisierungsgrad" entfällt ersatzlos.** Wie ursprünglich empfohlen — keine Ersatzkennzahl, der `PlanPhase`-Baum selbst zeigt die Planungstiefe. |
+
+**Begründung für die BD-11-Korrektur (Block statt Kaskade):** Der heutige
+`delete_subproject`-Präzedenzfall (Abschnitt 3.1) ist kein guter Maßstab für eine
+Parent-`PlanPhase`, weil `Subproject` selbst **inhaltsleer** ist (`{id, name, reihenfolge}`) —
+sein kaskadierendes Löschen entfernt nur eine Namensgruppierung samt ihrer Kinder, die ohnehin
+mitgemeint waren. Eine Parent-`PlanPhase` dagegen kann selbst Kommentare, Tasks, Blocker,
+Decisions, Documents und Milestones tragen (Abschnitt 9.2) — ihre Kinder tragen zusätzlich
+Kapazität und Personenzuordnungen. Ein einzelner, unauffälliger `DELETE`-Aufruf auf eine
+Parent-Phase mit 8 Unterphasen dürfte nicht denselben "einfachen Klick" sein wie das Löschen
+eines leeren `Subproject`. Blockieren + explizite, informierte Subtree-Delete-Aktion ist der
+sicherere Standard, ohne Löschen grundsätzlich zu verhindern.
+
+### 35.5 Finaler B-1–B-8-Implementierungsplan
+
+Ersetzt Abschnitt 30 vollständig (Pakete B-1–B-8 bleiben strukturell gleich benannt, Inhalt an
+mehreren Stellen korrigiert/präzisiert). Format je Paket: Ziel, Scope, Out of Scope, Files,
+DB, Backend, API, Frontend, Migration, Tests, Dependencies, Parallelisierung, Risks, Acceptance
+Criteria, Definition of Done.
+
+#### B-1 — Hierarchy Domain Foundation
+
+- **Ziel:** Additive Schema-Grundlage für die Hierarchie, keine Verhaltensänderung an
+  bestehenden Endpunkten.
+- **Scope:** `parent_phase_id` (self-referencing FK, nullable, indexed) und `reihenfolge`
+  (int, default 0) auf `plan_phases`; `plan_phase_id` (nullable FK, `ON DELETE SET NULL`) auf
+  `milestones`; `plan_phase_id` (nullable FK, indexed) auf `plan_history` (Abschnitt 35.1,
+  Voraussetzung für die Historisierung); optionales `is_system_role`-Flag auf `resource_roles`
+  (Abschnitt 35.3) plus Seed-Zeile "Ohne Rolle".
+- **Out of Scope:** jede Backend-Logik, die diese Spalten liest/schreibt/validiert (B-2/B-3);
+  Datenmigration (B-5).
+- **Files:** `backend/app/models.py`, neue Alembic-Revision.
+- **DB:** 4 additive `ALTER TABLE`-Statements + 1 Seed-Insert, kein Datenverlust, keine
+  Downtime-Anforderung.
+- **Backend:** keine.
+- **API:** keine (Schema-Felder noch nicht in `schemas.py` exponiert, folgt in B-3).
+- **Frontend:** keine.
+- **Migration:** keine Datenmigration in diesem Paket.
+- **Tests:** `check_migrations.py` (Kettenintegrität), Roundtrip-Test (Upgrade/Downgrade),
+  Seed-Verifikation ("Ohne Rolle" existiert genau einmal, idempotent bei Re-Run).
+- **Dependencies:** keine.
+- **Parallelisierung:** kann sofort beginnen.
+- **Risks:** minimal — rein additiv.
+- **Acceptance Criteria:** Migration läuft sauber gegen eine Kopie der aktuellen DB, alle
+  bestehenden Endpunkte unverändert funktionsfähig (Regressionstest).
+- **Definition of Done:** Code Review, `check_migrations.py` grün.
+
+#### B-2 — Migration Tooling
+
+- **Ziel:** Das in Abschnitt 35.2 spezifizierte, korrigierte Migrationsskript bauen und gegen
+  Testdaten verifizieren — **noch nicht ausführen** gegen Produktivdaten.
+- **Scope:** Neues Skript `backend/scripts/migrate_to_planphase_hierarchy.py` (kein
+  Alembic-Bestandteil, reine Datenmigration): (a) Subproject-Migration (Abschnitt 22 — pro
+  Subproject eine Parent-Phase, Kinder umhängen, Milestones/Comments umhängen), (b)
+  Grobplanungs-Migration nach der **korrigierten** Monats-Leaf-Strategie (Abschnitt 35.2), (c)
+  Assignment-Preservation (automatisch über `resource_demand_id`, keine eigene Logik nötig,
+  Abschnitt 21), (d) Migrationsreport-Generator, (e) `--dry-run`-Flag (Pflicht, schreibt nichts,
+  nur Report).
+- **Out of Scope:** Schema-Drop von `subprojects`/`subproject_id` (späterer, eigener Schritt,
+  B-8 und danach); tatsächliche Ausführung gegen Produktivdaten (separate
+  Umsetzungsfreigabe, kein Teil dieses Pakets).
+- **Files:** `backend/scripts/migrate_to_planphase_hierarchy.py`, zugehörige Tests.
+- **DB:** nur Daten-INSERT/UPDATE, keine Struktur.
+- **Backend:** keine Router-Änderung.
+- **API:** keine.
+- **Frontend:** keine.
+- **Migration:** Report enthält mindestens: Projekte, PlanPhases vorher/nachher, Subprojects
+  vorher/nachher, ResourceDemands, ResourceAssignments, Milestones, betroffene
+  Comments/Tasks/Blocker/Decisions, FTE-Summen, Orphan-Checks, Hierarchietiefe-Checks
+  (Abschnitt 35.4/BD-12).
+- **Tests:** Vorher-/Nachher-Zahlenvergleich je Projekt (FTE-Summen, Assignment-Anzahl,
+  Milestone-Anzahl unverändert) — Pflicht-Akzeptanzkriterium; Dry-Run-Report gegen
+  repräsentative Testdaten (mehrere Rollen/Monat-Fälle wie im Beispiel Abschnitt 35.2).
+- **Dependencies:** B-1.
+- **Parallelisierung:** Skript-Grundgerüst/Report-Format kann parallel zu B-3/B-4 entstehen,
+  sobald B-1 gemergt ist.
+- **Risks:** höchstes Datenrisiko dieses Plans — deshalb Dry-Run-Pflicht, kein Live-Lauf in
+  diesem Paket.
+- **Acceptance Criteria:** Dry-Run-Report zeigt 0 verlorene FTE-Summe, 0 verlorene Assignments,
+  0 verlorene Milestones/Comments über alle Testprojekte; jede migrierte Monats-Leaf-Phase hat
+  ein `plan_fte`, das der Summe ihrer ursprünglichen `ResourceDemand.fte`-Werte entspricht.
+- **Definition of Done:** Code Review, Dry-Run-Report gegen eine Kopie der Produktivdaten (oder
+  repräsentativer Testdaten) verifiziert. **Ausführung gegen echte Produktivdaten erfordert eine
+  gesonderte Freigabe außerhalb dieses Pakets.**
+
+#### B-3 — Phase Tree API
+
+- **Ziel:** CRUD-Guards für die Hierarchie (Zyklen, Tiefe ≤ 3, Projekt-Grenze), Baum-Payload,
+  Reparenting, **Löschguards gemäß BD-11 (Block + separater Subtree-Delete)**, Parent-Summary-
+  Metriken.
+- **Scope:** `backend/app/routers/planning.py` (Guard-Funktion analog zu
+  `_check_subproject`/`_check_owner`), `backend/app/schemas.py`
+  (`PlanPhaseOut.parent_phase_id`/`reihenfolge`, `PlanPhaseDetail.children`/
+  `derived_capacity`), neues `backend/app/planning_calc.py`
+  (`has_children`, `derive_parent_bounds`, `derive_parent_capacity`).
+- **Out of Scope:** Datenmigration (B-2/B-5), Frontend (B-6).
+- **DB:** keine (nutzt B-1-Spalten).
+- **Backend:** `has_children` als SQL-`EXISTS`-Prädikat (kein rekursives SQL nötig, Abschnitt
+  3.3); `derive_parent_bounds`/`derive_parent_capacity` rekursiv über max. 2 Join-Ebenen.
+- **API:**
+  - `POST/PUT /projects/{id}/plan-phases`: `parent_phase_id` im Payload, Guard lehnt bei Zyklus,
+    Tiefe > 3, projektfremdem Parent mit `422` ab.
+  - `DELETE /plan-phases/{id}`: liefert `409` mit `{child_count, message}`, wenn `has_children`
+    — **kein** Cascade (BD-11-Korrektur).
+  - **Neu:** `POST /plan-phases/{id}/reparent-children` (Kinder auf einen anderen Parent oder
+    Top-Level verschieben, danach ist die Phase leaf und normal löschbar).
+  - **Neu:** `POST /plan-phases/{id}/delete-subtree` — separate, explizite Operation. Response
+    der vorgelagerten `GET /plan-phases/{id}/subtree-impact` zeigt Anzahl Nachfahren, betroffene
+    Assignments/Comments/Tasks/Blocker/Decisions/Milestones/Documents; der eigentliche Delete
+    verlangt eine Bestätigung (z. B. Anzahl/Name-Echo im Payload) und schreibt einen
+    `PlanHistory`-Audit-Eintrag (`bereich = "phase_subtree_delete"`).
+- **Frontend:** keine (B-6).
+- **Migration:** keine.
+- **Tests:** `TestClient`-Integrationstests (Zyklus ablehnen, Tiefe-4 ablehnen, projektfremden
+  Parent ablehnen, Standard-`DELETE` mit Kindern → 409, `delete-subtree` löscht rekursiv nur
+  nach vollständigem Bestätigungs-Payload, `reparent-children` verschiebt korrekt).
+- **Dependencies:** B-1.
+- **Parallelisierung:** unabhängig von B-2.
+- **Risks:** gering — additiv, kein bestehender Endpoint verliert Funktionalität; Subtree-Delete
+  ist die einzige neue destruktive Operation, daher besonders testkritisch.
+- **Acceptance Criteria:** alle dokumentierten Edge Cases (Abschnitt 9.3, Testfall D/E)
+  funktionieren wie spezifiziert.
+- **Definition of Done:** Code Review, Integrationstests grün.
+
+#### B-4 — Capacity / Assignment Simplification
+
+- **Ziel:** Direkte Personenzuordnung ohne erzwungene Rollenauswahl (Option A, Abschnitt 11/
+  35.3), Available-Capacity-Erweiterung über Zeiträume, Über-/Unterbesetzungs-Metriken.
+- **Scope:** `backend/app/routers/capacity.py`/`planning.py`
+  (`PlanPhaseCapacityTab`-Backend-Pfad: "Person zuordnen" ohne Rollen-Zwang, legt bei Bedarf
+  transparent eine `ResourceDemand` mit der System-Rolle "Ohne Rolle" an), `[Rollen
+  aufschlüsseln]`-Pfad bleibt als expliziter, optionaler Zusatz-Endpoint;
+  `capacity_calc.compute_person_capacity_for_range(...)` (bereichsbasierte Erweiterung,
+  1:1 aus Pass 1 P18.6 übernommen, Abschnitt 12).
+- **Out of Scope:** Monatliche/Portfolio-Aggregation (B-5 folgt unten, eigenes Paket).
+- **DB:** keine neue Tabelle.
+- **Backend:** `compute_person_capacity_for_range` wiederverwendet
+  `compute_person_capacity` je überlapptem Monat, werktage-gewichtet auf den Teilzeitraum
+  heruntergerechnet (Formel: `P18_DESIGN_AND_IMPLEMENTATION_PLAN.md` Abschnitt 11, unverändert
+  gültig).
+- **API:** `POST /plan-phases/{id}/assign-person` (neu, ohne Rollen-Pflicht im Payload) oder
+  äquivalente Erweiterung von `POST /resource-demands/{id}/assignments`; `GET
+  /people/{id}/capacity-range?start=&end=`.
+- **Frontend:** keine (B-6).
+- **Migration:** keine.
+- **Tests:** Unit-Tests für `compute_person_capacity_for_range` (Phase über Monatsgrenze,
+  Testfall H), Integrationstest "Person zuordnen ohne Rollenauswahl" legt genau eine
+  "Ohne Rolle"-Demand an (idempotent bei zweiter Zuordnung derselben Phase), Über-/
+  Unterbesetzungsanzeige (Testfall A).
+- **Dependencies:** B-1 (System-Rolle-Seed), unabhängig von B-2/B-3 im Kern, aber Endpunkt-Pfad
+  konsistent mit B-3s Schema-Erweiterung.
+- **Parallelisierung:** kann parallel zu B-3 laufen (eigener Router-Bereich), `Available
+  Capacity`-Teil (`compute_person_capacity_for_range`) ist vollständig entkoppelt und **sofort**
+  startbar (identisch zu Pass 1s P18.6-Einordnung).
+- **Risks:** gering.
+- **Acceptance Criteria:** Testfall A/B/H (Abschnitt 35.6) grün.
+- **Definition of Done:** Code Review, Unit-/Integrationstests grün.
+
+#### B-5 — Monthly / Portfolio Capacity Cutover
+
+- **Ziel:** `capacity_calc.compute_project_monthly_capacity(db, project_id, periods)` (Summe
+  `monthly_distribution` über alle Leaf-`PlanPhase`s, Abschnitt 13/24) an Portfolio/Cockpit/GAP/
+  Controlling anschließen — **ersetzt** die heutige `ResourceDemand`-Summierung für Projekte,
+  die vollständig migriert sind.
+- **Scope:** `capacity_calc.compute_capacity_gap`, `controlling.get_allocation_gaps`,
+  `controlling.get_role_analysis`, `health._cockpit_capacity`, `gap_engine.get_capacity_gap`.
+- **Out of Scope:** UI-Änderungen (B-6), Entfernen von `ResourceDemandGrid.tsx` (B-8).
+- **DB:** keine.
+- **Backend:** neue Funktion `compute_project_monthly_capacity`, bestehende Funktionen lesen
+  nach vollständiger Migration (B-2 ausgeführt) automatisch korrekt, **kein neuer
+  `plan_phase_id`-Filter nötig** (Abschnitt 18) — die Doppelzählungsquelle entfällt strukturell,
+  sobald keine `plan_phase_id IS NULL`-Zeilen mehr existieren.
+- **API:** Response-Schemas unverändert (`PortfolioAllocationGapEntry` etc.), nur die
+  Berechnung dahinter wechselt.
+- **Frontend:** keine strukturelle Änderung nötig (liest dieselben Response-Felder), ggf.
+  Anpassung der Erklärtexte ("Grobplanung" verschwindet als Begriff).
+- **Migration:** setzt B-2 (ausgeführt) voraus — dieses Paket liest nur.
+  **Blockiert bis die Migration (B-2-Skript) tatsächlich gegen die Zieldaten ausgeführt wurde.**
+- **Tests:** Regressionstest: Zahlen vor/nach Cutover für ein vollständig migriertes Projekt
+  identisch zur Summe der migrierten Monats-Leaf-`plan_fte`-Werte (Testfall F/I).
+- **Dependencies:** B-1, B-2 (ausgeführt), B-3.
+- **Parallelisierung:** kann entwickelt/getestet werden, sobald B-3 steht; produktiv wirksam
+  erst nach abgeschlossener Migration.
+- **Risks:** sichtbarer Zahlensprung am Umstellungstag ist **unvermeidbar** und muss
+  kommuniziert werden (Abschnitt 18) — kein Implementierungsfehler, sondern ein einmaliger,
+  erwarteter Effekt der Migration selbst.
+- **Acceptance Criteria:** Testfall I (Abschnitt 35.6) grün, keine Doppelzählung mehr
+  nachweisbar.
+- **Definition of Done:** Code Review, Regressionstests grün, Kommunikationsplan für den
+  Zahlensprung mit dem Team abgestimmt.
+
+#### B-6 — PlanPhase Tree UX
+
+- **Ziel:** Baum-UI in Liste, Gantt, Workspace, Create-Modal; Löschverhalten gemäß BD-11 in der
+  UI abgebildet (Blockier-Dialog + "Unterphasen verschieben"/"Gesamten Zweig löschen").
+- **Scope:** `PlanPhaseList.tsx`, `PlanPhaseGantt.tsx`, `PlanPhaseWorkspace.tsx`,
+  `PlanPhaseCapacityTab.tsx`, `PlanPhaseCreateModal.tsx`, `MilestoneList.tsx`,
+  `ProjectPlanningTab.tsx`, `ProjectCommunicationTab.tsx`, `types.ts`, `client.ts`, neuer Hook
+  `usePhaseTree`.
+- **Out of Scope:** `ResourceDemandGrid.tsx`-Entfernung (B-8, destruktiv am Frontend-Code).
+- **DB:** keine.
+- **Backend:** keine (konsumiert B-3/B-4).
+- **API:** keine neue, konsumiert B-3/B-4-Endpunkte.
+- **Frontend:** rekursive Gruppierung nach `parent_phase_id` (Einzug pro Tiefe, max. 3
+  Ebenen), Parent-Zeile ein-/ausklappbar mit optionalem Summary-Balken im Gantt,
+  "Übergeordnete Phase"-Select statt "Teilprojekt"-Select, Kapazitäts-Tab verzweigt
+  `has_children` → read-only Aggregationsansicht, Lösch-Dialog mit Blockier-Meldung +
+  "Unterphasen verschieben"/"Abbrechen"/"Gesamten Zweig löschen" (mit Impact-Anzeige aus `GET
+  /plan-phases/{id}/subtree-impact`).
+- **Migration:** keine.
+- **Tests:** Playwright — Baum anlegen (3 Ebenen, Testfall E), Parent-Aggregation korrekt
+  angezeigt, Kollabieren/Expandieren, Milestone an Parent-Phase, rollen-optionale
+  Personenzuordnung (Testfall A), Löschversuch einer Parent-Phase zeigt Blockier-Dialog
+  (Testfall D), Subtree-Delete-Flow mit Bestätigung.
+- **Dependencies:** B-3, B-4.
+- **Parallelisierung:** UI-Gerüst (Baum-Rendering-Hook, Komponenten-Umbau) kann gegen
+  Mock-Daten parallel zu B-1–B-4 entstehen, echte Integration wartet auf B-3/B-4.
+- **Risks:** größtes Frontend-Einzelpaket (keine Tree-UI-Vorlage im Code vorhanden, Abschnitt
+  3.3) — realistisch mehrteilig.
+- **Acceptance Criteria:** `npm run build`/`npm run lint` clean, Playwright-Checks grün.
+- **Definition of Done:** wie oben.
+
+#### B-7 — Gantt / Milestone / Planstand Integration
+
+- **Ziel:** Hierarchischer Gantt mit Parent-Summary-Balken (Teil von B-6, hier die
+  Backend-/Baseline-seitigen Anteile), `Milestone.plan_phase_id` operativ, Baseline-Snapshot
+  friert Baumstruktur ein, Deviation-Anzeige für strukturelle Änderungen.
+- **Scope:** `backend/app/routers/planning.py` (Milestone-CRUD auf `plan_phase_id`),
+  `backend/app/routers/baselines.py`, `backend/app/baseline_calc.py`
+  (`_SNAPSHOT_FIELDS["plan_phase"]` erweitert um `parent_phase_id`/`reihenfolge`,
+  `_SNAPSHOT_FIELDS["milestone"]` erweitert um `plan_phase_id` statt `subproject_id`;
+  Deviation-Darstellung für Parent-Wechsel z. B. "Phase war Top-Level → jetzt Unterphase von
+  'Wareneingang'").
+- **Out of Scope:** Snapshot-vs-Snapshot-Vergleich (weiterhin deferred, unverändert zu
+  CONCEPT.md Abschnitt 15).
+- **DB:** keine (Python-Konstante, keine Migration nötig).
+- **Backend:** wie oben.
+- **API:** `POST/PUT /milestones` nimmt `plan_phase_id` statt `subproject_id`.
+- **Frontend:** `BaselineList.tsx` `FIELD_LABELS` um `parent_phase_id` ergänzt;
+  `MilestoneList.tsx` `subproject_id`/`NO_SUBPROJECT`-Sentinel → `plan_phase_id`.
+- **Migration:** Milestone-Umhängung ist Teil von B-2 (Subproject-Migration).
+- **Tests:** Integrationstest: Milestone an Parent-Phase, Baseline friert Struktur ein und
+  zeigt eine strukturelle Abweichung nach Reparenting korrekt an (Testfall J).
+- **Dependencies:** B-1, B-3.
+- **Parallelisierung:** kann parallel zu B-4/B-6 laufen.
+- **Risks:** gering.
+- **Definition of Done:** Code Review, Integrationstests grün.
+
+#### B-8 — Legacy Cutover / Regression / Documentation
+
+- **Ziel:** `ResourceDemandGrid.tsx` entfernen (nach Beobachtungsphase), `subprojects`/
+  `subproject_id` als deprecated markieren (kein Schema-Drop), vollständige Regression, finales
+  CONCEPT.md-Update auf "implementiert".
+- **Scope:** `ResourceDemandGrid.tsx` löschen, zugehörige `client.ts`-Funktionen
+  (`createSubproject`/`updateSubproject`/`deleteSubproject`/`listAllSubprojects`) als
+  `@deprecated` markieren; `POST /projects/{id}/resource-demands` mit `plan_phase_id = NULL`
+  wird zum dokumentierten Legacy-Pfad (Payload-Validierung kann ihn ablehnen, kein Blocker).
+- **Out of Scope:** tatsächlicher Schema-Drop (`DROP COLUMN`/`DROP TABLE`) — eigener, noch
+  späterer Schritt nach Beobachtungsphase, analog zu `PlanPhase.progress`.
+- **DB:** keine (nur Markierung als deprecated).
+- **Backend:** keine funktionale Änderung.
+- **API:** keine.
+- **Frontend:** Löschung + Deprecation-Markierungen wie oben.
+- **Migration:** keine neue — Voraussetzung ist, dass B-2 vollständig und erfolgreich
+  ausgeführt wurde (Report zeigt 0 offene Diskrepanzen).
+- **Tests:** vollständiger E2E-Durchlauf (Testfälle A–J, Abschnitt 35.6), `npm run lint`/`tsc`
+  clean (keine verwaisten Imports), CONCEPT.md-Aktualisierung auf "implementiert" verifiziert
+  gegen den tatsächlichen Code-Stand (kein Doku-Drift).
+- **Dependencies:** B-5, B-6 (Migration abgeschlossen, Frontend umgestellt, bevor die alte
+  Grobplanungs-UI verschwindet).
+- **Parallelisierung:** letzter Schritt, keine Parallelisierung sinnvoll.
+- **Risks:** gering, rein additiv-vorbereitet.
+- **Definition of Done:** Code Review, keine verwaisten Imports, CONCEPT.md final aktualisiert.
+
+### 35.5a Dependency Graph (final)
+
+```
+B-1 (Hierarchy Domain Foundation)
+  │
+  ├──> B-2 (Migration Tooling — Skript bauen/testen, NICHT live ausführen)
+  │      │  (Live-Ausführung gegen Produktivdaten: separate Freigabe außerhalb B-1–B-8)
+  │      │
+  ├──> B-3 (Phase Tree API: Guards, Löschverhalten, children/derived_capacity)
+  │      │
+  │      ├──> B-4 (Capacity/Assignment Simplification) ── Available-Capacity-Teil sofort startbar
+  │      │      │
+  │      │      └──> B-6 (Frontend Baum-UI) ── UI-Gerüst parallel zu B-3/B-4 gegen Mocks möglich
+  │      │             │
+  │      │             └──> B-8 (Legacy Cutover) ── wartet zusätzlich auf B-5 UND echte
+  │      │                                             Migrations-Ausführung
+  │      │
+  │      └──> B-7 (Gantt/Milestone/Planstand Integration) ── parallel zu B-4/B-6
+  │
+  └──> B-5 (Monthly/Portfolio Capacity Cutover) ── produktiv wirksam erst nach
+         abgeschlossener Migration (B-2-Skript live ausgeführt)
+```
+
+Kritischer Pfad: B-1 → B-3 → B-4 → B-6 → B-8 (mit B-5 als zusätzlichem Gate vor B-8, abhängig
+von der tatsächlichen Migrationsausführung). B-2 kann parallel zu B-3/B-4 entwickelt werden.
+**Kein Paket ist mehr durch eine offene Business Decision blockiert** (Unterschied zum
+Zwischenstand in Abschnitt 31: dort war B-5 explizit "blockiert bis BD-11 + BD-12 entschieden" —
+das ist jetzt aufgehoben, BD-11/BD-12 sind CLOSED).
+
+### 35.5b Agent-/Team-Parallelisierungsplan (final)
+
+- **Strang A (Backend-Kern):** B-1 → B-3 → B-4, weitgehend sequenziell.
+- **Strang B (Migration):** B-2 — Skript-Bau/Tests parallel zu Strang A sobald B-1 gemergt ist;
+  **Live-Ausführung ist ein separater, gesondert freizugebender Schritt außerhalb dieses Plans.**
+- **Strang C (Frontend):** B-6 — UI-Gerüst gegen Mocks parallel zu Strang A, echte Integration
+  nach B-3/B-4.
+- **Strang D (unabhängig):** Available-Capacity-Teil von B-4 (`compute_person_capacity_for_range`)
+  — kann jederzeit parallel laufen.
+- **Strang E:** B-7 — parallel zu B-4/B-6, nach B-3.
+- **Koordinationspunkt:** B-6 und B-8 berühren teilweise dieselben Dateien
+  (`ResourceDemandGrid.tsx` wird in B-6 nicht verändert, in B-8 gelöscht) — B-8 darf erst nach
+  B-6-Merge **und** nach erfolgreicher, verifizierter Live-Migration starten.
+
+### 35.6 Testfälle (final)
+
+| # | Fall | Erwartung |
+|---|---|---|
+| A | Einfache Leaf: "Pflichtenheft", 01.10.–17.10., 0,40 FTE, Dominik 0,20 + Max 0,20 | Bedarf 0,40 / Besetzt 0,40 / Offen 0,00 |
+| B | Leaf ohne Kapazität: Zeitraum gesetzt, `plan_fte = NULL` | Gültiger Zustand, keine Fehlermeldung |
+| C | Leaf wird Parent: "Projektumsetzung" 1,5 FTE → Unterphase erstellen | `plan_fte` wird `NULL` + historisiert (Abschnitt 35.1); Parent zählt nicht zusätzlich in der Aggregation; historische Änderung im Audit-Trail sichtbar |
+| D | Parent-Delete: Parent mit 3 Kindern, normales `DELETE` | `409`, kein stiller Cascade; explizite `delete-subtree`-Operation funktioniert nur nach vollständiger Bestätigung |
+| E | 3 Ebenen: Level 1 → 2 → 3 erlaubt, Level 4 abgelehnt | `422` bei Tiefe 4 |
+| F | Monatsmigration: Alt Okt 0,5 / Nov 1,5 / Dez 0,8 → 3 Monats-Leaf-Phasen unter einer Parent-Phase | Monatliche Summen identisch vor/nach Migration |
+| G | Subproject-Migration: "Wareneingang" → Parent-Phase | Bestehende Kind-`PlanPhase`s behalten ihre IDs/Relations (Tags, Documents, Comments, Tasks, Blocker, Decisions, PlanHistory, ResourceDemands, Assignments) |
+| H | Available Capacity über Monatsgrenze | `compute_person_capacity_for_range` liefert korrekt werktage-gewichtete Kapazität |
+| I | Portfolio: nur Leaf-FTE zählt | Parent, Rollen-Aufschlüsselung und Assignments zählen nicht zusätzlich |
+| J | Planstand: Tree-Struktur + FTE + Milestone-Kontext rekonstruierbar | Baseline-Vergleich zeigt Kind hinzugefügt/entfernt, Parent geändert, Phase verschoben, `plan_fte` geändert |
+
+### 35.7 Rebuild Safety Assessment (final)
+
+Unverändert gegenüber Abschnitt 33 — **plus**: Ein neues Team kann jetzt zusätzlich allein aus
+CONCEPT.md Abschnitt 6b.1a (Parent-`plan_fte`-Lifecycle), 6b.4 (Rollen-Governance) und 6b.9
+(Löschverhalten) korrekt rekonstruieren, warum es **keine** automatische Reaktivierung
+historischer Planung gibt, warum die interne Rolle nicht in Reporting/Skill-Matching auftaucht,
+und warum ein Standard-`DELETE` blockiert statt kaskadiert. Migrationsskript-Detailcode und
+Paket-/Abhängigkeitsplanung bleiben weiterhin in diesem Prozessdokument, nicht in CONCEPT.md —
+unverändert zur etablierten Konvention.
+
+### 35.8 Verbleibende Business Decisions
+
+**Keine.** BD-10–13 sind CLOSED (Abschnitt 35.4). Aus Pass 1 unverändert offen (unabhängig von
+dieser Architekturentscheidung, nicht Teil dieses Locks): BD-1 (Tempo-Mapping), BD-3
+(Ampel-Schwellen), BD-4 (Feiertags-Handling), BD-5 (Assignment-Sub-Ranges), BD-6
+(Allocation-Gap-Vorzeichen) — diese fünf sind unabhängige, seit Pass 1 bekannte offene Punkte,
+kein neuer Fund dieses Durchgangs, kein Blocker für den Start von B-1–B-8.
+
+### 35.9 Implementation Readiness
+
+**READY FOR P18 IMPLEMENTATION.** Alle vier Business Decisions dieses Durchgangs sind
+geschlossen, drei notwendige Korrekturen sind eingearbeitet, der B-1–B-8-Plan ist vollständig
+spezifiziert (Ziel/Scope/Out-of-Scope/DB/Backend/API/Frontend/Migration/Tests/Dependencies/
+Parallelisierung/Risks/Acceptance Criteria/Definition of Done je Paket). B-1, B-3 (Kern), der
+Available-Capacity-Teil von B-4 und das Skript-Bauen in B-2 können ohne weitere Freigabe
+beginnen. B-5 (produktiv wirksamer Cutover) und die tatsächliche Live-Ausführung des
+B-2-Migrationsskripts bleiben an eine gesonderte Umsetzungsfreigabe durch das Team gebunden —
+das ist keine offene Architekturfrage mehr, sondern die normale Freigabe vor jeder
+produktionswirksamen Datenmigration.

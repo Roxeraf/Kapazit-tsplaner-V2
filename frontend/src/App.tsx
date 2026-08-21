@@ -46,7 +46,7 @@ function AppShell() {
           <div className="app-nav-group" aria-label="Controlling">
             <span className="app-nav-group-label">Controlling</span>
             <NavLink to="/portfolio-health" onClick={guardedNavigate("/portfolio-health")}>
-              Portfolio Health
+              Project Health
             </NavLink>
             <NavLink to="/gap" onClick={guardedNavigate("/gap")}>
               Gap-Analyse

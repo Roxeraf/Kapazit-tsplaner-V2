@@ -129,7 +129,7 @@ export default function GapAnalysis() {
 
       {!loading && !error && gaps.length === 0 && (
         <div className="stub-view">
-          Keine Projekte mit FTE-Planung gefunden. Lege im Portfolio-Dashboard ein Projekt mit Soll-FTE an — die
+          Keine Projekte mit FTE-Planung gefunden. Lege im Projektmanagement-Dashboard ein Projekt mit Soll-FTE an — die
           Gap-Analyse benötigt zusätzlich eine gepflegte Jira-Komponente (Projekt-Detail) und einen erfolgreichen
           Jira-Sync (Team-Kapazität), um Ist-Werte anzuzeigen.
         </div>

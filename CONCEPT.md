@@ -1195,6 +1195,31 @@ Dieses Repo enthält:
       CRUD, Gap (Soll aus Demand), Kickpoint/Health, /team/utilization, /kpis,
       /controlling/portfolio-health und PPTX-Export (1,5 MB) funktionieren.
 
+27. **Planungs- und Kapazitätskonsolidierung — P1: DB-Migration-Foundation — ✅ erledigt.**
+    Migration `0004_planning_consolidation` (additiv, nicht-destruktiv, siehe Abschnitt 12.1).
+    Sechs neue nullable Spalten an bestehenden Tabellen (keine neue Tabelle):
+    `PlanPhase.plan_fte` (Float, geplanter FTE-Bedarf je Phase, Master-MD Abschnitt 17),
+    `BaselineSnapshot.reason` (String(500), Begründung des eingefrorenen Planstands) sowie
+    `Comment.plan_phase_id`/`Task.plan_phase_id`/`Blocker.plan_phase_id`/
+    `Decision.plan_phase_id` (je nullable FK → `plan_phases.id`, `ondelete="SET NULL"`,
+    `index=True`). `ON DELETE SET NULL` ist bewusst gewählt: wird eine PlanPhase gelöscht,
+    bleiben Kommentar/Aufgabe/Blocker/Entscheidung erhalten (nur die Verknüpfung fällt weg) —
+    kein Cascade-Delete von Kollaborationsinhalten. Dies ist die erste `ondelete`/`index`-
+    Verwendung im Codebase (bewusster, gezielter Scope, kein generelles Retrofit-Muster).
+    **Neuer EntityType `baseline_snapshot`:** `BaselineSnapshot` ist taggbar,
+    dokumentverknüpfbar, relationsfähig und im Knowledge Layer sichtbar (`EntityType` um
+    `"baseline_snapshot"` erweitert, `entity_links._ENTITY_REGISTRY`/
+    `_ENTITY_LABEL_PREFIX`/`_resolve_entity_label` ergänzt, `schemas.EntityType`, frontend
+    `types.ts`/`entityTypeMeta.ts` mit Icon 📸/Label "Planstand"). `baseline_snapshot` fehlt
+    bewusst im Activity Feed (`_ACTIVITY_TIMESTAMP_FIELD`/`ACTIVITY_ENTITY_TYPES`), analog
+    `"document"` (siehe Code-Kommentar in `entity_links.py`: ein eingefrorener Planstand ist
+    keine Aktivität im Projektverlauf). **Noch nicht über API exponiert:** `plan_fte` und die
+    neuen `plan_phase_id`-Spalten sind reines Schema-Fundament; Pydantic-Schema-Felder und
+    Endpunkte folgen in P3. Verifiziert per `python backend/check_migrations.py` (grün: exakt
+    ein Head `0004_planning_consolidation`, lückenlose Kette an der Baseline, kein Drift
+    gegen `models.py`, Seeds, Upgrade/Downgrade-Roundtrip). Kein Frontend-Umbau, keine
+    API-Änderung.
+
 Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der offene Jira-Issues-Endpoint für den Jira-Tab, der tatsächliche Excel-Migrationslauf gegen eine echte Bestands-.xlsm-Datei (der Import-Code in `migration/import_excel.py` ist auf PlanPhase/Milestone/ResourceDemand umgestellt, die Datei selbst liegt aber nicht im Repo), sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–26 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt — inkl. Phase 26.9 (Legacy Cutover mit Datenkonvertierung, siehe Punkt 26 oben).
 
 ---
@@ -1235,6 +1260,16 @@ Konsolidierungsdurchgang (2026-08-17, Schiefstands-Bereinigung):
   Wahrheit, Gantt/FTE-Grid und TeamMember/Assignment werden NACH strukturierter
   Überführung der Bestandsdaten entfernt. Die Migration ist defensiv gegen
   Zwischenzustände (Tabellen/Spalten-Existenzprüfungen, No-Op auf bereits bereinigten DBs).
+- `0004_planning_consolidation`: **rein additiv, nicht-destruktiv** (siehe Abschnitt 11,
+  Punkt 27) — sechs nullable Spalten an bestehenden Tabellen (keine neue Tabelle):
+  `plan_phases.plan_fte` (Float, geplanter FTE-Bedarf je Phase), `baseline_snapshots.reason`
+  (String(500), Begründung des eingefrorenen Planstands) sowie `comments`/`tasks`/`blockers`/
+  `decisions.plan_phase_id` (je nullable FK → `plan_phases.id`, `ondelete="SET NULL"`, mit
+  Index). `ON DELETE SET NULL` bewusst gewählt: Löschen einer PlanPhase unlinkt die
+  Kollaborationsinhalte (Kommentar/Aufgabe/Blocker/Entscheidung bleiben erhalten) statt sie
+  zu kaskadieren — erste `ondelete`/`index`-Verwendung im Codebase (gezielter Scope, kein
+  generelles Retrofit-Muster). Zeitgleich wird `baseline_snapshot` als EntityType im Tag-/
+  Dokument-/Relations-Layer registriert (nicht im Activity Feed, analog `document`).
 - `db_bootstrap.run_migrations()` (App-Start in `main.py`) unterscheidet:
   (a) **frische DB** (kein `alembic_version`) → `upgrade head` führt die Baseline real aus;
   (b) **bekannte Revision der Kette** → normales `upgrade head`;

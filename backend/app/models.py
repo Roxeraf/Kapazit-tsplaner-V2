@@ -255,6 +255,11 @@ class Comment(Base):
     # Nullable Self-FK für Diskussions-Threads (Phase 16, siehe CONCEPT.md Abschnitt 12) -
     # None = eigenständige Notiz/Wurzel eines Threads, gesetzt = Antwort auf comments.id.
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id"), nullable=True)
+    # Verknüpfung mit einer PlanPhase (Phase 17) - additiv, nullable. ON DELETE SET NULL:
+    # wird eine PlanPhase gelöscht, bleibt der Kommentar erhalten (nur lose Verknüpfung).
+    plan_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plan_phases.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
 
 class PlanHistory(Base):
@@ -417,6 +422,11 @@ class Decision(Base):
     status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/entschieden/verworfen
     # Phase 26.1: FK auf Person statt Freitext - Personenverzeichnis existiert seit Phase 14.
     entschieden_von_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
+    # Verknüpfung mit einer PlanPhase (Phase 17) - additiv, nullable. ON DELETE SET NULL
+    # (siehe Comment.plan_phase_id).
+    plan_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plan_phases.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     entschieden_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
 
@@ -468,6 +478,11 @@ class Task(Base):
     status: Mapped[str] = mapped_column(String(20), default="offen")  # offen/in_bearbeitung/erledigt
     # Phase 26.1: FK auf Person statt Freitext - Personenverzeichnis existiert seit Phase 14.
     zustaendig_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
+    # Verknüpfung mit einer PlanPhase (Phase 17) - additiv, nullable. ON DELETE SET NULL
+    # (siehe Comment.plan_phase_id).
+    plan_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plan_phases.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     faellig_am: Mapped[str | None] = mapped_column(String(10), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
     aktualisiert_am: Mapped[str] = mapped_column(String(40))
@@ -494,6 +509,11 @@ class Blocker(Base):
     waiting_for_party: Mapped[str] = mapped_column(String(20), default="UNKNOWN")
     owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    # Verknüpfung mit einer PlanPhase (Phase 17) - additiv, nullable. ON DELETE SET NULL
+    # (siehe Comment.plan_phase_id).
+    plan_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plan_phases.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     next_action: Mapped[str | None] = mapped_column(String(500), nullable=True)
     impact: Mapped[str | None] = mapped_column(String(500), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
@@ -526,6 +546,9 @@ class PlanPhase(Base):
     actual_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="geplant")  # geplant/laufend/abgeschlossen/verzoegert
     progress: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0-100
+    # Geplanter FTE-Bedarf dieser Phase (Phase 19, Master-MD Abschnitt 17) - additiv, noch
+    # nicht über API exponiert (folgt in P3). Nullable, da bestehende Phasen keinen Wert haben.
+    plan_fte: Mapped[float | None] = mapped_column(Float, nullable=True)
     owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))
@@ -564,6 +587,8 @@ class BaselineSnapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     name: Mapped[str] = mapped_column(String(200))
+    # Begründung, warum dieser Planstand eingefroren wurde (additiv, nullable).
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[str] = mapped_column(String(40))
     created_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
 

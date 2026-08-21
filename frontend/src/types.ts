@@ -178,7 +178,7 @@ export interface PlanHistoryEntry {
 // CONCEPT.md Abschnitt 6a). "document" nur für Tags relevant. "plan_phase"/"milestone" seit
 // Phase 26.2 genutzt, "blocker" seit Phase 26.4 - Backend unterstützt alle drei bereits seit
 // Phase 16/17 (entity_links-Registry).
-export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document" | "plan_phase" | "milestone" | "blocker";
+export type EntityType = "comment" | "decision" | "risk" | "meeting_minutes" | "task" | "document" | "plan_phase" | "milestone" | "blocker" | "baseline_snapshot";
 
 export interface DocumentUsage {
   entity_type: string;

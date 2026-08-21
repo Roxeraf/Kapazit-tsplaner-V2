@@ -518,3 +518,31 @@ def get_project_activity(project_id: int, limit: int = 50, db: Session = Depends
             )
     items.sort(key=lambda item: item.timestamp, reverse=True)
     return items[:limit]
+
+
+@router.get("/plan-phases/{plan_phase_id}/activity", response_model=list[schemas.ActivityItemOut])
+def get_plan_phase_activity(plan_phase_id: int, limit: int = 50, db: Session = Depends(get_db)):
+    """Phasenbezogener Activity Feed - wie get_project_activity, aber eingeschränkt auf
+    Entitäten mit plan_phase_id == plan_phase_id. Entitätstypen ohne plan_phase_id-Spalte
+    (plan_phase/milestone/risk/meeting_minutes) liefern hier nichts (siehe
+    list_entity_summaries)."""
+    plan_phase = db.get(models.PlanPhase, plan_phase_id)
+    if plan_phase is None:
+        raise HTTPException(status_code=404, detail="Planphase nicht gefunden")
+    items: list[schemas.ActivityItemOut] = []
+    for entity_type in entity_links.ACTIVITY_ENTITY_TYPES:
+        for summary in entity_links.list_entity_summaries(db, entity_type, plan_phase_id=plan_phase_id):
+            timestamp = entity_links.timestamp_for(db, entity_type, summary["entity_id"])
+            if timestamp is None:
+                continue
+            items.append(
+                schemas.ActivityItemOut(
+                    entity_type=entity_type,
+                    entity_id=summary["entity_id"],
+                    label=summary["label"],
+                    timestamp=timestamp,
+                    tags=summary["tags"],
+                )
+            )
+    items.sort(key=lambda item: item.timestamp, reverse=True)
+    return items[:limit]

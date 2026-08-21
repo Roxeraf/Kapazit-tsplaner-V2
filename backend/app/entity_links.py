@@ -19,6 +19,7 @@ _ENTITY_LABEL_PREFIX = {
     "blocker": "Blocker",
     "plan_phase": "Planphase",
     "milestone": "Milestone",
+    "baseline_snapshot": "Planstand",
 }
 
 # Registry für den Knowledge Query Layer (Phase 15, siehe CONCEPT.md Abschnitt 12/46):
@@ -34,6 +35,7 @@ _ENTITY_REGISTRY: dict[str, tuple[type, str]] = {
     "blocker": (models.Blocker, "title"),
     "plan_phase": (models.PlanPhase, "phase_type"),
     "milestone": (models.Milestone, "name"),
+    "baseline_snapshot": (models.BaselineSnapshot, "name"),
 }
 
 # Öffentliches Vokabular für Aufrufer außerhalb dieses Moduls (z.B. routers/knowledge.py,
@@ -141,6 +143,9 @@ def _resolve_entity_label(db: Session, entity_type: str, entity_id: int) -> str:
         text = row.phase_type if row else None
     elif entity_type == "milestone":
         row = db.get(models.Milestone, entity_id)
+        text = row.name if row else None
+    elif entity_type == "baseline_snapshot":
+        row = db.get(models.BaselineSnapshot, entity_id)
         text = row.name if row else None
     if text is None:
         return f"{prefix} #{entity_id} (gelöscht)"
@@ -307,14 +312,27 @@ def entity_summary(db: Session, entity_type: str, entity_id: int) -> dict | None
     }
 
 
-def list_entity_summaries(db: Session, entity_type: str, project_id: int | None = None) -> list[dict]:
-    """Alle Entitäten eines Typs (optional auf ein Projekt eingeschränkt), inkl. Tags."""
+def list_entity_summaries(
+    db: Session,
+    entity_type: str,
+    project_id: int | None = None,
+    plan_phase_id: int | None = None,
+) -> list[dict]:
+    """Alle Entitäten eines Typs (optional auf ein Projekt und/oder eine PlanPhase
+    eingeschränkt), inkl. Tags. plan_phase_id wird nur für Modelle angewendet, die eine
+    solche Spalte haben (comment/task/blocker/decision); Modelle ohne plan_phase_id
+    (plan_phase/milestone/risk/meeting_minutes/baseline_snapshot) liefern bei gesetztem
+    plan_phase_id eine leere Liste, da sie nicht phasenbezogen sind."""
     model, text_field = _ENTITY_REGISTRY.get(entity_type, (None, None))
     if model is None:
+        return []
+    if plan_phase_id is not None and not hasattr(model, "plan_phase_id"):
         return []
     query = db.query(model)
     if project_id is not None and hasattr(model, "project_id"):
         query = query.filter(model.project_id == project_id)
+    if plan_phase_id is not None and hasattr(model, "plan_phase_id"):
+        query = query.filter(model.plan_phase_id == plan_phase_id)
     rows = query.order_by(model.id).all()
     return [
         {

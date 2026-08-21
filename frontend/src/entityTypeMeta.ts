@@ -12,4 +12,5 @@ export const ENTITY_TYPE_META: Record<EntityType, { icon: string; label: string 
   plan_phase: { icon: "📌", label: "Phase" },
   milestone: { icon: "🚩", label: "Milestone" },
   document: { icon: "📄", label: "Dokument" },
+  baseline_snapshot: { icon: "📸", label: "Planstand" },
 };

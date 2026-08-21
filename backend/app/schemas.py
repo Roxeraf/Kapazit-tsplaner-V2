@@ -94,7 +94,7 @@ class ProjectDetail(ProjectSummary):
 # DocumentLink). Siehe Kapazitätsplaner-v2-Zielarchitektur, CONCEPT.md Abschnitt 12.
 EntityType = Literal[
     "comment", "decision", "risk", "meeting_minutes", "task", "document", "blocker",
-    "plan_phase", "milestone",
+    "plan_phase", "milestone", "baseline_snapshot",
 ]
 
 # relation_type-Vokabular für EntityRelation (Master-MD Abschnitt 45, "Knowledge Layer").
@@ -480,6 +480,7 @@ class PlanPhaseCreate(BaseModel):
     actual_end: str | None = None
     status: str = "geplant"  # geplant/laufend/abgeschlossen/verzoegert
     progress: float | None = None
+    plan_fte: float | None = None
     owner_person_id: int | None = None
     owner_team_id: int | None = None
     tags: list[str] = []
@@ -496,6 +497,7 @@ class PlanPhaseUpdate(BaseModel):
     actual_end: str | None = None
     status: str | None = None
     progress: float | None = None
+    plan_fte: float | None = None
     owner_person_id: int | None = None
     owner_team_id: int | None = None
     tags: list[str] | None = None
@@ -514,6 +516,7 @@ class PlanPhaseOut(BaseModel):
     actual_end: str | None
     status: str
     progress: float | None
+    plan_fte: float | None
     owner_person_id: int | None
     owner_team_id: int | None
     erstellt_am: str
@@ -1440,3 +1443,41 @@ class RoleAnalysisEntry(BaseModel):
     demand_fte: float
     assigned_fte: float
     gap_fte: float
+
+
+# ---------------------------------------------------------------------------
+# PlanPhase Detail & Metriken (P3, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt
+# 8/9/17). Aggregierte Detailansicht einer PlanPhase mit eingebetteten phasenbezogenen
+# Entitäten (Comment/Task/Blocker/Decision/ResourceDemand) und Rohmetriken. Bewusst am Ende
+# der Schemas-Datei platziert, da PlanPhaseDetail auf Out-Schemas verweist, die erst später
+# im Modul definiert sind (CommentOut/ResourceDemandOut) - so bleiben die Forward-Refs zur
+# Laufzeit auflösbar, ohne from __future__ import annotations zu benötigen.
+# ---------------------------------------------------------------------------
+
+
+class ReconciliationOut(BaseModel):
+    headline_fte: float | None
+    breakdown_fte: float | None
+    open_fte: float | None
+
+
+class PhaseMetricsOut(BaseModel):
+    # Rohmetriken nur - keine control_status/Ampel-Logik (folgt erst nach BD-3).
+    time_progress_pct: float | None
+    plan_hours: float | None
+    effort_consumption_pct: float | None  # BD-1: aktuell immer None (keine Ist-Stunden-Quelle)
+    ist_hours: float | None  # BD-1: aktuell immer None
+    reconciliation: ReconciliationOut
+
+
+class PlanPhaseDetail(PlanPhaseOut):
+    # Aggregierte Detailansicht einer PlanPhase. Eingebettet werden nur Entitäten mit
+    # plan_phase_id-FK (Comment/Task/Blocker/Decision/ResourceDemand). Milestone und
+    # BaselineSnapshot haben keinen plan_phase_id-FK (nur project_id/subproject_id) und
+    # sind daher bewusst NICHT eingebettet - ein FK-Link wäre ein eigener Schema-Task.
+    comments: list[CommentOut] = []
+    tasks: list[TaskOut] = []
+    blockers: list[BlockerOut] = []
+    decisions: list[DecisionOut] = []
+    resource_demands: list[ResourceDemandOut] = []
+    metrics: PhaseMetricsOut

@@ -82,7 +82,7 @@ export default function PortfolioDashboard() {
     <div>
       <div className="toolbar">
         <h2 className="section-title" style={{ margin: 0 }}>
-          Portfolio-Dashboard
+          Projektmanagement-Dashboard
         </h2>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.85rem" }}>

@@ -6,9 +6,10 @@ entfallen. Folgt demselben CRUD-Muster wie routers/communication.py."""
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import entity_links, models, schemas
+from .. import entity_links, models, phase_metrics_calc, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["planning"])
@@ -61,6 +62,7 @@ def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
         actual_end=p.actual_end,
         status=p.status,
         progress=p.progress,
+        plan_fte=p.plan_fte,
         owner_person_id=p.owner_person_id,
         owner_team_id=p.owner_team_id,
         erstellt_am=p.erstellt_am,
@@ -75,6 +77,191 @@ def _get_plan_phase_or_404(db: Session, plan_phase_id: int) -> models.PlanPhase:
     if p is None:
         raise HTTPException(status_code=404, detail="Planphase nicht gefunden")
     return p
+
+
+def _comment_out(db: Session, c: models.Comment) -> schemas.CommentOut:
+    return schemas.CommentOut(
+        id=c.id,
+        project_id=c.project_id,
+        subproject_id=c.subproject_id,
+        monat=c.monat,
+        phase_code=c.phase_code,
+        text=c.text,
+        erstellt_am=c.erstellt_am,
+        parent_id=c.parent_id,
+        tags=entity_links.tags_for(db, "comment", c.id),
+        documents=entity_links.documents_for(db, "comment", c.id),
+    )
+
+
+def _task_out(db: Session, t: models.Task) -> schemas.TaskOut:
+    return schemas.TaskOut(
+        id=t.id,
+        project_id=t.project_id,
+        titel=t.titel,
+        beschreibung=t.beschreibung,
+        status=t.status,
+        zustaendig_person_id=t.zustaendig_person_id,
+        faellig_am=t.faellig_am,
+        erstellt_am=t.erstellt_am,
+        aktualisiert_am=t.aktualisiert_am,
+        tags=entity_links.tags_for(db, "task", t.id),
+        documents=entity_links.documents_for(db, "task", t.id),
+    )
+
+
+def _blocker_out(db: Session, b: models.Blocker) -> schemas.BlockerOut:
+    return schemas.BlockerOut(
+        id=b.id,
+        project_id=b.project_id,
+        title=b.title,
+        description=b.description,
+        status=b.status,
+        severity=b.severity,
+        active_since=b.active_since,
+        caused_by_party=b.caused_by_party,
+        waiting_for_party=b.waiting_for_party,
+        owner_person_id=b.owner_person_id,
+        owner_team_id=b.owner_team_id,
+        next_action=b.next_action,
+        impact=b.impact,
+        erstellt_am=b.erstellt_am,
+        aktualisiert_am=b.aktualisiert_am,
+        tags=entity_links.tags_for(db, "blocker", b.id),
+        documents=entity_links.documents_for(db, "blocker", b.id),
+    )
+
+
+def _decision_out(db: Session, d: models.Decision) -> schemas.DecisionOut:
+    return schemas.DecisionOut(
+        id=d.id,
+        project_id=d.project_id,
+        titel=d.titel,
+        beschreibung=d.beschreibung,
+        begruendung=d.begruendung,
+        status=d.status,
+        entschieden_von_person_id=d.entschieden_von_person_id,
+        entschieden_am=d.entschieden_am,
+        erstellt_am=d.erstellt_am,
+        tags=entity_links.tags_for(db, "decision", d.id),
+        documents=entity_links.documents_for(db, "decision", d.id),
+    )
+
+
+def _resource_demand_out(db: Session, demand: models.ResourceDemand) -> schemas.ResourceDemandOut:
+    role = db.get(models.ResourceRole, demand.resource_role_id)
+    assignments = (
+        db.query(models.ResourceAssignment)
+        .filter(models.ResourceAssignment.resource_demand_id == demand.id)
+        .all()
+    )
+    assigned_fte = round(sum(a.fte for a in assignments), 2)
+    return schemas.ResourceDemandOut(
+        id=demand.id,
+        project_id=demand.project_id,
+        plan_phase_id=demand.plan_phase_id,
+        resource_role_id=demand.resource_role_id,
+        resource_role_name=role.name if role else "",
+        period=demand.period,
+        fte=demand.fte,
+        commitment_level=demand.commitment_level,
+        erstellt_am=demand.erstellt_am,
+        aktualisiert_am=demand.aktualisiert_am,
+        assigned_fte=assigned_fte,
+        allocation_gap=round(demand.fte - assigned_fte, 2),
+    )
+
+
+def _plan_phase_metrics(db: Session, p: models.PlanPhase) -> schemas.PhaseMetricsOut:
+    # breakdown_sum = Summe ResourceDemand.fte dieser Phase (0.0, wenn keine Demands).
+    breakdown_sum = (
+        db.query(func.sum(models.ResourceDemand.fte))
+        .filter(models.ResourceDemand.plan_phase_id == p.id)
+        .scalar()
+    ) or 0.0
+    ph = phase_metrics_calc.plan_hours(p.plan_fte, p.forecast_start, p.forecast_end)
+    recon = phase_metrics_calc.reconcile(p.plan_fte, breakdown_sum)
+    return schemas.PhaseMetricsOut(
+        time_progress_pct=phase_metrics_calc.time_progress(p.forecast_start, p.forecast_end),
+        plan_hours=ph,
+        effort_consumption_pct=phase_metrics_calc.effort_consumption(None, ph),  # BD-1: immer None
+        ist_hours=None,  # BD-1: keine Ist-Stunden-Quelle auf PlanPhase-Ebene
+        reconciliation=schemas.ReconciliationOut(
+            headline_fte=recon["headline_fte"],
+            breakdown_fte=recon["breakdown_fte"],
+            open_fte=recon["open_fte"],
+        ),
+    )
+
+
+def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDetail:
+    return schemas.PlanPhaseDetail(
+        id=p.id,
+        project_id=p.project_id,
+        subproject_id=p.subproject_id,
+        phase_type=p.phase_type,
+        baseline_start=p.baseline_start,
+        baseline_end=p.baseline_end,
+        forecast_start=p.forecast_start,
+        forecast_end=p.forecast_end,
+        actual_start=p.actual_start,
+        actual_end=p.actual_end,
+        status=p.status,
+        progress=p.progress,
+        plan_fte=p.plan_fte,
+        owner_person_id=p.owner_person_id,
+        owner_team_id=p.owner_team_id,
+        erstellt_am=p.erstellt_am,
+        aktualisiert_am=p.aktualisiert_am,
+        tags=entity_links.tags_for(db, "plan_phase", p.id),
+        documents=entity_links.documents_for(db, "plan_phase", p.id),
+        comments=[
+            _comment_out(db, c)
+            for c in (
+                db.query(models.Comment)
+                .filter(models.Comment.plan_phase_id == p.id)
+                .order_by(models.Comment.erstellt_am.desc())
+                .all()
+            )
+        ],
+        tasks=[
+            _task_out(db, t)
+            for t in (
+                db.query(models.Task)
+                .filter(models.Task.plan_phase_id == p.id)
+                .order_by(models.Task.erstellt_am.desc())
+                .all()
+            )
+        ],
+        blockers=[
+            _blocker_out(db, b)
+            for b in (
+                db.query(models.Blocker)
+                .filter(models.Blocker.plan_phase_id == p.id)
+                .order_by(models.Blocker.erstellt_am.desc())
+                .all()
+            )
+        ],
+        decisions=[
+            _decision_out(db, d)
+            for d in (
+                db.query(models.Decision)
+                .filter(models.Decision.plan_phase_id == p.id)
+                .order_by(models.Decision.erstellt_am.desc())
+                .all()
+            )
+        ],
+        resource_demands=[
+            _resource_demand_out(db, demand)
+            for demand in (
+                db.query(models.ResourceDemand)
+                .filter(models.ResourceDemand.plan_phase_id == p.id)
+                .order_by(models.ResourceDemand.id)
+                .all()
+            )
+        ],
+        metrics=_plan_phase_metrics(db, p),
+    )
 
 
 @router.get("/{project_id}/plan-phases", response_model=list[schemas.PlanPhaseOut])
@@ -107,6 +294,7 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
         actual_end=payload.actual_end,
         status=payload.status,
         progress=payload.progress,
+        plan_fte=payload.plan_fte,
         owner_person_id=payload.owner_person_id,
         owner_team_id=payload.owner_team_id,
         erstellt_am=now,
@@ -146,6 +334,18 @@ def delete_plan_phase(plan_phase_id: int, db: Session = Depends(get_db)):
     entity_links.delete_relations_for_entity(db, "plan_phase", plan_phase_id)
     db.delete(plan_phase)
     db.commit()
+
+
+@router.get("/plan-phases/{plan_phase_id}", response_model=schemas.PlanPhaseDetail)
+def get_plan_phase_detail(plan_phase_id: int, db: Session = Depends(get_db)):
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    return _plan_phase_detail(db, plan_phase)
+
+
+@router.get("/plan-phases/{plan_phase_id}/metrics", response_model=schemas.PhaseMetricsOut)
+def get_plan_phase_metrics(plan_phase_id: int, db: Session = Depends(get_db)):
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    return _plan_phase_metrics(db, plan_phase)
 
 
 # ---------------------------------------------------------------------------

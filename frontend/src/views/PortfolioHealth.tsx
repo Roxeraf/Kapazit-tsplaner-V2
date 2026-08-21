@@ -37,8 +37,8 @@ export default function PortfolioHealth() {
 
   return (
     <div>
-      <h2 className="section-title">Portfolio Health</h2>
-      {loading && <p>Lade Portfolio-Übersicht …</p>}
+      <h2 className="section-title">Project Health</h2>
+      {loading && <p>Lade Project-Health-Übersicht …</p>}
       {error && <p style={{ color: "var(--rot)" }}>{error}</p>}
 
       {!loading && !error && (

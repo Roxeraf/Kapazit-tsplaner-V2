@@ -157,6 +157,7 @@ export interface Comment {
   phase_code: PhaseCode | null;
   text: string;
   erstellt_am: string;
+  plan_phase_id: number | null;
   tags: string[];
   documents: Document[];
 }
@@ -228,6 +229,7 @@ export interface Decision {
   entschieden_von_person_id: number | null;
   entschieden_am: string | null;
   erstellt_am: string;
+  plan_phase_id: number | null;
   tags: string[];
   documents: Document[];
 }
@@ -329,6 +331,7 @@ export interface Task {
   faellig_am: string | null;
   erstellt_am: string;
   aktualisiert_am: string;
+  plan_phase_id: number | null;
   tags: string[];
   documents: Document[];
 }
@@ -378,6 +381,7 @@ export interface Blocker {
   impact: string | null;
   erstellt_am: string;
   aktualisiert_am: string;
+  plan_phase_id: number | null;
   tags: string[];
   documents: Document[];
 }
@@ -570,12 +574,40 @@ export interface PlanPhase {
   actual_end: string | null;
   status: PlanPhaseStatus;
   progress: number | null;
+  plan_fte: number | null;
   owner_person_id: number | null;
   owner_team_id: number | null;
   erstellt_am: string;
   aktualisiert_am: string;
   tags: string[];
   documents: Document[];
+}
+
+// Phase 26.10: PlanPhase Workspace (P3-Endpoints, backend/app/routers/planning.py +
+// communication.py). Reconciliation vergleicht Headline-FTE (PlanPhase.plan_fte) mit der
+// Aufschlüsselungs-Summe (Summe ResourceDemand.fte dieser Phase). BD-1: effort_consumption_pct
+// und ist_hours sind aktuell immer None (keine Ist-Stunden-Quelle) - Rohmetriken ohne Ampel.
+export interface ReconciliationOut {
+  headline_fte: number | null;
+  breakdown_fte: number | null;
+  open_fte: number | null;
+}
+
+export interface PhaseMetricsOut {
+  time_progress_pct: number | null;
+  plan_hours: number | null;
+  effort_consumption_pct: number | null; // BD-1: aktuell immer None
+  ist_hours: number | null; // BD-1: aktuell immer None
+  reconciliation: ReconciliationOut;
+}
+
+export interface PlanPhaseDetail extends PlanPhase {
+  comments: Comment[];
+  tasks: Task[];
+  blockers: Blocker[];
+  decisions: Decision[];
+  resource_demands: ResourceDemand[];
+  metrics: PhaseMetricsOut;
 }
 
 export type MilestoneStatus = "geplant" | "gefaehrdet" | "erreicht" | "verpasst";
@@ -611,6 +643,7 @@ export interface BaselineSnapshotSummary {
   created_at: string;
   created_by_person_id: number | null;
   entry_count: number;
+  tags: string[];
 }
 
 export interface BaselineEntry {
@@ -627,6 +660,7 @@ export interface BaselineSnapshot {
   name: string;
   created_at: string;
   created_by_person_id: number | null;
+  tags: string[];
   entries: BaselineEntry[];
 }
 

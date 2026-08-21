@@ -542,3 +542,165 @@ table.planner input.fte-input {
   color: var(--text-muted);
   white-space: nowrap;
 }
+
+/* P8: Read-Only-Gantt für PlanPhase-Zeitleisten. Keine neuen Abhängigkeiten,
+   Balken-/Statusfarben nutzen die bestehenden Gap-/Status-Variablen. */
+.gantt {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  padding: 0.75rem;
+}
+
+.gantt-scroll {
+  overflow-x: auto;
+}
+
+.gantt-inner {
+  position: relative;
+  min-width: 100%;
+}
+
+.gantt-axis {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  height: 28px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.gantt-axis-corner {
+  width: 180px;
+  background: #eef3fa;
+  border-right: 1px solid var(--border);
+  position: sticky;
+  left: 0;
+  z-index: 3;
+}
+
+.gantt-axis-months {
+  position: relative;
+  flex: 1;
+}
+
+.gantt-axis-month {
+  position: absolute;
+  top: 6px;
+  transform: translateX(-50%);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.gantt-axis-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--border);
+}
+
+.gantt-row {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  min-height: 42px;
+}
+
+.gantt-row-label {
+  width: 180px;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #eef3fa;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.5rem;
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gantt-bars {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 4px 0;
+}
+
+.gantt-bar-track {
+  position: relative;
+  height: 7px;
+}
+
+.gantt-bar {
+  position: absolute;
+  height: 7px;
+  border-radius: 2px;
+  min-width: 2px;
+}
+
+.gantt-bar--baseline {
+  background: var(--gap-soll);
+}
+
+.gantt-bar--forecast {
+  background: var(--gap-hochrechnung);
+}
+
+.gantt-bar--actual {
+  background: var(--gap-ist);
+}
+
+.gantt-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.gantt-group-header {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: #f4f7fb;
+}
+
+.gantt-group-header .gantt-row-label {
+  background: #e6edf6;
+  font-weight: 600;
+  color: var(--navy);
+}
+
+.gantt-group-spacer {
+  flex: 1;
+}
+
+.gantt-no-dates {
+  margin-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+}
+
+.gantt-no-dates-title {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.gantt-no-dates-row {
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0;
+}
+
+.gantt-empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}

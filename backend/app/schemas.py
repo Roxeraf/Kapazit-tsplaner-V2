@@ -279,6 +279,7 @@ class DecisionCreate(BaseModel):
     entschieden_von_person_id: int | None = None
     entschieden_am: str | None = None
     tags: list[str] = []
+    plan_phase_id: int | None = None
 
 
 class DecisionUpdate(BaseModel):
@@ -289,6 +290,7 @@ class DecisionUpdate(BaseModel):
     entschieden_von_person_id: int | None = None
     entschieden_am: str | None = None
     tags: list[str] | None = None
+    plan_phase_id: int | None = None
 
 
 class DecisionOut(BaseModel):
@@ -301,6 +303,7 @@ class DecisionOut(BaseModel):
     entschieden_von_person_id: int | None
     entschieden_am: str | None
     erstellt_am: str
+    plan_phase_id: int | None = None
     tags: list[str] = []
     documents: list[DocumentOut] = []
 
@@ -378,6 +381,7 @@ class TaskCreate(BaseModel):
     zustaendig_person_id: int | None = None
     faellig_am: str | None = None
     tags: list[str] = []
+    plan_phase_id: int | None = None
 
 
 class TaskUpdate(BaseModel):
@@ -387,6 +391,7 @@ class TaskUpdate(BaseModel):
     zustaendig_person_id: int | None = None
     faellig_am: str | None = None
     tags: list[str] | None = None
+    plan_phase_id: int | None = None
 
 
 class TaskOut(BaseModel):
@@ -399,6 +404,7 @@ class TaskOut(BaseModel):
     faellig_am: str | None
     erstellt_am: str
     aktualisiert_am: str
+    plan_phase_id: int | None = None
     tags: list[str] = []
     documents: list[DocumentOut] = []
 
@@ -425,6 +431,7 @@ class BlockerCreate(BaseModel):
     next_action: str | None = None
     impact: str | None = None
     tags: list[str] = []
+    plan_phase_id: int | None = None
 
 
 class BlockerUpdate(BaseModel):
@@ -440,6 +447,7 @@ class BlockerUpdate(BaseModel):
     next_action: str | None = None
     impact: str | None = None
     tags: list[str] | None = None
+    plan_phase_id: int | None = None
 
 
 class BlockerOut(BaseModel):
@@ -458,6 +466,7 @@ class BlockerOut(BaseModel):
     impact: str | None
     erstellt_am: str
     aktualisiert_am: str
+    plan_phase_id: int | None = None
     tags: list[str] = []
     documents: list[DocumentOut] = []
 
@@ -575,6 +584,7 @@ class MilestoneOut(BaseModel):
 class BaselineSnapshotCreate(BaseModel):
     name: str
     created_by_person_id: int | None = None
+    tags: list[str] = []
 
 
 class BaselineEntryOut(BaseModel):
@@ -591,6 +601,7 @@ class BaselineSnapshotOut(BaseModel):
     name: str
     created_at: str
     created_by_person_id: int | None
+    tags: list[str] = []
     entries: list[BaselineEntryOut] = []
 
 
@@ -601,6 +612,7 @@ class BaselineSnapshotSummary(BaseModel):
     created_at: str
     created_by_person_id: int | None
     entry_count: int
+    tags: list[str] = []
 
 
 class BaselineDeviationOut(BaseModel):
@@ -895,11 +907,13 @@ class CommentCreate(BaseModel):
     # Gesetzt = Antwort auf einen anderen Kommentar (Discussion Threading, Phase 16, siehe
     # CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 34).
     parent_id: int | None = None
+    plan_phase_id: int | None = None
 
 
 class CommentUpdate(BaseModel):
     text: str | None = None
     tags: list[str] | None = None
+    plan_phase_id: int | None = None
 
 
 class CommentOut(BaseModel):
@@ -913,6 +927,7 @@ class CommentOut(BaseModel):
     text: str
     erstellt_am: str
     parent_id: int | None = None
+    plan_phase_id: int | None = None
     tags: list[str] = []
     documents: list[DocumentOut] = []
 

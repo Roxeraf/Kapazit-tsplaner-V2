@@ -111,19 +111,15 @@ def _effort_health(gap: dict) -> schemas.HealthDimension:
 
 
 def _progress_health(db: Session, project_id: int, thresholds: dict[str, tuple[float, float]]) -> schemas.HealthDimension:
-    entries = gap_calc.progress_gap_entries(db, project_id)
-    gaps = [e.progress_gap_pp for e in entries if e.progress_gap_pp is not None]
-    if not gaps:
-        return schemas.HealthDimension(
-            status="grau", value=None, explanation="Keine Planphase mit Start/Ende und Fortschrittswert hinterlegt."
-        )
-    worst = min(gaps)
-    badness = max(0.0, -worst)
-    yellow, red = thresholds["progress_pp"]
+    """Fortschritts-Dimension ist deprecatet (P6, Planungs- und Kapazitätskonsolidierung).
+    Die Dimension wird nicht mehr bewertet und immer als 'grau' zurückgegeben. Die
+    zugrunde liegende Gap-Berechnung (gap_calc.progress_gap_entries) bleibt für die
+    Endpoints /gaps/progress und /controlling/progress-gaps voll funktional. Signatur
+    bleibt aus Kompatibilität mit compute_project_health unverändert."""
     return schemas.HealthDimension(
-        status=_status(badness, yellow, red),
-        value=badness,
-        explanation=f"Größter Rückstand {worst:+.1f} PP (erwarteter vs. tatsächlicher Fortschritt je Planphase).",
+        status="grau",
+        value=None,
+        explanation="Fortschritts-Dimension ist deprecatet und wird nicht mehr bewertet.",
     )
 
 

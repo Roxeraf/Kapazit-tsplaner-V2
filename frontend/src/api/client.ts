@@ -41,7 +41,9 @@ import type {
   MilestoneStatus,
   PlanHistoryEntry,
   PlanPhase,
+  PlanPhaseDetail,
   PlanPhaseStatus,
+  PhaseMetricsOut,
   ProjectDetail,
   ProjectMembership,
   ProjectStatus,
@@ -177,6 +179,14 @@ export const api = {
     }>,
   ) => request<PlanPhase>(`/projects/plan-phases/${planPhaseId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePlanPhase: (planPhaseId: number) => request<void>(`/projects/plan-phases/${planPhaseId}`, { method: "DELETE" }),
+  getPlanPhaseDetail: (planPhaseId: number) =>
+    request<PlanPhaseDetail>(`/projects/plan-phases/${planPhaseId}`),
+  getPlanPhaseMetrics: (planPhaseId: number) =>
+    request<PhaseMetricsOut>(`/projects/plan-phases/${planPhaseId}/metrics`),
+  getPlanPhaseActivity: (planPhaseId: number, limit?: number) =>
+    request<ActivityItem[]>(
+      `/projects/plan-phases/${planPhaseId}/activity${limit ? `?limit=${limit}` : ""}`,
+    ),
 
   listMilestones: (projectId: number) => request<Milestone[]>(`/projects/${projectId}/milestones`),
   createMilestone: (
@@ -210,7 +220,7 @@ export const api = {
   deleteMilestone: (milestoneId: number) => request<void>(`/projects/milestones/${milestoneId}`, { method: "DELETE" }),
 
   listBaselines: (projectId: number) => request<BaselineSnapshotSummary[]>(`/projects/${projectId}/baselines`),
-  createBaseline: (projectId: number, payload: { name: string; created_by_person_id?: number | null }) =>
+  createBaseline: (projectId: number, payload: { name: string; created_by_person_id?: number | null; tags?: string[] }) =>
     request<BaselineSnapshot>(`/projects/${projectId}/baselines`, { method: "POST", body: JSON.stringify(payload) }),
   deleteBaseline: (baselineId: number) => request<void>(`/projects/baselines/${baselineId}`, { method: "DELETE" }),
 
@@ -250,6 +260,7 @@ export const api = {
       next_action?: string | null;
       impact?: string | null;
       tags?: string[];
+      plan_phase_id?: number | null;
     },
   ) => request<Blocker>(`/projects/${projectId}/blockers`, { method: "POST", body: JSON.stringify(payload) }),
   updateBlocker: (
@@ -345,6 +356,7 @@ export const api = {
       phase_code?: string | null;
       text: string;
       tags?: string[];
+      plan_phase_id?: number | null;
     },
   ) => request<Comment>(`/projects/${projectId}/comments`, { method: "POST", body: JSON.stringify(payload) }),
   listComments: (projectId: number) => request<Comment[]>(`/projects/${projectId}/comments`),
@@ -397,6 +409,7 @@ export const api = {
       entschieden_von_person_id?: number | null;
       entschieden_am?: string | null;
       tags?: string[];
+      plan_phase_id?: number | null;
     },
   ) => request<Decision>(`/projects/${projectId}/decisions`, { method: "POST", body: JSON.stringify(payload) }),
   updateDecision: (
@@ -471,6 +484,7 @@ export const api = {
       zustaendig_person_id?: number | null;
       faellig_am?: string | null;
       tags?: string[];
+      plan_phase_id?: number | null;
     },
   ) => request<Task>(`/projects/${projectId}/tasks`, { method: "POST", body: JSON.stringify(payload) }),
   updateTask: (

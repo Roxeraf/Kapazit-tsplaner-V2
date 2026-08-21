@@ -68,6 +68,14 @@ def expected_progress_pct(start: date | None, end: date | None) -> float | None:
 
 
 def progress_gap_entries(db: Session, project_id: int) -> list[schemas.ProgressGapEntry]:
+    """Berechnet den Fortschritts-Gap (erwarteter vs. tatsächlicher Fortschritt) je
+    PlanPhase. Wird verwendet von /projects/{id}/gaps/progress, /controlling/progress-gaps
+    und /projects/{id}/gaps und bleibt voll funktional.
+
+    HINWEIS (P6, Planungs- und Kapazitätskonsolidierung): Die Fortschritts-Dimension
+    ist für das Project-Health-Scoring deprecatet. Diese Funktion wird von
+    health_calc._progress_health nicht mehr für die Bewertung herangezogen (diese
+    gibt nun statisch 'grau' zurück). Die Gap-Reporting-Endpoints bleiben unverändert."""
     entries: list[schemas.ProgressGapEntry] = []
     for pp in db.query(models.PlanPhase).filter(models.PlanPhase.project_id == project_id).all():
         start = parse_date(pp.forecast_start) or parse_date(pp.baseline_start)

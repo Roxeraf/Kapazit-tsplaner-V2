@@ -14,15 +14,10 @@ import {
   type PlanPhaseStatus,
   type SubprojectDetail,
 } from "../../../types";
+import PlanPhaseGantt from "./PlanPhaseGantt";
+import PlanPhaseWorkspace from "./PlanPhaseWorkspace";
 
 const NO_SUBPROJECT = "__none__";
-
-function clampProgress(raw: string): number | null {
-  if (raw.trim() === "") return null;
-  const value = Number(raw);
-  if (!Number.isFinite(value)) return null;
-  return Math.min(100, Math.max(0, value));
-}
 
 export default function PlanPhaseList({
   projectId,
@@ -34,6 +29,8 @@ export default function PlanPhaseList({
   const [phases, setPhases] = useState<PlanPhase[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<PlanPhase | null>(null);
+  const [openPhaseId, setOpenPhaseId] = useState<number | null>(null);
+  const [view, setView] = useState<"list" | "gantt">("list");
   const people = usePeopleMap();
 
   const [phaseType, setPhaseType] = useState("");
@@ -105,10 +102,30 @@ export default function PlanPhaseList({
 
   return (
     <div>
-      <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Phasen</h3>
+      <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
+        <h3 style={{ color: "var(--navy)", margin: 0 }}>Phasen</h3>
+        <div style={{ display: "flex", gap: "0.4rem" }}>
+          <button
+            type="button"
+            className="btn secondary"
+            style={view === "list" ? { background: "var(--blau)", color: "#fff", borderColor: "var(--blau)" } : undefined}
+            onClick={() => setView("list")}
+          >
+            Listenansicht
+          </button>
+          <button
+            type="button"
+            className="btn secondary"
+            style={view === "gantt" ? { background: "var(--blau)", color: "#fff", borderColor: "var(--blau)" } : undefined}
+            onClick={() => setView("gantt")}
+          >
+            Gantt-Ansicht
+          </button>
+        </div>
+      </div>
       {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
 
-      {phases.length === 0 ? (
+      {view === "list" && (phases.length === 0 ? (
         <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Phasen geplant.</p>
       ) : (
         groupOrder.map((groupId) => (
@@ -142,6 +159,14 @@ export default function PlanPhaseList({
                           </option>
                         ))}
                       </select>
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        style={{ fontSize: "0.72rem", padding: "0.05rem 0.4rem" }}
+                        onClick={() => setOpenPhaseId(phase.id)}
+                      >
+                        Öffnen →
+                      </button>
                       <button
                         type="button"
                         onClick={() => setToDelete(phase)}
@@ -210,17 +235,6 @@ export default function PlanPhaseList({
                       />
                     </label>
                     <label>
-                      Fortschritt (%)
-                      <input
-                        key={`${phase.id}-progress-${phase.progress}`}
-                        type="number"
-                        min={0}
-                        max={100}
-                        defaultValue={phase.progress ?? ""}
-                        onBlur={(e) => update(phase, { progress: clampProgress(e.target.value) })}
-                      />
-                    </label>
-                    <label>
                       Teilprojekt
                       <select
                         value={phase.subproject_id ?? NO_SUBPROJECT}
@@ -263,7 +277,9 @@ export default function PlanPhaseList({
               ))}
           </div>
         ))
-      )}
+      ))}
+
+      {view === "gantt" && <PlanPhaseGantt phases={phases} subprojects={subprojects} />}
 
       <datalist id="plan-phase-type-suggestions">
         {PLAN_PHASE_TYPE_SUGGESTIONS.map((s) => (
@@ -271,7 +287,7 @@ export default function PlanPhaseList({
         ))}
       </datalist>
 
-      <div className="field-row" style={{ marginTop: "0.75rem", flexDirection: "column", alignItems: "stretch" }}>
+      {view === "list" && <div className="field-row" style={{ marginTop: "0.75rem", flexDirection: "column", alignItems: "stretch" }}>
         <label>
           Neue Phase
           <input
@@ -303,7 +319,7 @@ export default function PlanPhaseList({
         <button type="button" className="btn secondary" style={{ alignSelf: "flex-start" }} disabled={saving} onClick={handleAdd}>
           + Phase hinzufügen
         </button>
-      </div>
+      </div>}
 
       <ConfirmDialog
         open={toDelete !== null}
@@ -311,6 +327,13 @@ export default function PlanPhaseList({
         message={`Phase "${toDelete?.phase_type}" wirklich löschen?`}
         onConfirm={handleDelete}
         onCancel={() => setToDelete(null)}
+      />
+
+      <PlanPhaseWorkspace
+        planPhaseId={openPhaseId}
+        projectId={projectId}
+        onClose={() => setOpenPhaseId(null)}
+        onChanged={refresh}
       />
     </div>
   );

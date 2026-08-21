@@ -7,8 +7,6 @@ Kapazitätsplaner v2 (plx.crew Portal) — Web-Ablösung des Excel/VBA-Kapazitä
 * [`CONCEPT.md`](CONCEPT.md) — insbesondere Abschnitt 11 = Umsetzungsstand und 12.1 = Migrations-Policy
 * [`README.md`](README.md) — Setup und lokale Inbetriebnahme
 
-Beide Dokumente sind auf Deutsch und aktuell.
-
 Bei Widersprüchen gilt:
 
 `CONCEPT.md` > `README.md`
@@ -40,7 +38,7 @@ Agenten dürfen Widersprüche zwischen Dokumentation und Implementierung nicht s
 * `legacy/` — altes Excel/VBA-Tool
 
   * ausschließlich Referenz
-  * keine neue Funktionalität dort implementieren
+  * dort keine neue Funktionalität implementieren
 
 ---
 
@@ -52,11 +50,30 @@ Default-Datenbank:
 
 `backend/kapazitaetsplaner.db`
 
+Installation:
+
 ```sh
 cd backend
 pip install -r requirements.txt
+```
+
+Lokaler Entwicklungsserver:
+
+```sh
 uvicorn app.main:app --reload --port 8000
 ```
+
+WICHTIG:
+
+Der Uvicorn-Entwicklungsserver ist ein langlebiger Prozess.
+
+Agenten dürfen ihn NICHT als normalen blockierenden Validierungsschritt starten.
+
+Siehe Abschnitt:
+
+`Backend-Validierung und langlebige Prozesse`
+
+---
 
 ## Frontend
 
@@ -96,12 +113,14 @@ npm
 
 verwendet werden.
 
-Beispiel:
+Bevorzugt unter Windows:
 
 ```sh
 npm.cmd run lint
 npm.cmd run build
 ```
+
+---
 
 ## Export-Abhängigkeiten
 
@@ -112,15 +131,23 @@ cd export
 npm install
 ```
 
+---
+
 ## Kompletter Stack
 
 ```sh
 docker compose up --build
 ```
 
+Auch dieser Befehl kann langlebig sein.
+
+Er darf nicht als unbeschränkt blockierender Agent-Validierungsschritt verwendet werden.
+
+---
+
 ## Migrations-Wächter
 
-Vor jedem Commit mit Schema- oder Migrationsänderungen verpflichtend:
+Vor jedem Commit bzw. Abschluss einer Implementierung mit Schema- oder Migrationsänderungen verpflichtend:
 
 ```sh
 python backend/check_migrations.py
@@ -165,16 +192,16 @@ Es existiert kein Vite-Proxy.
 
 ## Aktueller Stand
 
-Im Repository existiert derzeit kein automatisiertes Testframework.
+Im Repository existiert derzeit kein vollständiges automatisiertes Testframework.
 
-Das bedeutet ausdrücklich **nicht**, dass automatisierte Tests grundsätzlich unerwünscht sind.
+Das bedeutet ausdrücklich NICHT, dass automatisierte Tests grundsätzlich unerwünscht sind.
 
 Die Einführung eines Testframeworks wie:
 
 * pytest
 * Vitest
 * Jest
-* Playwright-Test-Suites
+* umfangreiche Playwright-Test-Suites
 
 ist jedoch eine bewusste Projekt-/Architekturentscheidung und darf nicht beiläufig im Rahmen einer kleinen Änderung erfolgen.
 
@@ -182,20 +209,166 @@ Für bestehende Änderungen gilt die dokumentierte Verifikationspraxis aus `CONC
 
 Dazu gehören insbesondere:
 
-* curl-Szenarien gegen den laufenden Backend-Server
+* Python-Import-Smoke-Checks
+* Router-Import-Checks
+* gezielte Python-Prüfungen
+* Migrationsprüfung
+* bestehende curl-/API-Szenarien
 * `npm run lint`
 * `npm run build`
-* bei relevanten UI-Änderungen Browser-/Playwright-Prüfungen gegen den Dev-Server
+* bei relevanten UI-Änderungen Browser-/Playwright-Prüfungen
 
 Agenten dürfen nicht eigenmächtig ein neues Testframework als Voraussetzung für eine kleine Änderung einführen.
 
 ---
 
-# 5. Migrations-Policy
+# 5. Backend-Validierung und langlebige Prozesse
+
+Dieser Abschnitt ist verbindlich.
+
+## Grundregel
+
+Agenten dürfen langlebige Serverprozesse nicht als unbeschränkt blockierenden Validierungsschritt starten.
+
+Insbesondere vermeiden:
+
+```sh
+uvicorn app.main:app --reload
+```
+
+als normalen Validierungsschritt innerhalb eines Agents.
+
+Ebenso vermeiden:
+
+```sh
+docker compose up
+npm run dev
+```
+
+wenn der Prozess anschließend unbegrenzt weiterläuft.
+
+---
+
+## Bevorzugte Backend-Validierung
+
+Bevorzugt werden kurze, deterministische und selbstbeendende Prüfungen.
+
+Beispiele:
+
+### App-Import
+
+```powershell
+.\.venv\Scripts\python.exe -c "import app; print('app import ok')"
+```
+
+oder aus dem passenden Backend-Verzeichnis:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from app.main import app; print('app import ok')"
+```
+
+### Router-Import
+
+Beispiel:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from app.routers import communication, planning; print('routers import ok')"
+```
+
+Nur tatsächlich relevante Router prüfen.
+
+### Gezielt Python-Funktionen prüfen
+
+Wenn eine Business-Funktion ohne Server aufrufbar ist:
+
+* direkt importieren
+* mit kleinem reproduzierbarem Input ausführen
+* Ergebnis prüfen
+
+### Migration
+
+Bei Schema-/Migrationsänderungen:
+
+```powershell
+python backend/check_migrations.py
+```
+
+---
+
+## Live-Server-Validierung
+
+Ein Live-Server darf nur verwendet werden, wenn:
+
+* die gewünschte Prüfung ohne laufenden Server nicht sinnvoll möglich ist
+* ein API-/HTTP-Verhalten tatsächlich geprüft werden muss
+* der Server sicher gestartet und wieder beendet werden kann
+
+Wenn ein Live-Server nicht sicher innerhalb eines begrenzten Agent-Schritts verwendet werden kann:
+
+NICHT starten.
+
+Stattdessen melden:
+
+```text
+LIVE_SERVER_REQUIRED
+```
+
+und ausgeben:
+
+* warum der Live-Server benötigt wird
+* exakter Startbefehl
+* exakter Prüfbefehl
+* erwartetes Ergebnis
+
+---
+
+## Keine unendlichen Waits
+
+Kein Agent darf unbegrenzt auf:
+
+* Uvicorn
+* Vite
+* Docker Compose
+* Hintergrundprozess
+* Socket
+* Logdatei
+* HTTP-Endpoint
+
+warten.
+
+Wenn eine Validierung nach angemessener Zeit keinen Fortschritt zeigt:
+
+abbrechen bzw. als nicht vollständig verifiziert melden.
+
+Richtwert:
+
+* kurze Validierungsbefehle: wenige Minuten
+* auf Prozessbereitschaft warten: maximal ca. 60 Sekunden ohne Fortschritt
+* keine Endlosschleifen
+
+---
+
+## Hintergrundprozesse
+
+Wenn ein Hintergrundprozess ausnahmsweise gestartet wird:
+
+* PID erfassen
+* Prozessbereitschaft mit begrenztem Timeout prüfen
+* Validierung durchführen
+* Prozess anschließend sicher beenden
+* keine verwaisten Prozesse zurücklassen
+
+Wenn dies nicht zuverlässig möglich ist:
+
+`LIVE_SERVER_REQUIRED` melden.
+
+---
+
+# 6. Migrations-Policy
 
 Diese Regeln sind verbindlich.
 
-Siehe auch `CONCEPT.md`, Abschnitt 12.1.
+Siehe `CONCEPT.md`, Abschnitt 12.1.
 
 ## Schemaänderungen
 
@@ -213,17 +386,23 @@ ALTER TABLE
 
 außerhalb des definierten Migrationssystems.
 
+---
+
 ## Aktuelle Migrationskette
+
+Die tatsächliche aktuelle Kette ist aus dem Repository zu ermitteln.
+
+Historisch begann die konsolidierte Kette mit:
 
 ```text
 0001_consolidated
-    ↓
-0002_align_project_nullable
-    ↓
-0003_phase26_legacy_cutover
 ```
 
-`0001_consolidated` ist die Squash-Baseline.
+Agenten dürfen die aktuelle Migrationskette nicht ausschließlich aus dieser Datei ableiten, wenn inzwischen weitere Revisionen existieren.
+
+Vor Schemaarbeit immer die tatsächlich vorhandenen Revisionen prüfen.
+
+---
 
 ## Bestehende Revisionen
 
@@ -239,17 +418,15 @@ Historischer Referenzfall:
 
 `0013`
 
+---
+
 ## Destruktive Migrationen
 
 Destruktive Migrationen dürfen nur durchgeführt werden, wenn notwendige Daten vorher sicher konvertiert oder migriert werden.
 
-Kein Datenverlust durch:
+Kein Datenverlust durch `DROP` ohne vorherige Datenbehandlung.
 
-```text
-DROP
-```
-
-ohne vorherige Datenbehandlung.
+---
 
 ## Automatische Migration
 
@@ -268,18 +445,19 @@ Dabei wird zwischen:
 
 unterschieden.
 
+---
+
 ## check_migrations.py
 
-Der Migrations-Wächter prüft:
+Der Migrations-Wächter prüft unter anderem:
 
 * genau einen Alembic-Head
-* korrekte Kette ab der Baseline
-* `alembic check`
-* Drift gegen `models.py`
+* korrekte Kette
+* Drift
 * Seeds
 * Downgrade-/Upgrade-Roundtrip
 
-Die Prüfung erfolgt auf einer Wegwerf-SQLite-Datenbank.
+Die Prüfung erfolgt auf einer Wegwerf-Datenbank.
 
 ### Wichtiger Gotcha
 
@@ -293,15 +471,9 @@ gesetzt sein.
 
 Die Engine wird bereits beim Import gebunden.
 
-Siehe:
-
-```text
-check_migrations.py
-```
-
 ---
 
-# 6. Architektur-Fakten
+# 7. Architektur-Fakten
 
 ## Source of Truth
 
@@ -322,6 +494,8 @@ Seit Phase 26.9-Cutover gelten folgende Modelle als Source of Truth.
 
 * `Person`
 * `ResourceProfile`
+
+---
 
 ## Legacy-Modelle
 
@@ -344,7 +518,7 @@ ResourceDemand
 
 ---
 
-# 7. Authentifizierung und Rollen
+# 8. Authentifizierung und Rollen
 
 Im Repository existiert bewusst kein:
 
@@ -353,13 +527,13 @@ Im Repository existiert bewusst kein:
 * Login-System
 * RBAC-System
 
-Siehe `CONCEPT.md`, Abschnitte 7 und 10.
+Siehe `CONCEPT.md`.
 
 Agenten dürfen keine Authentifizierungs- oder RBAC-Logik erfinden, sofern dies nicht explizit als neue Anforderung definiert wurde.
 
 ---
 
-# 8. Naming-Konventionen
+# 9. Naming-Konventionen
 
 ## Zielarchitektur-native Modelle
 
@@ -391,11 +565,11 @@ beschreibung
 wahrscheinlichkeit
 ```
 
-Diese bestehende Trennung nicht beiläufig vereinheitlichen oder refactoren.
+Diese bestehende Trennung nicht beiläufig vereinheitlichen.
 
 ---
 
-# 9. Cross-Router-Logik
+# 10. Cross-Router-Logik
 
 Gemeinsam verwendete Business-Logik gehört in gemeinsame Module.
 
@@ -409,13 +583,15 @@ backend/app/health_calc.py
 backend/app/entity_links.py
 ```
 
+sowie weitere im Repository vorhandene gemeinsame Calculation-/Service-Module.
+
 Keine Business-Logik durch Imports zwischen Routern koppeln.
 
-Also nicht:
+Nicht:
 
 ```text
 Router A
-   ↓ import
+  ↓
 Router B
 ```
 
@@ -423,131 +599,71 @@ sondern:
 
 ```text
 Router A ─┐
-          ├─ gemeinsame Logik
+          ├─ Shared Logic
 Router B ─┘
 ```
 
-Bestehende Architektur bevorzugen.
-
 ---
 
-# 10. EntityTypes
+# 11. EntityTypes
 
-Neue EntityTypes für:
+Neue EntityTypes müssen an allen relevanten Registry-/Schema-/Frontend-Typstellen ergänzt werden.
 
-* Tags
-* Dokumente
-* Relationen
-* Knowledge
-
-müssen an drei Stellen ergänzt werden:
+Insbesondere prüfen:
 
 ```text
 backend/app/entity_links.py
-```
-
-Registry
-
-```text
 backend/app/schemas.py
-```
-
-`EntityType`
-
-```text
 frontend/src/types.ts
 ```
 
-`EntityType`
+Zusätzliche aktuelle Registry-/Meta-Dateien aus dem Repository ebenfalls berücksichtigen.
 
-Keine dieser Stellen vergessen.
+Nicht davon ausgehen, dass diese Liste für immer vollständig bleibt.
 
 ---
 
-# 11. allocation_gap
+# 12. allocation_gap
 
-Das Vorzeichen von `allocation_gap` ist aktuell inkonsistent.
+Das Vorzeichen von `allocation_gap` ist dokumentiert inkonsistent.
 
-Dies ist ein dokumentierter Bestandsfehler.
-
-## capacity.py / controlling.py
-
-Berechnung:
+Einige Endpoints verwenden:
 
 ```text
 fte - assigned_fte
 ```
 
-Damit gilt:
-
-```text
-positiv = Unterdeckung
-```
-
-## health.py Cockpit
-
-Berechnung:
+andere:
 
 ```text
 assigned_fte - fte
-```
-
-Damit gilt:
-
-```text
-negativ = Unterdeckung
 ```
 
 Frontend-Verbraucher müssen auf die tatsächliche Formel des jeweiligen Endpoints abgestimmt werden.
 
 Nicht blind dem Docstring vertrauen.
 
-Diese Inkonsistenz nicht im Rahmen einer fachlich unabhängigen Änderung nebenbei beheben.
+Diese Inkonsistenz nicht im Rahmen einer unabhängigen Änderung nebenbei beheben.
 
 Eine Vereinheitlichung benötigt einen eigenen Task mit Prüfung aller Verbraucher.
 
 ---
 
-# 12. Frontend-Speichermuster
+# 13. Frontend-Speichermuster
 
-Folgende Entitäten speichern unmittelbar pro Feldänderung:
+PlanPhase/Milestone/Blocker/Risk/Task/Decision und vergleichbare Entitäten speichern entsprechend dem vorhandenen Pattern unmittelbar bzw. gemäß aktueller Implementierung.
 
-* PlanPhase
-* Milestone
-* Blocker
-* Risk
-* Task
-* Decision
-* weitere vergleichbare Entitäten
+Die Stammdaten-Karte verwendet Draft + `batch_id` zur PlanHistory-Revisionsgruppierung.
 
-Die Stammdaten-Karte verwendet dagegen:
+Bestehende unterschiedliche Speichermuster nicht beiläufig vereinheitlichen.
 
-```text
-Draft
-+
-batch_id
-```
-
-zur PlanHistory-Revisionsgruppierung.
-
-Diese unterschiedlichen Speichermuster sind beabsichtigt.
-
-Nicht beiläufig vereinheitlichen.
+Vor Änderungen immer die aktuelle Implementierung prüfen.
 
 ---
 
-# 13. Sprache und UI
+# 14. Sprache und UI
 
 UI-Sprache ist Deutsch.
-
-Bestehende Routen bleiben deutsch bzw. entsprechen der vorhandenen Routing-Konvention.
-
-Beispiele:
-
-```text
-/projekte/:id/planung
-/gap
-```
 
 Neue:
 
@@ -558,7 +674,7 @@ Neue:
 
 grundsätzlich auf Deutsch halten, sofern der bestehende Kontext nichts anderes vorgibt.
 
-Interne technische Identifier folgen dagegen den bestehenden Code-Konventionen.
+Interne technische Identifier folgen bestehenden Code-Konventionen.
 
 Eine Änderung eines sichtbaren GUI-Namens bedeutet nicht automatisch, dass:
 
@@ -573,7 +689,7 @@ ebenfalls umbenannt werden sollen.
 
 ---
 
-# 14. Engineering-Scope
+# 15. Engineering-Scope
 
 Agenten dürfen nur Änderungen durchführen, die für die aktuelle Anforderung notwendig sind.
 
@@ -585,24 +701,15 @@ Insbesondere:
 * keine Cleanup-Änderungen außerhalb des Scopes
 * keine Erweiterung des Requirements aus eigener Initiative
 
-Bestehende Patterns bevorzugen, bevor neue Abstraktionen eingeführt werden.
+Bestehende Patterns bevorzugen.
 
 Neue Dependencies nur einführen, wenn die bestehende Architektur die Anforderung nicht sinnvoll lösen kann.
 
-Bei unklaren fachlichen Anforderungen keine neue Fachlogik erfinden.
-
-Wenn eine fachlich relevante Entscheidung nicht aus:
-
-* Requirement
-* Code
-* `CONCEPT.md`
-* `README.md`
-
-ableitbar ist, muss die Unsicherheit transparent gemacht werden.
+Bei unklaren fachlichen Anforderungen keine Fachlogik erfinden.
 
 ---
 
-# 15. Minimal-Change-Prinzip
+# 16. Minimal-Change-Prinzip
 
 Implementierungen sollen die kleinste kohärente Änderung verwenden, die das Requirement korrekt erfüllt.
 
@@ -622,11 +729,9 @@ neue Abstraktion
 → mehrere unabhängige Änderungen
 ```
 
-Ein Agent darf Code nicht nur deshalb refactoren, weil eine alternative Struktur subjektiv schöner wäre.
-
 ---
 
-# 16. Änderungsgröße
+# 17. Änderungsgröße
 
 Große Anforderungen sollen in unabhängig implementierbare und validierbare Tasks zerlegt werden.
 
@@ -642,13 +747,9 @@ Ein Task sollte nicht unnötig gleichzeitig:
 
 verändern, wenn eine sinnvolle Zerlegung möglich ist.
 
-Wenn ein Requirement mehrere unabhängig lieferbare Features enthält, zuerst eine Task-Zerlegung vorschlagen.
-
-Große unkontrollierte Multi-Modul-Diffs vermeiden.
-
 ---
 
-# 17. Git-Sicherheit
+# 18. Git-Sicherheit
 
 Bestehende uncommittete Änderungen können vom Benutzer stammen.
 
@@ -675,19 +776,12 @@ git push --force
 
 oder funktional vergleichbare Aktionen.
 
-Agenten dürfen keine fremden Änderungen zurücksetzen, nur weil sie die eigene Implementierung behindern.
-
-Wenn bestehende Änderungen einen sicheren Eingriff verhindern:
-
-* stoppen
-* Konflikt erklären
-* betroffene Dateien nennen
-
 Nicht automatisch:
 
 * committen
 * pushen
 * mergen
+* rebasen
 * Branches löschen
 * Pull Requests erstellen
 
@@ -695,129 +789,181 @@ sofern dies nicht explizit angefordert wurde.
 
 ---
 
-# 18. Validierungsstrategie
+# 19. Validierungsstrategie
 
 Validierung muss proportional zur tatsächlichen Änderung erfolgen.
 
 Nicht für jede Änderung unnötig den kompletten Stack starten.
 
+---
+
 ## Frontend-only
 
 Mindestens prüfen:
 
-```sh
-npm run lint
-npm run build
-```
-
-Unter Windows bei Bedarf:
-
-```sh
+```powershell
 npm.cmd run lint
 npm.cmd run build
 ```
 
-Bei relevanten UI- oder Interaktionsänderungen zusätzlich gezielte Browser-/Playwright-Prüfung, sofern verfügbar und sinnvoll.
+Bei relevanten UI-/Interaktionsänderungen zusätzlich gezielte Browserprüfung, wenn sinnvoll und verfügbar.
 
-## Backend
+Keinen Dev-Server unbegrenzt als blockierenden Agent-Prozess laufen lassen.
 
-Je nach Änderung:
+---
 
-* Import-Smoke-Test
-* App-Start
-* relevante API-/curl-Szenarien
-* fachlich passende Backend-Prüfung
+## Backend ohne Schemaänderung
 
-Keine erfundenen Prüfkommandos verwenden.
+Bevorzugt:
+
+1. relevanter Python-Import-Smoke
+2. Router-Import
+3. gezielte Funktions-/Schema-Prüfung
+4. optional API-/HTTP-Prüfung, wenn sicher möglich
+
+Kein Uvicorn-Start als Default-Validierung.
+
+---
 
 ## Schema / Migration
 
 Verpflichtend:
 
-```sh
+```powershell
 python backend/check_migrations.py
 ```
 
-Zusätzlich relevante Backend-Prüfungen durchführen.
+Zusätzlich:
 
-## Full-Stack
-
-Nur die tatsächlich relevanten Gates kombinieren.
-
-Beispielsweise:
-
-```text
-Backend
-   ↓
-API
-   ↓
-Frontend lint
-   ↓
-Frontend build
-   ↓
-ggf. UI Smoke
-```
+* relevante Imports
+* ggf. gezielte Modell-/Schema-Prüfung
 
 ---
 
-# 19. Umgang mit Validierungsfehlern
+## Full-Stack
 
-Validierungsfehler zunächst klassifizieren.
+Nur tatsächlich relevante Gates kombinieren:
+
+```text
+Backend Imports
+↓
+Migration falls nötig
+↓
+Frontend lint
+↓
+Frontend build
+↓
+gezielte Integrationsprüfung
+```
+
+Live-Server nur wenn wirklich erforderlich.
+
+---
+
+# 20. Validierungs-Timeouts
+
+Agenten dürfen nicht unbegrenzt auf einen Validierungsschritt warten.
+
+Wenn ein Prozess:
+
+* keine neue Ausgabe liefert
+* nicht terminiert
+* offensichtlich als Server dauerhaft läuft
+* auf externe Interaktion wartet
+
+muss die Prüfung begrenzt oder abgebrochen werden.
+
+Richtwert:
+
+```text
+ca. 60 Sekunden ohne erkennbaren Fortschritt
+```
+
+bei Prozessbereitschaft oder Live-Server-Checks.
+
+Normale Build-/Migration-Kommandos dürfen länger laufen, wenn sichtbar Fortschritt stattfindet.
+
+Keine harte globale 60-Sekunden-Grenze für legitime Builds setzen.
+
+---
+
+# 21. Umgang mit Validierungsfehlern
 
 Unterscheiden zwischen:
 
 ```text
-durch aktuelle Änderung verursacht
+NEW_FAILURE
 ```
 
 und:
 
 ```text
-bereits vorbestehend / unabhängig
+PRE_EXISTING_FAILURE
 ```
 
 Vorbestehende Warnungen oder Fehler nicht ungefragt beheben.
 
-Wenn ein vorbestehender Fehler die Validierung der aktuellen Änderung verhindert:
+Wenn ein vorbestehender Fehler die vollständige Validierung verhindert:
 
-* Fehler nennen
+* nennen
 * Zusammenhang erklären
 * nicht behaupten, dass vollständige Validierung erfolgreich war
 
-Eine Änderung gilt nicht automatisch als fehlerhaft, nur weil ein unabhängiger vorbestehender Fehler existiert.
-
 ---
 
-# 20. Fix-Regeln
+# 22. Fix-Regeln
 
-Tests oder Validierungsregeln dürfen nicht abgeschwächt werden, nur damit eine fehlerhafte Implementierung erfolgreich erscheint.
+Validierungsregeln dürfen nicht abgeschwächt werden, nur damit eine fehlerhafte Implementierung erfolgreich erscheint.
 
 Nicht:
 
 ```text
-Implementierung fehlerhaft
-→ Test entfernen
+Code fehlerhaft
+→ Check entfernen
 → grün
 ```
 
 sondern:
 
 ```text
-Implementierung fehlerhaft
-→ Root Cause
-→ Implementierung korrigieren
+Code fehlerhaft
+→ Ursache analysieren
+→ Code korrigieren
 → erneut validieren
 ```
 
 Keine Endlosschleifen.
 
-Die konkrete Anzahl automatischer Fix-Versuche wird vom Engineering-Orchestrator gesteuert.
+Die Anzahl automatischer Fix-Versuche wird vom Orchestrator gesteuert.
 
 ---
 
-# 21. Review-Regeln
+# 23. Temporäre Validierungsartefakte
 
-Bei einem Review immer die tatsächliche Implementierung bzw. den finalen Diff gegen:
+Temporäre Dateien aus Validierungen dürfen nicht ungefragt committed werden.
+
+Beispiele:
+
+```text
+uvicorn_*.out
+uvicorn_*.err
+temporäre DB-Dateien
+Testdatenbanken
+Logs
+Build-Artefakte
+```
+
+Nach Möglichkeit aufräumen.
+
+Wenn eine Datei für Diagnose erhalten bleiben muss:
+
+im Abschlussbericht nennen.
+
+---
+
+# 24. Review-Regeln
+
+Beim Review immer den tatsächlichen finalen Diff gegen:
 
 * Requirement
 * Acceptance Criteria
@@ -826,27 +972,23 @@ Bei einem Review immer die tatsächliche Implementierung bzw. den finalen Diff g
 
 prüfen.
 
-Nicht nur bewerten, ob der Code syntaktisch plausibel aussieht.
-
-Besonders prüfen:
+Besonders:
 
 * fachliche Korrektheit
 * Scope
 * Regressionen
 * Architektur
 * unnötige Komplexität
-* neue Dependencies
-* Datenmodell-Auswirkungen
-* API-Auswirkungen
-* Migrationsauswirkungen
-* Security-Auswirkungen
-* Dokumentationsbedarf
-
-Review-Findings nicht durch Änderungen außerhalb des Requirements vorsorglich lösen.
+* Dependencies
+* Datenmodell
+* API
+* Migrationen
+* Security
+* Dokumentation
 
 ---
 
-# 22. Dokumentation
+# 25. Dokumentation
 
 `CONCEPT.md` aktualisieren, wenn sich insbesondere ändert:
 
@@ -857,7 +999,7 @@ Review-Findings nicht durch Änderungen außerhalb des Requirements vorsorglich 
 * API-Grundprinzipien
 * Migrationsstrategie
 * wesentliche Systemgrenzen
-* dokumentierter Umsetzungsstand, sofern relevant
+* relevanter dokumentierter Umsetzungsstand
 
 `README.md` aktualisieren, wenn sich insbesondere ändert:
 
@@ -866,27 +1008,17 @@ Review-Findings nicht durch Änderungen außerhalb des Requirements vorsorglich 
 * Start
 * Konfiguration
 * lokale Entwicklungsumgebung
-* Bedienung für Entwickler
+* Entwicklerbedienung
 
 Keine Dokumentationsänderung für triviale interne Implementierungsdetails erzwingen.
 
-Bei Widersprüchen:
-
-```text
-CONCEPT.md
-    >
-README.md
-```
-
 ---
 
-# 23. Umgang mit CONCEPT.md
+# 26. Umgang mit CONCEPT.md
 
 `CONCEPT.md` ist die fachlich-technische Source of Truth.
 
-Sie muss jedoch nicht für jede triviale Änderung vollständig gelesen werden.
-
-Bei kleinen lokalen Änderungen nur relevante Dokumentation laden.
+Sie muss nicht für jede triviale Änderung vollständig geladen werden.
 
 Bei:
 
@@ -897,13 +1029,11 @@ Bei:
 * Migrationen
 * größeren Refactorings
 
-müssen die relevanten Abschnitte aus `CONCEPT.md` berücksichtigt werden.
-
-Dadurch wird unnötiger Kontext- und Tokenverbrauch vermieden.
+relevante Abschnitte berücksichtigen.
 
 ---
 
-# 24. Definition of Done
+# 27. Definition of Done
 
 Eine Implementierung ist nur abgeschlossen, wenn:
 
@@ -916,68 +1046,118 @@ Eine Implementierung ist nur abgeschlossen, wenn:
 * erforderliche Dokumentation aktualisiert wurde
 * verbleibende Risiken transparent genannt wurden
 
-Bei vollständigen Engineering-Workflows gelten zusätzlich die vom Orchestrator definierten Review- und Verification-Gates.
+Wenn ein notwendiger Live-Server-Test nicht ausgeführt werden konnte:
+
+nicht vollständig PASS melden.
+
+Stattdessen:
+
+```text
+PARTIALLY_VERIFIED
+```
+
+oder:
+
+```text
+LIVE_SERVER_REQUIRED
+```
+
+gemäß Agent-Workflow.
 
 ---
 
-# 25. Abschlussbericht
+# 28. Abschlussbericht
 
-Nach einer Implementierung kurz und konkret berichten:
+Nach einer Implementierung berichten:
 
 ## Implementiert
 
-Was wurde fachlich geändert?
+Was wurde geändert?
 
 ## Geänderte Dateien
 
-Welche Dateien wurden verändert und warum?
+Welche Dateien wurden verändert?
 
 ## Validierung
 
 Welche Prüfungen wurden tatsächlich ausgeführt?
 
-Ergebnisse klar unterscheiden:
+Ergebnisse unterscheiden:
 
-* erfolgreich
-* fehlgeschlagen
-* Warnungen
-* vorbestehende Probleme
+* PASS
+* FAIL
+* NOT_VERIFIED
+* PRE_EXISTING_WARNING
+* LIVE_SERVER_REQUIRED
 
 ## Review
 
-Wenn ein unabhängiges Review durchgeführt wurde:
+Falls unabhängiges Review ausgeführt wurde:
 
 Ergebnis nennen.
-
-Wenn bei einem QUICK-Workflow bewusst kein unabhängiger Reviewer verwendet wurde:
-
-dies transparent angeben.
 
 ## Verbleibende Risiken
 
 Bekannte Restrisiken nennen.
 
-Wenn keine bekannt sind:
+---
 
-```text
-Keine bekannten neuen Risiken durch diese Änderung.
-```
+# 29. Agent-Verantwortung
+
+Der Orchestrator:
+
+* koordiniert
+* liest/editiert nicht selbst
+* führt keine Shell-Kommandos aus
+
+Explorer:
+
+* liest und untersucht
+* ändert nichts
+
+Planner:
+
+* plant
+* ändert nichts
+
+Builder:
+
+* implementiert
+* führt nur sichere proportionale Validierung aus
+
+Tester:
+
+* validiert unabhängig
+* ändert keinen Anwendungscode
+* startet keine unbegrenzt laufenden Prozesse
+
+Reviewer:
+
+* reviewt
+* ändert nichts
+
+Expert:
+
+* analysiert schwierige Root Causes
+* implementiert nicht
 
 ---
 
-# 26. Grundprinzip
+# 30. Grundprinzip
 
 Für dieses Repository gilt:
 
 ```text
 Korrektheit
-    +
++
 kleiner Scope
-    +
++
 bestehende Architektur
-    +
-gezielte Validierung
-    +
++
+deterministische Validierung
++
+keine langlebigen blockierenden Agent-Prozesse
++
 keine erfundene Fachlogik
 ```
 
@@ -986,17 +1166,20 @@ vor:
 ```text
 großen Refactorings
 +
-neuen Abstraktionen
-+
 unnötigen Dependencies
 +
-breiten Änderungen außerhalb des Requirements
+breiten Änderungen
++
+instabiler Live-Server-Automatisierung
 ```
 
-Bestehenden Code zuerst verstehen.
+Bestehenden Code verstehen.
 
 Dann planen.
 
 Dann minimal ändern.
 
-Dann gezielt validieren.
+Dann mit kurzen, reproduzierbaren Checks validieren.
+
+Live-Server nur wenn wirklich notwendig.
+

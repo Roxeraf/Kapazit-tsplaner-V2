@@ -51,11 +51,13 @@ export default function ActivityFeed({
   filterTypes,
   onOpenSection,
   onChanged,
+  planPhaseId,
 }: {
   projectId: number;
   filterTypes: EntityType[];
   onOpenSection: (type: EntityType) => void;
   onChanged: () => void;
+  planPhaseId?: number;
 }) {
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [typeFilter, setTypeFilter] = useState<EntityType | null>(null);
@@ -65,10 +67,13 @@ export default function ActivityFeed({
   const [saving, setSaving] = useState(false);
 
   const refresh = () => {
-    api.getActivity(projectId).then(setItems).catch((e) => setError(String(e)));
+    const fetcher = planPhaseId
+      ? api.getPlanPhaseActivity(planPhaseId)
+      : api.getActivity(projectId);
+    fetcher.then(setItems).catch((e) => setError(String(e)));
   };
 
-  useEffect(refresh, [projectId]);
+  useEffect(refresh, [projectId, planPhaseId]);
 
   const visible = useMemo(
     () => items.filter((i) => filterTypes.includes(i.entity_type) && (!typeFilter || i.entity_type === typeFilter)),

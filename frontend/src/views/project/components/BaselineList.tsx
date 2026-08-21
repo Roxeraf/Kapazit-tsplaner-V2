@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../../../api/client";
 import ConfirmDialog from "../../../components/ConfirmDialog";
 import PersonPicker from "../../../components/PersonPicker";
+import TagChip from "../../../components/TagChip";
+import TagInput from "../../../components/TagInput";
 import type { BaselineSnapshotSummary } from "../../../types";
 
 function formatDateTime(iso: string): string {
@@ -17,6 +19,7 @@ export default function BaselineList({ projectId }: { projectId: number }) {
   const [baselines, setBaselines] = useState<BaselineSnapshotSummary[]>([]);
   const [name, setName] = useState("");
   const [createdByPersonId, setCreatedByPersonId] = useState<number | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toDelete, setToDelete] = useState<BaselineSnapshotSummary | null>(null);
@@ -32,9 +35,10 @@ export default function BaselineList({ projectId }: { projectId: number }) {
     setSaving(true);
     setError(null);
     try {
-      await api.createBaseline(projectId, { name: name.trim(), created_by_person_id: createdByPersonId });
+      await api.createBaseline(projectId, { name: name.trim(), created_by_person_id: createdByPersonId, tags });
       setName("");
       setCreatedByPersonId(null);
+      setTags([]);
       refresh();
     } catch (e) {
       setError(String(e));
@@ -63,9 +67,18 @@ export default function BaselineList({ projectId }: { projectId: number }) {
             className="toolbar"
             style={{ padding: "0.4rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.85rem" }}
           >
-            <span>
-              <strong>{b.name}</strong> · {formatDateTime(b.created_at)} · {b.entry_count} Einträge
-            </span>
+            <div>
+              <span>
+                <strong>{b.name}</strong> · {formatDateTime(b.created_at)} · {b.entry_count} Einträge
+              </span>
+              {b.tags.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
+                  {b.tags.map((t) => (
+                    <TagChip key={t} name={t} />
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setToDelete(b)}
@@ -84,6 +97,10 @@ export default function BaselineList({ projectId }: { projectId: number }) {
         <label>
           Erstellt von
           <PersonPicker value={createdByPersonId} onChange={setCreatedByPersonId} />
+        </label>
+        <label>
+          Tags
+          <TagInput value={tags} onChange={setTags} />
         </label>
         <button
           type="button"

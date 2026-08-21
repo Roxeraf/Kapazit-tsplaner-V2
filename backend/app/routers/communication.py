@@ -29,6 +29,7 @@ def _decision_out(db: Session, d: models.Decision) -> schemas.DecisionOut:
         entschieden_von_person_id=d.entschieden_von_person_id,
         entschieden_am=d.entschieden_am,
         erstellt_am=d.erstellt_am,
+        plan_phase_id=d.plan_phase_id,
         tags=entity_links.tags_for(db, "decision", d.id),
         documents=entity_links.documents_for(db, "decision", d.id),
     )
@@ -82,6 +83,7 @@ def _task_out(db: Session, t: models.Task) -> schemas.TaskOut:
         faellig_am=t.faellig_am,
         erstellt_am=t.erstellt_am,
         aktualisiert_am=t.aktualisiert_am,
+        plan_phase_id=t.plan_phase_id,
         tags=entity_links.tags_for(db, "task", t.id),
         documents=entity_links.documents_for(db, "task", t.id),
     )
@@ -139,6 +141,7 @@ def _blocker_out(db: Session, b: models.Blocker) -> schemas.BlockerOut:
         impact=b.impact,
         erstellt_am=b.erstellt_am,
         aktualisiert_am=b.aktualisiert_am,
+        plan_phase_id=b.plan_phase_id,
         tags=entity_links.tags_for(db, "blocker", b.id),
         documents=entity_links.documents_for(db, "blocker", b.id),
     )
@@ -174,6 +177,7 @@ def create_decision(project_id: int, payload: schemas.DecisionCreate, db: Sessio
     _validate_person_id(db, payload.entschieden_von_person_id, "entschieden_von_person_id")
     decision = models.Decision(
         project_id=project_id,
+        plan_phase_id=payload.plan_phase_id,
         titel=payload.titel,
         beschreibung=payload.beschreibung,
         begruendung=payload.begruendung,
@@ -367,6 +371,7 @@ def create_task(project_id: int, payload: schemas.TaskCreate, db: Session = Depe
     now = _now()
     task = models.Task(
         project_id=project_id,
+        plan_phase_id=payload.plan_phase_id,
         titel=payload.titel,
         beschreibung=payload.beschreibung,
         status=payload.status,
@@ -437,6 +442,7 @@ def create_blocker(project_id: int, payload: schemas.BlockerCreate, db: Session 
     now = _now()
     blocker = models.Blocker(
         project_id=project_id,
+        plan_phase_id=payload.plan_phase_id,
         title=payload.title,
         description=payload.description,
         status=payload.status,

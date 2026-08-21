@@ -8,17 +8,17 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import baseline_calc, models, schemas
+from .. import baseline_calc, entity_links, models, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["baselines"])
 
 # Welche Felder je entity_type beim Erstellen eines Snapshots eingefroren werden (Master-MD
-# Abschnitt 9/10: Baseline/Forecast/Status/Progress je PlanPhase, Baseline/Forecast/Status je
-# Milestone). Nur PlanPhase/Milestone sind baseline-fähig, siehe CONCEPT.md Abschnitt 12.3
-# Frage 5 - keine strukturierte Baseline für das Legacy-Gantt-Grid.
+# Abschnitt 9/10: Baseline/Forecast/Status je PlanPhase (Progress seit P6 deprecatet),
+# Baseline/Forecast/Status je Milestone). Nur PlanPhase/Milestone sind baseline-fähig,
+# siehe CONCEPT.md Abschnitt 12.3 Frage 5 - keine strukturierte Baseline für das Legacy-Gantt-Grid.
 _SNAPSHOT_FIELDS: dict[str, list[str]] = {
-    "plan_phase": ["phase_type", "baseline_start", "baseline_end", "forecast_start", "forecast_end", "status", "progress"],
+    "plan_phase": ["phase_type", "baseline_start", "baseline_end", "forecast_start", "forecast_end", "status"],
     "milestone": ["name", "baseline_date", "forecast_date", "status"],
 }
 
@@ -53,6 +53,7 @@ def _snapshot_out(db: Session, s: models.BaselineSnapshot) -> schemas.BaselineSn
         name=s.name,
         created_at=s.created_at,
         created_by_person_id=s.created_by_person_id,
+        tags=entity_links.tags_for(db, "baseline_snapshot", s.id),
         entries=[_entry_out(e) for e in entries],
     )
 
@@ -79,6 +80,7 @@ def list_baselines(project_id: int, db: Session = Depends(get_db)):
                 created_at=s.created_at,
                 created_by_person_id=s.created_by_person_id,
                 entry_count=entry_count,
+                tags=entity_links.tags_for(db, "baseline_snapshot", s.id),
             )
         )
     return result
@@ -124,6 +126,7 @@ def create_baseline(project_id: int, payload: schemas.BaselineSnapshotCreate, db
                 )
             )
 
+    entity_links.sync_tags(db, "baseline_snapshot", snapshot.id, payload.tags)
     db.commit()
     db.refresh(snapshot)
     return _snapshot_out(db, snapshot)
@@ -138,6 +141,8 @@ def get_baseline(baseline_id: int, db: Session = Depends(get_db)):
 @router.delete("/baselines/{baseline_id}", status_code=204)
 def delete_baseline(baseline_id: int, db: Session = Depends(get_db)):
     _get_baseline_or_404(db, baseline_id)
+    entity_links.delete_links_for_entity(db, "baseline_snapshot", baseline_id)
+    entity_links.delete_relations_for_entity(db, "baseline_snapshot", baseline_id)
     db.query(models.BaselineEntry).filter(models.BaselineEntry.baseline_id == baseline_id).delete()
     db.query(models.BaselineSnapshot).filter(models.BaselineSnapshot.id == baseline_id).delete()
     db.commit()

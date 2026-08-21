@@ -384,6 +384,7 @@ def _comment_out(db: Session, comment: models.Comment) -> schemas.CommentOut:
         text=comment.text,
         erstellt_am=comment.erstellt_am,
         parent_id=comment.parent_id,
+        plan_phase_id=comment.plan_phase_id,
         tags=entity_links.tags_for(db, "comment", comment.id),
         documents=entity_links.documents_for(db, "comment", comment.id),
     )
@@ -398,6 +399,7 @@ def create_comment(project_id: int, payload: schemas.CommentCreate, db: Session 
         raise HTTPException(status_code=422, detail="parent_id muss zum selben Projekt gehören")
     comment = models.Comment(
         project_id=project_id,
+        plan_phase_id=payload.plan_phase_id,
         subproject_id=payload.subproject_id,
         monat=payload.monat,
         phase_code=payload.phase_code,

@@ -1213,12 +1213,114 @@ Dieses Repo enthält:
     `types.ts`/`entityTypeMeta.ts` mit Icon 📸/Label "Planstand"). `baseline_snapshot` fehlt
     bewusst im Activity Feed (`_ACTIVITY_TIMESTAMP_FIELD`/`ACTIVITY_ENTITY_TYPES`), analog
     `"document"` (siehe Code-Kommentar in `entity_links.py`: ein eingefrorener Planstand ist
-    keine Aktivität im Projektverlauf). **Noch nicht über API exponiert:** `plan_fte` und die
-    neuen `plan_phase_id`-Spalten sind reines Schema-Fundament; Pydantic-Schema-Felder und
-    Endpunkte folgen in P3. Verifiziert per `python backend/check_migrations.py` (grün: exakt
+    keine Aktivität im Projektverlauf). **API-Exposition (P3-Teillieferung):** `plan_fte` ist inzwischen über
+    `PlanPhaseCreate`/`PlanPhaseUpdate`/`PlanPhaseOut` und den Planning-Router exponiert
+    (Create/Update/List/Detail/Metrics). Die neuen `plan_phase_id`-Spalten an
+    `Comment`/`Task`/`Blocker`/`Decision` sind inzwischen über die Comm-Schemas
+    (`Create`/`Update`/`Out`) und die Kommunikations-Endpunkte (Create/Update) exponiert
+    (P4). Das Frontend nutzt diese Verknüpfung inzwischen über den PlanPhase-Workspace (P7,
+    Kommunikation-Tab). Das Frontend konsumiert
+    `plan_fte` sowie die Detail-/Metrik-Endpunkte über den PlanPhase-Workspace (P7,
+    Übersicht-Tab). Verifiziert per `python backend/check_migrations.py` (grün: exakt
     ein Head `0004_planning_consolidation`, lückenlose Kette an der Baseline, kein Drift
-    gegen `models.py`, Seeds, Upgrade/Downgrade-Roundtrip). Kein Frontend-Umbau, keine
-    API-Änderung.
+    gegen `models.py`, Seeds, Upgrade/Downgrade-Roundtrip).
+    **P2 (Phase Metrics Calc Layer):** Neues Modul `backend/app/phase_metrics_calc.py` mit
+    vier Rohmetrik-Funktionen: `time_progress(forecast_start, forecast_end)` wrappt
+    `gap_calc.expected_progress_pct` (0–100 %); `plan_hours(plan_fte, forecast_start,
+    forecast_end)` = `plan_fte × Werktage × (VOLLZEIT_WOCHENSTUNDEN / 5)` — Beispiel:
+    0,5 FTE × 12 Werktage (01.10.–17.10.2026) × 8 h = 48,0 h; `reconcile(plan_fte,
+    breakdown_sum)` liefert `open_fte = plan_fte - breakdown_sum` und behandelt beide Fälle
+    (breakdown < headline = offen/gültig, breakdown > headline = Drift);
+    `effort_consumption(ist_hours, plan_hours)` gibt `None` zurück (deferred bis BD-1,
+    Tempo→PlanPhase-Mapping). Bewusst KEIN `phase_control_status` (🟢/🟡/🔴-Bewertung der
+    Phasenmetriken): Die Bewertung/Scoring ist bis zur Klärung von BD-3
+    (Bewertung-Thresholds) zurückgestellt — P2 liefert nur Rohmetriken, P7 zeigt sie ohne
+    Scoring. Das Modul wiederverwendet `gap_calc.expected_progress_pct`,
+    `capacity_calc.count_weekdays_in_range` und `constants.VOLLZEIT_WOCHENSTUNDEN` — keine
+    Duplikation.
+    **P5 (Planstand-Tagging):** BaselineSnapshots unterstützen Tags — creation-time über
+    `tags: list[str] = []` in `BaselineSnapshotCreate`/`BaselineSnapshotOut`/
+    `BaselineSnapshotSummary`. Backend (`baselines.py`): `create_baseline` ruft
+    `entity_links.sync_tags` auf, `list_baselines`/`_snapshot_out` liefern `tags` über
+    `entity_links.tags_for`, `delete_baseline` räumt per `delete_links_for_entity`/
+    `delete_relations_for_entity` auf. Frontend: `BaselineSnapshotSummary`/
+    `BaselineSnapshot` um `tags: string[]` erweitert, `createBaseline` akzeptiert `tags?`,
+    `BaselineList.tsx` zeigt TagInput im Erstellen-Formular und TagChips je Zeile. Bewusst
+    nur Tagging, keine Relations-UI (kein bestehendes Frontend-Pattern für Relationen);
+    Tags sind nur beim Anlegen setzbar (kein Update-Endpoint — Baselines sind per Design
+    unveränderlich). Keine Migration nötig (`TagLink` ist generisch über `entity_type`),
+    keine neuen Dependencies; die P1-Invariante bleibt gewahrt (`baseline_snapshot` ist
+    weiterhin nicht im Activity Feed).
+    **P6 (Progress-Deprecation + Health-Rewiring):** Die Fortschritts-Dimension
+    (`progress`, Prozent) ist für das Project-Health-Scoring deprecatet:
+    `health_calc._progress_health` liefert dauerhaft `status="grau"` und wird nicht mehr
+    ausgewertet; `_overall_health` klammert "grau" aus, sodass Progress das Overall-Health
+    nicht mehr beeinflusst. `planning.create_plan_phase` ignoriert `progress` aus dem
+    Payload (setzt None), neue Baselines frieren `progress` nicht mehr ein
+    (`baselines._SNAPSHOT_FIELDS` angepasst), das Frontend hat das Eingabefeld
+    "Fortschritt (%)" entfernt (Health-Anzeige automatisch "grau"). Das Feld `progress`
+    bleibt in Schemas/Modellen/API aus Rückwärtskompatibilität erhalten
+    (`ProjectHealthOut.progress` liefert weiterhin "grau"). Die Endpoints
+    `/gaps/progress`, `/progress-gaps` und `/gaps` bleiben funktionsfähig (sie rufen das
+    deprecatete `gap_calc.progress_gap_entries()` weiterhin auf).
+    **P7 (PlanPhase Workspace Frontend):** Der PlanPhase-Workspace ist als rechtsseitiger
+    Drawer umgesetzt (`PlanPhaseWorkspace.tsx`, Inline-Style nach dem TagDossierPanel-Muster),
+    erreichbar über einen "Öffnen"-Button je Phasen-Karte in `PlanPhaseList.tsx`. Zwei
+    Sub-Tabs: "Übersicht" zeigt read-only Phasendetails plus Rohmetriken
+    (`time_progress_pct`, `plan_hours`, Reconciliation) — null-Werte als "—", bewusst ohne
+    🟢/🟡/🔴-Bewertung (Scoring bis BD-3 zurückgestellt); "Kommunikation" bündelt den
+    phasenbezogenen Activity Feed sowie Kommentare/Aufgaben/Entscheidungen/Blocker, alle mit
+    `plan_phase_id` verknüpft. `api/client.ts` stellt `getPlanPhaseDetail`/
+    `getPlanPhaseMetrics`/`getPlanPhaseActivity` für die P3-Endpunkte bereit;
+    `createComment`/`createDecision`/`createTask`/`createBlocker` übergeben `plan_phase_id`.
+    Frontend-Typen sind synchronisiert (`PlanPhaseDetail`/`PhaseMetricsOut`/
+    `ReconciliationOut` neu, `plan_fte` an `PlanPhase`); `TaskList`/`DecisionList`/
+    `BlockerList`/`ActivityFeed` akzeptieren ein optionales `planPhaseId`-Prop. Rein
+    frontendseitig, keine Backend-Änderungen, keine neuen Dependencies.
+    **P8 (Gantt-Visualisierung):** `PlanPhaseList.tsx` bietet einen Ansichts-Toggle
+    "Listenansicht"/"Gantt-Ansicht" (Default: Liste). Die Gantt-Ansicht
+    (`PlanPhaseGantt.tsx`) zeigt die PlanPhase-Zeitverläufe als rein read-only Gantt-Chart:
+    je Phase drei gestapelte Sub-Bars (Baseline = `--gap-soll`, Forecast =
+    `--gap-hochrechnung`, Ist = `--gap-ist`), Status-Dots in der Label-Spalte,
+    Monats-Achse mit Gridlines, Subprojekt-Gruppierung, "Ohne Termin"-Sektion, Legende,
+    horizontaler Scroll mit fixierten Labels. Keine Editierfunktion (kein Klick-zum-
+    Öffnen), kein Drag&Drop, keine Milestones (zurückgestellt). Rein frontendseitig
+    (`PlanPhaseGantt.tsx`, additive `.gantt-*`-CSS-Klassen in `theme.css`), keine
+    Backend-Änderungen, keine neuen Dependencies.
+    **P9 (Project Settings Cleanup):** Verify-and-Document, keine Code-Änderungen. Der
+    Settings-Tab (`ProjectSettingsTab.tsx`) ist bereits clean: keine Referenzen auf
+    Legacy-Modelle (GanttPhase/FtePlan/TeamMember/Assignment), keine Fortschritts-Settings
+    (kein Footprint der P6-Deprecation) und keine Excel/VBA/Export-Einstellungen. Die beiden
+    Jira-Eingabemechanismen (Freitext für Komponente/Label und Jira-Projekt-Picker) sind
+    komplementär, nicht redundant. Beobachtung (Follow-up, außerhalb des Scopes): Der
+    Picker persistiert den gewählten `jira_project_key` nicht — der Key wird nur lokal
+    gesetzt und nicht per `updateProject` gespeichert.
+    **Business Decisions (BD-1 bis BD-5):**
+    - **BD-1: Tempo→PlanPhase-Mapping.** Ist-Stunden aus Tempo werden einer PlanPhase
+      zugeordnet — `effort_consumption`/`ist_hours` sind aktuell immer `None`.
+    - **BD-2: Status-Vocabulary-Migration.** Vereinheitlichung der Status-Vokabulare.
+    - **BD-3: Bewertung-Thresholds.** 🟢/🟡/🔴-Scoring für Phasenmetriken —
+      `phase_control_status` (aktuell nicht implementiert, siehe P2).
+    - **BD-4: Holiday-Handling für Planstunden.** Feiertagsabzug in `plan_hours` — aktuell
+      nur Montag–Freitag, keine Feiertage.
+    - **BD-5: Assignment Sub-Ranges.** `ResourceAssignment` mit Teilbereichen/
+      Zeitintervallen.
+    **Deferred Items (bewusst zurückgestellt):**
+    - Tempo→PlanPhase-Mapping (BD-1)
+    - `progress`-Spalte droppen (P6 hat Progress deprecatet; Spalte bleibt vorerst für
+      Backward-Compat)
+    - `phase_control_status` / Bewertung 🟢🟡🔴 (BD-3)
+    - Progress-Health Bewertungslogik (neue belastbare Logik, ersetzt P6-"grau")
+    - Snapshot-vs-Snapshot-Vergleich
+    - Gantt Drag & Drop (P8 ist read-only)
+    - Tag Merge (Tags zusammenführen)
+    - ResourceAssignment Sub-Ranges (BD-5)
+    - `allocation_gap`-Vorzeichen (dokumentiert inkonsistent — Vereinheitlichung braucht
+      eigenen Task)
+    - Status-Vocabulary-Migration (BD-2)
+    - Holiday-Handling für Planstunden (BD-4)
+    - `models.py:549–550` stale Kommentar („noch nicht über API exponiert" — ist inzwischen
+      falsch)
 
 Noch nicht umgesetzt: Restaufwand-basierte Hochrechnung (Variante 2), Portal-SSO, der offene Jira-Issues-Endpoint für den Jira-Tab, der tatsächliche Excel-Migrationslauf gegen eine echte Bestands-.xlsm-Datei (der Import-Code in `migration/import_excel.py` ist auf PlanPhase/Milestone/ResourceDemand umgestellt, die Datei selbst liegt aber nicht im Repo), sowie der spätere Portfolio-PPTX-Export für Reporting. Siehe Abschnitt 10 für offene Entscheidungen. Phase 13–26 der Zielarchitektur (Abschnitt 12) sowie Schritt 10 (Aufgaben-Datenmodell) aus Abschnitt 9 sind vollständig umgesetzt — inkl. Phase 26.9 (Legacy Cutover mit Datenkonvertierung, siehe Punkt 26 oben).
 

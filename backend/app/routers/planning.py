@@ -89,6 +89,7 @@ def _comment_out(db: Session, c: models.Comment) -> schemas.CommentOut:
         text=c.text,
         erstellt_am=c.erstellt_am,
         parent_id=c.parent_id,
+        plan_phase_id=c.plan_phase_id,
         tags=entity_links.tags_for(db, "comment", c.id),
         documents=entity_links.documents_for(db, "comment", c.id),
     )
@@ -105,6 +106,7 @@ def _task_out(db: Session, t: models.Task) -> schemas.TaskOut:
         faellig_am=t.faellig_am,
         erstellt_am=t.erstellt_am,
         aktualisiert_am=t.aktualisiert_am,
+        plan_phase_id=t.plan_phase_id,
         tags=entity_links.tags_for(db, "task", t.id),
         documents=entity_links.documents_for(db, "task", t.id),
     )
@@ -127,6 +129,7 @@ def _blocker_out(db: Session, b: models.Blocker) -> schemas.BlockerOut:
         impact=b.impact,
         erstellt_am=b.erstellt_am,
         aktualisiert_am=b.aktualisiert_am,
+        plan_phase_id=b.plan_phase_id,
         tags=entity_links.tags_for(db, "blocker", b.id),
         documents=entity_links.documents_for(db, "blocker", b.id),
     )
@@ -143,6 +146,7 @@ def _decision_out(db: Session, d: models.Decision) -> schemas.DecisionOut:
         entschieden_von_person_id=d.entschieden_von_person_id,
         entschieden_am=d.entschieden_am,
         erstellt_am=d.erstellt_am,
+        plan_phase_id=d.plan_phase_id,
         tags=entity_links.tags_for(db, "decision", d.id),
         documents=entity_links.documents_for(db, "decision", d.id),
     )
@@ -293,7 +297,7 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
         actual_start=payload.actual_start,
         actual_end=payload.actual_end,
         status=payload.status,
-        progress=payload.progress,
+        progress=None,  # P6: Fortschritts-Dimension deprecatet - wird beim Anlegen ignoriert
         plan_fte=payload.plan_fte,
         owner_person_id=payload.owner_person_id,
         owner_team_id=payload.owner_team_id,

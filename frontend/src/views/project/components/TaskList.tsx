@@ -20,10 +20,12 @@ export default function TaskList({
   projectId,
   tasks,
   onChanged,
+  planPhaseId,
 }: {
   projectId: number;
   tasks: Task[];
   onChanged: () => void;
+  planPhaseId?: number;
 }) {
   const [titel, setTitel] = useState("");
   const [beschreibung, setBeschreibung] = useState("");
@@ -47,6 +49,7 @@ export default function TaskList({
         zustaendig_person_id: zustaendigPersonId,
         faellig_am: faelligAm || null,
         tags,
+        plan_phase_id: planPhaseId,
       });
       for (const file of files) {
         await api.uploadDocument(projectId, file, { entityType: "task", entityId: task.id });

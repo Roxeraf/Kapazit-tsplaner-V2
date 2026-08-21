@@ -28,10 +28,12 @@ export default function BlockerList({
   projectId,
   blockers,
   onChanged,
+  planPhaseId,
 }: {
   projectId: number;
   blockers: Blocker[];
   onChanged: () => void;
+  planPhaseId?: number;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -62,6 +64,7 @@ export default function BlockerList({
         next_action: nextAction.trim() || null,
         active_since: new Date().toISOString().slice(0, 10),
         tags,
+        plan_phase_id: planPhaseId,
       });
       for (const file of files) {
         await api.uploadDocument(projectId, file, { entityType: "blocker", entityId: blocker.id });

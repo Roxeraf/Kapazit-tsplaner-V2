@@ -20,10 +20,12 @@ export default function DecisionList({
   projectId,
   decisions,
   onChanged,
+  planPhaseId,
 }: {
   projectId: number;
   decisions: Decision[];
   onChanged: () => void;
+  planPhaseId?: number;
 }) {
   const [titel, setTitel] = useState("");
   const [beschreibung, setBeschreibung] = useState("");
@@ -45,6 +47,7 @@ export default function DecisionList({
         beschreibung: beschreibung.trim() || null,
         entschieden_von_person_id: entschiedenVonPersonId,
         tags,
+        plan_phase_id: planPhaseId,
       });
       for (const file of files) {
         await api.uploadDocument(projectId, file, { entityType: "decision", entityId: decision.id });

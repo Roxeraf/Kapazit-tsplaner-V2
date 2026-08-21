@@ -5,43 +5,25 @@ import {
   type SubprojectDetail,
 } from "../../../types";
 
-// P8: Read-Only-Gantt für PlanPhase-Zeitleisten. Kein Drag&Drop, keine neuen
-// Abhängigkeiten. Die Komponente empfängt die Phasen vom Parent (PlanPhaseList)
-// und fragt selbst keine Daten ab. Balkenfarben und Status-Punkte orientieren sich
-// an den bestehenden Gap-/Status-Variablen aus theme.css.
+// P11 (Planungs-/Kapazitätskonsolidierung): Read-Only-Gantt für PlanPhase-Zeitleisten. Zeigt
+// pro Phase EINEN Balken (forecast_start/forecast_end = "aktueller Plan" in der normalen UX,
+// siehe CONCEPT.md) statt der früheren drei technisch benannten Baseline-/Forecast-/Ist-
+// Balken - Baseline ist ein Planstand-Konzept (siehe BaselineList/Planstand-Vergleich), kein
+// paralleler Gantt-Layer, und Ist bleibt sekundär (siehe PlanPhaseWorkspace "Tatsächlicher
+// Verlauf"). Kein Drag&Drop, keine Speicherung - Klick auf eine Zeile öffnet den
+// PlanPhaseWorkspace-Drawer (onOpen), analog zur Listenansicht.
 const STATUS_DOT_COLOR: Record<PlanPhaseStatus, string> = {
   geplant: "var(--grau)",
   laufend: "var(--blau)",
   abgeschlossen: "var(--gruen)",
+  entfaellt: "var(--text-muted)",
   verzoegert: "var(--rot)",
 };
 
-type BarKind = "baseline" | "forecast" | "actual";
-
-const BAR_COLOR: Record<BarKind, string> = {
-  baseline: "var(--gap-soll)",
-  forecast: "var(--gap-hochrechnung)",
-  actual: "var(--gap-ist)",
-};
-
-const BAR_LABEL: Record<BarKind, string> = {
-  baseline: "Baseline",
-  forecast: "Forecast",
-  actual: "Ist",
-};
-
-const BAR_KINDS: BarKind[] = ["baseline", "forecast", "actual"];
-
-const STATUS_ORDER: PlanPhaseStatus[] = ["geplant", "laufend", "abgeschlossen", "verzoegert"];
+const STATUS_ORDER: PlanPhaseStatus[] = ["geplant", "laufend", "abgeschlossen", "entfaellt"];
 
 const LABEL_WIDTH = 180;
 const MONTH_MIN_PX = 60;
-
-interface BarSpec {
-  kind: BarKind;
-  startIso: string;
-  endIso: string;
-}
 
 interface MonthSpan {
   startTs: number;
@@ -75,36 +57,17 @@ function posPct(ts: number, min: number, max: number): number {
   return Math.max(0, Math.min(100, pct));
 }
 
-// Ein Balken ist nur zeichenbar, wenn Start UND Ende vorhanden sind.
-function barsForPhase(p: PlanPhase): BarSpec[] {
-  const bars: BarSpec[] = [];
-  if (p.baseline_start && p.baseline_end) {
-    bars.push({ kind: "baseline", startIso: p.baseline_start, endIso: p.baseline_end });
-  }
-  if (p.forecast_start && p.forecast_end) {
-    bars.push({ kind: "forecast", startIso: p.forecast_start, endIso: p.forecast_end });
-  }
-  if (p.actual_start && p.actual_end) {
-    bars.push({ kind: "actual", startIso: p.actual_start, endIso: p.actual_end });
-  }
-  return bars;
+function hasBar(p: PlanPhase): boolean {
+  return Boolean(p.forecast_start && p.forecast_end);
 }
 
-// Zeitachse aus allen vorhandenen Terminen: min/max auf Monatsanfang/-ende
-// erweitern, dann Monats-Spannen generieren. Liefert null, wenn keine Termine.
+// Zeitachse aus allen vorhandenen Phasenterminen: min/max auf Monatsanfang/-ende erweitern,
+// dann Monats-Spannen generieren. Liefert null, wenn keine Termine.
 function computeRange(phases: PlanPhase[]): Range | null {
   const ts: number[] = [];
   for (const p of phases) {
-    for (const iso of [
-      p.baseline_start,
-      p.baseline_end,
-      p.forecast_start,
-      p.forecast_end,
-      p.actual_start,
-      p.actual_end,
-    ]) {
-      if (iso) ts.push(toTs(iso));
-    }
+    if (p.forecast_start) ts.push(toTs(p.forecast_start));
+    if (p.forecast_end) ts.push(toTs(p.forecast_end));
   }
   if (ts.length === 0) return null;
   const minDate = new Date(Math.min(...ts));
@@ -134,9 +97,11 @@ function computeRange(phases: PlanPhase[]): Range | null {
 export default function PlanPhaseGantt({
   phases,
   subprojects,
+  onOpen,
 }: {
   phases: PlanPhase[];
   subprojects: SubprojectDetail[];
+  onOpen?: (planPhaseId: number) => void;
 }) {
   if (phases.length === 0) {
     return <p className="gantt-empty">Noch keine Phasen geplant.</p>;
@@ -161,8 +126,8 @@ export default function PlanPhaseGantt({
   }
   const groupOrder = [null, ...subprojects.map((sp) => sp.id)].filter((id) => groups.has(id));
 
-  // Phasen ohne zeichenbare Balken landen global unten im "Ohne Termin"-Block.
-  const noDatesPhases = phases.filter((p) => barsForPhase(p).length === 0);
+  // Phasen ohne Termin landen global unten im "Ohne Termin"-Block.
+  const noDatesPhases = phases.filter((p) => !hasBar(p));
 
   const { min, max, months } = range;
   // Damit bei vielen Monaten horizontal gescrollt werden kann, wird das innere
@@ -172,12 +137,6 @@ export default function PlanPhaseGantt({
   return (
     <div className="gantt">
       <div className="legend-row">
-        {BAR_KINDS.map((kind) => (
-          <span key={kind} className="legend-chip">
-            <span className="legend-swatch" style={{ background: BAR_COLOR[kind] }} />
-            {BAR_LABEL[kind]}
-          </span>
-        ))}
         {STATUS_ORDER.map((s) => (
           <span key={s} className="legend-chip">
             <span className="gantt-status-dot" style={{ background: STATUS_DOT_COLOR[s] }} />
@@ -211,9 +170,7 @@ export default function PlanPhaseGantt({
           </div>
 
           {groupOrder.map((groupId) => {
-            const drawable = groups
-              .get(groupId)!
-              .filter((p) => barsForPhase(p).length > 0);
+            const drawable = groups.get(groupId)!.filter(hasBar);
             if (drawable.length === 0) return null;
             return (
               <div key={groupId ?? "project"}>
@@ -222,33 +179,27 @@ export default function PlanPhaseGantt({
                   <div className="gantt-group-spacer" />
                 </div>
                 {drawable.map((phase) => {
-                  const bars = barsForPhase(phase);
+                  const left = posPct(toTs(phase.forecast_start!), min, max);
+                  const right = posPct(toTs(phase.forecast_end!), min, max);
                   return (
-                    <div key={phase.id} className="gantt-row">
+                    <div
+                      key={phase.id}
+                      className="gantt-row"
+                      style={{ cursor: onOpen ? "pointer" : undefined }}
+                      onClick={() => onOpen?.(phase.id)}
+                    >
                       <div className="gantt-row-label">
-                        <span
-                          className="gantt-status-dot"
-                          style={{ background: STATUS_DOT_COLOR[phase.status] }}
-                        />
+                        <span className="gantt-status-dot" style={{ background: STATUS_DOT_COLOR[phase.status] }} />
                         <span>{phase.phase_type}</span>
                       </div>
                       <div className="gantt-bars">
-                        {bars.map((bar) => {
-                          const left = posPct(toTs(bar.startIso), min, max);
-                          const right = posPct(toTs(bar.endIso), min, max);
-                          return (
-                            <div key={bar.kind} className="gantt-bar-track">
-                              <div
-                                className={`gantt-bar gantt-bar--${bar.kind}`}
-                                style={{
-                                  left: `${left}%`,
-                                  width: `${Math.max(0, right - left)}%`,
-                                }}
-                                title={`${BAR_LABEL[bar.kind]}: ${fmtDate(bar.startIso)} – ${fmtDate(bar.endIso)}`}
-                              />
-                            </div>
-                          );
-                        })}
+                        <div className="gantt-bar-track">
+                          <div
+                            className="gantt-bar gantt-bar--forecast"
+                            style={{ left: `${left}%`, width: `${Math.max(0, right - left)}%` }}
+                            title={`${phase.phase_type}: ${fmtDate(phase.forecast_start!)} – ${fmtDate(phase.forecast_end!)}`}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -263,11 +214,13 @@ export default function PlanPhaseGantt({
         <div className="gantt-no-dates">
           <div className="gantt-no-dates-title">Ohne Termin</div>
           {noDatesPhases.map((phase) => (
-            <div key={phase.id} className="gantt-no-dates-row">
-              <span
-                className="gantt-status-dot"
-                style={{ background: STATUS_DOT_COLOR[phase.status] }}
-              />
+            <div
+              key={phase.id}
+              className="gantt-no-dates-row"
+              style={{ cursor: onOpen ? "pointer" : undefined }}
+              onClick={() => onOpen?.(phase.id)}
+            >
+              <span className="gantt-status-dot" style={{ background: STATUS_DOT_COLOR[phase.status] }} />
               <span>{phase.phase_type}</span>
               {phase.subproject_id !== null && (
                 <span style={{ color: "var(--text-muted)" }}>· {subprojectName(phase.subproject_id)}</span>

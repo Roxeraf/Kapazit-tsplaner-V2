@@ -155,6 +155,7 @@ export const api = {
       actual_end?: string | null;
       status?: PlanPhaseStatus;
       progress?: number | null;
+      plan_fte?: number | null;
       owner_person_id?: number | null;
       owner_team_id?: number | null;
       tags?: string[];
@@ -173,6 +174,7 @@ export const api = {
       actual_end: string | null;
       status: PlanPhaseStatus;
       progress: number | null;
+      plan_fte: number | null;
       owner_person_id: number | null;
       owner_team_id: number | null;
       tags: string[];

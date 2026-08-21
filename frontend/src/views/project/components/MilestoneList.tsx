@@ -11,6 +11,17 @@ import { MILESTONE_STATUS_LABELS, type Milestone, type MilestoneStatus, type Sub
 
 const NO_SUBPROJECT = "__none__";
 
+function fmtDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso + "T00:00:00");
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+// P11 (Planungs-/Kapazitätskonsolidierung): dieselbe UX-Regel wie bei PlanPhase - normal ist
+// EIN Datumsfeld ("Datum" = forecast_date, der aktuelle Plan). baseline_date ist compat-only
+// und wird im Normalflow nicht mehr angezeigt (siehe BaselineList für Planstände).
+// actual_date bleibt sekundär, read-only mit expliziter Korrektur-Aktion, analog
+// PlanPhaseWorkspace "Tatsächlicher Verlauf".
 export default function MilestoneList({
   projectId,
   subprojects,
@@ -21,6 +32,7 @@ export default function MilestoneList({
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Milestone | null>(null);
+  const [correctingId, setCorrectingId] = useState<number | null>(null);
   const people = usePeopleMap();
 
   const [name, setName] = useState("");
@@ -126,30 +138,12 @@ export default function MilestoneList({
             )}
             <div className="field-row" style={{ marginTop: "0.5rem" }}>
               <label>
-                Plan-Datum
-                <input
-                  key={`${m.id}-bd-${m.baseline_date}`}
-                  type="date"
-                  defaultValue={m.baseline_date ?? ""}
-                  onBlur={(e) => update(m, { baseline_date: e.target.value || null })}
-                />
-              </label>
-              <label>
-                Forecast-Datum
+                Datum
                 <input
                   key={`${m.id}-fd-${m.forecast_date}`}
                   type="date"
                   defaultValue={m.forecast_date ?? ""}
                   onBlur={(e) => update(m, { forecast_date: e.target.value || null })}
-                />
-              </label>
-              <label>
-                Ist-Datum
-                <input
-                  key={`${m.id}-ad-${m.actual_date}`}
-                  type="date"
-                  defaultValue={m.actual_date ?? ""}
-                  onBlur={(e) => update(m, { actual_date: e.target.value || null })}
                 />
               </label>
               <label>
@@ -169,6 +163,30 @@ export default function MilestoneList({
                 </select>
               </label>
             </div>
+
+            <div className="toolbar" style={{ marginTop: "0.35rem" }}>
+              <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                Ist-Datum: {fmtDate(m.actual_date)}
+              </span>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ fontSize: "0.72rem", padding: "0.05rem 0.4rem" }}
+                onClick={() => setCorrectingId(correctingId === m.id ? null : m.id)}
+              >
+                {correctingId === m.id ? "Fertig" : "Ist-Datum korrigieren"}
+              </button>
+            </div>
+            {correctingId === m.id && (
+              <input
+                key={`${m.id}-ad-${m.actual_date}`}
+                type="date"
+                defaultValue={m.actual_date ?? ""}
+                onBlur={(e) => update(m, { actual_date: e.target.value || null })}
+                style={{ marginTop: "0.3rem" }}
+              />
+            )}
+
             <label style={{ display: "block", marginTop: "0.4rem" }}>
               Owner
               <PersonPicker value={m.owner_person_id} onChange={(personId) => update(m, { owner_person_id: personId })} />

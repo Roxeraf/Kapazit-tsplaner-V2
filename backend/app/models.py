@@ -544,8 +544,15 @@ class PlanPhase(Base):
     forecast_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
     actual_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
     actual_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="geplant")  # geplant/laufend/abgeschlossen/verzoegert
-    progress: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0-100
+    # Zielvokabular (P11, Planungs-/Kapazitätskonsolidierung, UI-Label siehe
+    # PLAN_PHASE_STATUS_LABELS): geplant/laufend/abgeschlossen/entfaellt (UI: Geplant/In
+    # Arbeit/Abgeschlossen/Entfällt). "verzoegert" bleibt als historischer Wert lesbar
+    # (Altdaten vor der Konsolidierung), ist aber kein neu wählbarer Status mehr - Verzögerung
+    # ist künftig eine berechnete Steuerungsinformation (Schedule Gap), kein manueller Status,
+    # und wird NICHT automatisch zu "entfaellt" migriert (das wäre fachlich falsch, siehe
+    # CONCEPT.md). Bewusst weiterhin Freitext statt Enum, siehe Master-MD Abschnitt 7.
+    status: Mapped[str] = mapped_column(String(20), default="geplant")
+    progress: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0-100, deprecated (P6/P11)
     # Geplanter FTE-Bedarf dieser Phase (Phase 19, Master-MD Abschnitt 17) - additiv, noch
     # nicht über API exponiert (folgt in P3). Nullable, da bestehende Phasen keinen Wert haben.
     plan_fte: Mapped[float | None] = mapped_column(Float, nullable=True)

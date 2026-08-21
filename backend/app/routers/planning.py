@@ -317,6 +317,9 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
 def update_plan_phase(plan_phase_id: int, payload: schemas.PlanPhaseUpdate, db: Session = Depends(get_db)):
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
     changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
+    # P11: progress ist deprecatet (P6) - kein Update-Pfad soll ihn mehr schreiben können,
+    # analog zu create_plan_phase() oben. Feld bleibt im Schema für Rückwärtskompatibilität.
+    changes.pop("progress", None)
     if "subproject_id" in changes:
         _check_subproject(db, plan_phase.project_id, changes["subproject_id"])
     _check_owner(db, changes.get("owner_person_id"), changes.get("owner_team_id"))

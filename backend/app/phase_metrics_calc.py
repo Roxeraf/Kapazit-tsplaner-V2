@@ -52,6 +52,26 @@ def reconcile(plan_fte: float | None, breakdown_sum: float) -> dict:
     }
 
 
+def assignment_summary(plan_fte: float | None, assigned_fte: float) -> dict:
+    """Bedarf/Besetzt/Offen einer Leaf-PlanPhase (P18/B-4, CONCEPT.md Abschnitt 6b.10):
+    plan_fte bleibt IMMER der Bedarf - eine direkte Personenzuordnung verändert ihn nie
+    (Kernprinzip, Abschnitt 3). assigned_fte ist die Summe aller ResourceAssignment.fte über
+    ALLE ResourceDemands dieser Phase (unabhängig von Rolle - sowohl über die interne
+    Systemrolle "Ohne Rolle" als auch über eine optionale Rollen-Aufschlüsselung direkt
+    zugeordnete Personen zählen zur Besetzung). open_fte = plan_fte - assigned_fte; negativ
+    bedeutet Überbesetzung (bewusst nicht auf 0 gekappt, damit der Aufrufer den Unterschied
+    zwischen "genau besetzt" und "überbesetzt" erkennen kann). Bei plan_fte is None (Phase
+    noch ohne Kapazitätsbestätigung, z.B. gerade erst Parent gewesen) ist open_fte
+    unbestimmt (None) - dieselbe Konvention wie reconcile() oben."""
+    if plan_fte is None:
+        return {"plan_fte": None, "assigned_fte": round(assigned_fte, 4), "open_fte": None}
+    return {
+        "plan_fte": plan_fte,
+        "assigned_fte": round(assigned_fte, 4),
+        "open_fte": round(plan_fte - assigned_fte, 4),
+    }
+
+
 def effort_consumption(ist_hours: float | None, plan_hours: float | None) -> float | None:
     """Aufwandsverbrauch = ist_hours / plan_hours × 100 (Prozent). ZURÜCKGESTELLT bis das
     Tempo→PlanPhase-Mapping vorliegt (BD-1) - aktuell gibt es keine Ist-Stunden-Quelle auf

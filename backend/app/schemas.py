@@ -883,6 +883,24 @@ class PersonCapacityOut(BaseModel):
     absence_days: int
 
 
+class PersonCapacityRangeOut(BaseModel):
+    """Bereichsbasierte Variante von PersonCapacityOut (P18/B-4, CONCEPT.md Abschnitt
+    6b.5/6b.11) - für die Available-Capacity-Prüfung über einen ganzen PlanPhase-Zeitraum
+    statt nur einen einzelnen Monats-Bucket. Keine holiday_days/absence_days (Tageszahlen
+    wären über mehrere Monate hinweg nicht mehr eindeutig interpretierbar - die zugrunde
+    liegenden Werte fließen bereits werktage-gewichtet in die FTE-Felder ein)."""
+
+    person_id: int
+    range_start: str
+    range_end: str
+    nominal_fte: float
+    holiday_fte: float
+    absence_fte: float
+    internal_fte: float
+    available_fte: float
+    working_days: int
+
+
 # ---------------------------------------------------------------------------
 # Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
 # chronologische Aggregation bestehender Endpunkte, keine neue Tabelle.
@@ -1555,3 +1573,27 @@ class PlanPhaseDeleteSubtreeRequest(BaseModel):
     # Nachfahrenzahl aus GET .../subtree-impact übereinstimmen, sonst 422 (Abschnitt 6b.9).
     confirm_phase_type: str
     confirm_descendant_count: int
+
+
+class PlanPhaseAssignedPersonOut(BaseModel):
+    # Eine Zeile je Person (über alle ResourceDemands dieser Phase aggregiert - Abschnitt
+    # 6b.10), nicht je ResourceAssignment-Datensatz.
+    person_id: int
+    person_name: str
+    fte: float
+
+
+class PlanPhaseAssignmentSummaryOut(BaseModel):
+    """Bedarf/Besetzt/Offen einer Leaf-PlanPhase (P18/B-4, CONCEPT.md Abschnitt 6b.10) - UI-
+    Vokabular: "Geplanter Ressourcenbedarf"/"Besetzung"/"Offen", NICHT "ResourceDemand"."""
+
+    plan_phase_id: int
+    plan_fte: float | None
+    assigned_fte: float
+    open_fte: float | None
+    assignments: list[PlanPhaseAssignedPersonOut]
+
+
+class PlanPhaseAssignPersonRequest(BaseModel):
+    person_id: int
+    fte: float

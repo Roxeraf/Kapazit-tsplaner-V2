@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from . import models, schemas
-from .constants import VOLLZEIT_WOCHENSTUNDEN, parse_period
+from .constants import MONAT_NAMEN, VOLLZEIT_WOCHENSTUNDEN, parse_period
 
 
 def _month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -104,6 +104,66 @@ def compute_person_capacity(db: Session, person_id: int, period: str) -> schemas
         working_days=gross_weekdays,
         holiday_days=holiday_days,
         absence_days=absence_days,
+    )
+
+
+def _period_for(year: int, month: int) -> str:
+    return f"{MONAT_NAMEN[month - 1]} {year % 100:02d}"
+
+
+def compute_person_capacity_for_range(
+    db: Session, person_id: int, range_start: date, range_end: date
+) -> schemas.PersonCapacityRangeOut | None:
+    """Bereichsbasierte Erweiterung von compute_person_capacity (P18/B-4, CONCEPT.md
+    Abschnitt 6b.5/6b.11) - für die Available-Capacity-Prüfung über einen ganzen
+    PlanPhase-Zeitraum (nicht nur einen einzelnen Monats-`period`-Bucket). Minimal-invasiv:
+    KEINE neue Holiday-/Absence-/InternalAllocation-Query - jeder überlappte Kalendermonat
+    ruft compute_person_capacity() unverändert auf und gewichtet dessen Ergebnis nur mit dem
+    Werktage-Anteil des Bereichs an diesem Monat (identische Konvention wie
+    phase_metrics_calc/monatliche Verteilung: werktage-anteilig, kein Feiertagsabzug, BD-4).
+    Liefert None, wenn range_end < range_start oder kein überlappter Monat ein Profil für die
+    Person liefert (kein WorkingTime/ResourceProfile in diesem gesamten Zeitraum)."""
+    total_weekdays = count_weekdays_in_range(range_start, range_end)
+    if total_weekdays == 0:
+        return None
+
+    acc_nominal = acc_holiday = acc_absence = acc_internal = 0.0
+    any_month_found = False
+
+    current_month_start = date(range_start.year, range_start.month, 1)
+    while current_month_start <= range_end:
+        year, month = current_month_start.year, current_month_start.month
+        month_start, month_end = _month_bounds(year, month)
+        overlap_start = max(month_start, range_start)
+        overlap_end = min(month_end, range_end)
+        weekdays_overlap = count_weekdays_in_range(overlap_start, overlap_end)
+        weekdays_in_month = _weekdays_in_month(year, month)
+
+        month_capacity = compute_person_capacity(db, person_id, _period_for(year, month))
+        if month_capacity is not None and weekdays_in_month:
+            weight = weekdays_overlap / weekdays_in_month
+            acc_nominal += month_capacity.nominal_fte * weight
+            acc_holiday += month_capacity.holiday_fte * weight
+            acc_absence += month_capacity.absence_fte * weight
+            acc_internal += month_capacity.internal_fte * weight
+            any_month_found = True
+
+        current_month_start = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+
+    if not any_month_found:
+        return None
+
+    available = acc_nominal - acc_holiday - acc_absence - acc_internal
+    return schemas.PersonCapacityRangeOut(
+        person_id=person_id,
+        range_start=range_start.isoformat(),
+        range_end=range_end.isoformat(),
+        nominal_fte=round(acc_nominal, 4),
+        holiday_fte=round(acc_holiday, 4),
+        absence_fte=round(acc_absence, 4),
+        internal_fte=round(acc_internal, 4),
+        available_fte=round(available, 4),
+        working_days=total_weekdays,
     )
 
 

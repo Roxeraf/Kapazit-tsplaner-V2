@@ -3,13 +3,13 @@ Master-MD Abschnitt 8/9/10). Seit dem Legacy Cutover (Phase 26.9) die alleinige
 Planungswahrheit - das ehemals parallele Gantt-Grid (GanttPhase/ProjectGanttPhase) ist
 entfallen. Folgt demselben CRUD-Muster wie routers/communication.py."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import entity_links, models, phase_metrics_calc, planning_calc, schemas
+from .. import capacity_calc, constants, entity_links, models, phase_metrics_calc, planning_calc, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["planning"])
@@ -655,6 +655,254 @@ def get_plan_phase_detail(plan_phase_id: int, db: Session = Depends(get_db)):
 def get_plan_phase_metrics(plan_phase_id: int, db: Session = Depends(get_db)):
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
     return _plan_phase_metrics(db, plan_phase)
+
+
+# ---------------------------------------------------------------------------
+# Direct Assignment ohne Rollen-Zwang (P18/B-4, CONCEPT.md Abschnitt 6b.4/6b.10/6b.11)
+# ---------------------------------------------------------------------------
+
+_SYSTEM_ROLE_NAME = "Ohne Rolle"
+
+
+def _get_or_create_system_role(db: Session) -> models.ResourceRole:
+    """Interne Systemrolle, per B-1-Migration geseedet (Abschnitt 6b.4). Defensiv per
+    is_system_role ODER Name gesucht und bei Bedarf angelegt, damit dieser Endpunkt auch
+    gegen eine DB funktioniert, die die Migration (noch) nicht durchlaufen hat - kein
+    Hard-Fail auf einer fehlenden Seed-Zeile."""
+    role = db.query(models.ResourceRole).filter(models.ResourceRole.is_system_role.is_(True)).first()
+    if role is not None:
+        return role
+    role = db.query(models.ResourceRole).filter(models.ResourceRole.name == _SYSTEM_ROLE_NAME).first()
+    if role is not None:
+        role.is_system_role = True
+        return role
+    role = models.ResourceRole(
+        name=_SYSTEM_ROLE_NAME,
+        description=(
+            "Interne Systemrolle (nicht löschbar, im normalen Rollen-Picker ausgeblendet) - "
+            "technische Trägerschicht für direkte Personenzuordnung ohne erzwungene "
+            "Rollenauswahl (CONCEPT.md Abschnitt 6b.4)."
+        ),
+        active=True,
+        is_system_role=True,
+    )
+    db.add(role)
+    db.flush()
+    return role
+
+
+def _get_or_create_carrier_demand(db: Session, plan_phase: models.PlanPhase) -> models.ResourceDemand:
+    """Die "technische Trägerschicht" (Abschnitt 6b.4): eine ResourceDemand mit der internen
+    Systemrolle, an die eine direkte Personenzuordnung technisch gehängt wird, OHNE dass ein
+    Projektleiter je eine Rolle auswählen muss. demand.fte selbst ist bewusst KEINE fachliche
+    Aussage (nie im UI gezeigt) - der Bedarf bleibt ausschließlich plan_fte (Abschnitt 3/6b.10).
+    period ist ein rein technisches Pflichtfeld des bestehenden ResourceDemand-Schemas, aus
+    forecast_start abgeleitet (Fallback: aktueller Monat, falls die Phase noch keinen
+    Zeitraum hat)."""
+    role = _get_or_create_system_role(db)
+    demand = (
+        db.query(models.ResourceDemand)
+        .filter(
+            models.ResourceDemand.plan_phase_id == plan_phase.id,
+            models.ResourceDemand.resource_role_id == role.id,
+        )
+        .first()
+    )
+    if demand is not None:
+        return demand
+    if plan_phase.forecast_start:
+        year, month = int(plan_phase.forecast_start[:4]), int(plan_phase.forecast_start[5:7])
+        period = f"{constants.MONAT_NAMEN[month - 1]} {year % 100:02d}"
+    else:
+        period = constants.current_period()
+    now = _now()
+    demand = models.ResourceDemand(
+        project_id=plan_phase.project_id,
+        plan_phase_id=plan_phase.id,
+        resource_role_id=role.id,
+        period=period,
+        fte=0,
+        commitment_level="TENTATIVE",
+        erstellt_am=now,
+        aktualisiert_am=now,
+    )
+    db.add(demand)
+    db.flush()
+    return demand
+
+
+def _plan_phase_assignment_summary(
+    db: Session, plan_phase: models.PlanPhase
+) -> schemas.PlanPhaseAssignmentSummaryOut:
+    rows = (
+        db.query(models.ResourceAssignment, models.Person.display_name)
+        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
+        .filter(models.ResourceDemand.plan_phase_id == plan_phase.id)
+        .all()
+    )
+    by_person: dict[int, dict] = {}
+    for assignment, person_name in rows:
+        entry = by_person.setdefault(
+            assignment.person_id, {"person_id": assignment.person_id, "person_name": person_name, "fte": 0.0}
+        )
+        entry["fte"] += assignment.fte
+    assigned_fte = sum(entry["fte"] for entry in by_person.values())
+    summary = phase_metrics_calc.assignment_summary(plan_phase.plan_fte, assigned_fte)
+    return schemas.PlanPhaseAssignmentSummaryOut(
+        plan_phase_id=plan_phase.id,
+        plan_fte=summary["plan_fte"],
+        assigned_fte=summary["assigned_fte"],
+        open_fte=summary["open_fte"],
+        assignments=[
+            schemas.PlanPhaseAssignedPersonOut(
+                person_id=e["person_id"], person_name=e["person_name"], fte=round(e["fte"], 4)
+            )
+            for e in sorted(by_person.values(), key=lambda e: e["person_name"])
+        ],
+    )
+
+
+@router.get(
+    "/plan-phases/{plan_phase_id}/assignment-summary", response_model=schemas.PlanPhaseAssignmentSummaryOut
+)
+def get_plan_phase_assignment_summary(plan_phase_id: int, db: Session = Depends(get_db)):
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    return _plan_phase_assignment_summary(db, plan_phase)
+
+
+@router.post(
+    "/plan-phases/{plan_phase_id}/assign-person", response_model=schemas.PlanPhaseAssignmentSummaryOut
+)
+def assign_person_to_plan_phase(
+    plan_phase_id: int, payload: schemas.PlanPhaseAssignPersonRequest, db: Session = Depends(get_db)
+):
+    """P18/B-4 (Abschnitt 6b.4/6b.10): direkte Personenzuordnung OHNE erzwungene
+    Rollenauswahl - hängt technisch transparent an einer ResourceDemand mit der internen
+    Systemrolle "Ohne Rolle". Ändert plan_fte NIE (Kernprinzip, Abschnitt 3/6b.10) - auch bei
+    Überbesetzung nicht. Upsert: erneutes Zuweisen derselben Person aktualisiert nur die FTE."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if planning_calc.has_children(db, plan_phase_id):
+        raise HTTPException(
+            status_code=422,
+            detail="Direkte Personenzuordnung ist nur auf einer Leaf-Phase möglich (diese Phase ist eine Sammelphase)",
+        )
+    person = db.get(models.Person, payload.person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="Person nicht gefunden")
+
+    demand = _get_or_create_carrier_demand(db, plan_phase)
+    now = _now()
+    assignment = (
+        db.query(models.ResourceAssignment)
+        .filter(
+            models.ResourceAssignment.resource_demand_id == demand.id,
+            models.ResourceAssignment.person_id == payload.person_id,
+        )
+        .first()
+    )
+    if assignment is not None:
+        assignment.fte = payload.fte
+        assignment.aktualisiert_am = now
+    else:
+        assignment = models.ResourceAssignment(
+            resource_demand_id=demand.id,
+            person_id=payload.person_id,
+            fte=payload.fte,
+            erstellt_am=now,
+            aktualisiert_am=now,
+        )
+        db.add(assignment)
+    db.commit()
+    db.refresh(plan_phase)
+    return _plan_phase_assignment_summary(db, plan_phase)
+
+
+@router.delete(
+    "/plan-phases/{plan_phase_id}/assign-person/{person_id}",
+    response_model=schemas.PlanPhaseAssignmentSummaryOut,
+)
+def unassign_person_from_plan_phase(plan_phase_id: int, person_id: int, db: Session = Depends(get_db)):
+    """Entfernt die direkte Zuordnung (System-Rolle "Ohne Rolle") dieser Person von dieser
+    Phase. Rührt eine etwaige ZUSÄTZLICHE Zuordnung über eine echte Rollen-Aufschlüsselung
+    (Abschnitt 6b.4) NICHT an - die bleibt über die bestehenden
+    /resource-demands/{id}/assignments-Endpunkte verwaltet."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    role = _get_or_create_system_role(db)
+    demand = (
+        db.query(models.ResourceDemand)
+        .filter(
+            models.ResourceDemand.plan_phase_id == plan_phase_id,
+            models.ResourceDemand.resource_role_id == role.id,
+        )
+        .first()
+    )
+    if demand is not None:
+        db.query(models.ResourceAssignment).filter(
+            models.ResourceAssignment.resource_demand_id == demand.id,
+            models.ResourceAssignment.person_id == person_id,
+        ).delete(synchronize_session=False)
+        db.commit()
+    return _plan_phase_assignment_summary(db, plan_phase)
+
+
+@router.get(
+    "/plan-phases/{plan_phase_id}/assignment-candidates", response_model=list[schemas.CandidatePersonOut]
+)
+def list_plan_phase_assignment_candidates(plan_phase_id: int, db: Session = Depends(get_db)):
+    """Wie GET /resource-demands/{id}/candidates, aber Available Capacity über den GESAMTEN
+    Phasenzeitraum geprüft (compute_person_capacity_for_range, Abschnitt 6b.5/6b.11) statt
+    nur einen einzelnen Monats-Bucket - für die direkte Personenzuordnung ohne Rollen-Zwang.
+    Schließt Personen aus, die bereits über irgendeine ResourceDemand dieser Phase zugeordnet
+    sind (Rollen-Aufschlüsselung UND direkte Zuordnung zählen gleichermaßen)."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if not plan_phase.forecast_start or not plan_phase.forecast_end:
+        raise HTTPException(
+            status_code=422, detail="Phase hat noch keinen Zeitraum (forecast_start/forecast_end fehlt)"
+        )
+    range_start = date.fromisoformat(plan_phase.forecast_start)
+    range_end = date.fromisoformat(plan_phase.forecast_end)
+
+    already_assigned = {
+        row[0]
+        for row in db.query(models.ResourceAssignment.person_id)
+        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+        .filter(models.ResourceDemand.plan_phase_id == plan_phase_id)
+        .all()
+    }
+
+    persons = (
+        db.query(models.Person)
+        .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
+        .filter(models.Person.active.is_(True), models.ResourceProfile.capacity_relevant.is_(True))
+        .all()
+    )
+
+    candidates: list[schemas.CandidatePersonOut] = []
+    for person in persons:
+        if person.id in already_assigned:
+            continue
+        capacity = capacity_calc.compute_person_capacity_for_range(db, person.id, range_start, range_end)
+        if capacity is None or capacity.available_fte <= 0:
+            continue
+        skill_rows = (
+            db.query(models.Skill.name)
+            .join(models.PersonSkill, models.PersonSkill.skill_id == models.Skill.id)
+            .filter(models.PersonSkill.person_id == person.id)
+            .order_by(models.Skill.name)
+            .all()
+        )
+        candidates.append(
+            schemas.CandidatePersonOut(
+                person_id=person.id,
+                display_name=person.display_name,
+                available_fte=capacity.available_fte,
+                skills=[name for (name,) in skill_rows],
+            )
+        )
+
+    candidates.sort(key=lambda c: c.available_fte, reverse=True)
+    return candidates
 
 
 # ---------------------------------------------------------------------------

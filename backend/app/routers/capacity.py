@@ -3,7 +3,7 @@
 konkreten Personen geplant, erst ResourceAssignment ordnet ihn Personen zu.
 Folgt demselben CRUD-Muster wie routers/people.py/planning.py."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -38,8 +38,16 @@ def _get_person_or_404(db: Session, person_id: int) -> models.Person:
 
 
 @router.get("/resource-roles", response_model=list[schemas.ResourceRoleOut])
-def list_resource_roles(db: Session = Depends(get_db)):
-    return db.query(models.ResourceRole).order_by(models.ResourceRole.name).all()
+def list_resource_roles(include_system_roles: bool = False, db: Session = Depends(get_db)):
+    """P18/B-1/B-4 (CONCEPT.md Abschnitt 6b.4): die interne Systemrolle ("Ohne Rolle",
+    is_system_role=True) wird standardmäßig ausgeblendet - Projektleiter:innen wählen sie nie
+    aktiv aus einem normalen Rollen-Picker aus, sie entsteht ausschließlich transparent im
+    Hintergrund über POST /plan-phases/{id}/assign-person. include_system_roles=true ist ein
+    expliziter Opt-in für Admin-/Diagnosezwecke."""
+    query = db.query(models.ResourceRole)
+    if not include_system_roles:
+        query = query.filter(models.ResourceRole.is_system_role.is_(False))
+    return query.order_by(models.ResourceRole.name).all()
 
 
 @router.post("/resource-roles", response_model=schemas.ResourceRoleOut, status_code=201)
@@ -325,6 +333,28 @@ def delete_resource_assignment(assignment_id: int, db: Session = Depends(get_db)
 # einzige echte neue Backend-Logik der Phase 26, sonst reine Wiederverwendung bestehender
 # CRUD-Endpunkte. Keine Rollen-/Skill-Filterung möglich (siehe CandidatePersonOut-Docstring).
 # ---------------------------------------------------------------------------
+
+
+@router.get("/people/{person_id}/capacity-range", response_model=schemas.PersonCapacityRangeOut)
+def get_person_capacity_range(person_id: int, start: str, end: str, db: Session = Depends(get_db)):
+    """P18/B-4 (CONCEPT.md Abschnitt 6b.5/6b.11): verfügbare Kapazität einer Person über
+    einen beliebigen Datumsbereich (z.B. den Zeitraum einer PlanPhase) statt nur einen
+    einzelnen Monats-`period`-Bucket. start/end im ISO-Format "YYYY-MM-DD"."""
+    _get_person_or_404(db, person_id)
+    try:
+        range_start = date.fromisoformat(start)
+        range_end = date.fromisoformat(end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="start/end müssen im Format YYYY-MM-DD vorliegen") from exc
+    if range_end < range_start:
+        raise HTTPException(status_code=422, detail="end darf nicht vor start liegen")
+    capacity = capacity_calc.compute_person_capacity_for_range(db, person_id, range_start, range_end)
+    if capacity is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Keine Kapazitätsdaten (WorkingTime/ResourceProfile) für diesen Zeitraum gefunden",
+        )
+    return capacity
 
 
 @router.get("/resource-demands/{demand_id}/candidates", response_model=list[schemas.CandidatePersonOut])

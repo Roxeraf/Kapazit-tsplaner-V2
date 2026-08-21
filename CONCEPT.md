@@ -1838,6 +1838,56 @@ wirksam (CONCEPT.md Abschnitt 6b.1/6b.1a/6b.3/6b.9, Pass-2-Dokument Abschnitt 35
   Rollenzwang über die interne Systemrolle "Ohne Rolle", `compute_person_capacity_for_range`)
   — siehe Pass-2-Dokument Abschnitt 35.5.
 
+### 16.10 P18 Implementierung — B-4 Capacity/Assignment Simplification (dieser Durchgang)
+
+**Viertes Umsetzungspaket, Validation Gate bestanden** (CONCEPT.md Abschnitt 6b.4/6b.5/6b.10/
+6b.11, Pass-2-Dokument Abschnitt 35.5 Paket B-4):
+
+- **`capacity_calc.compute_person_capacity_for_range(db, person_id, range_start, range_end)`**
+  (neu): bereichsbasierte Erweiterung von `compute_person_capacity` — keine neue Holiday-/
+  Absence-/InternalAllocation-Query, jeder überlappte Kalendermonat ruft die bestehende
+  Funktion unverändert auf und wird nur werktage-anteilig gewichtet (identische Konvention
+  wie die Monatsverteilung, BD-4-konform). Neues Schema `PersonCapacityRangeOut`, neuer
+  Endpoint `GET /people/{id}/capacity-range?start=&end=`.
+- **Direct Assignment ohne Rollen-Zwang** (`routers/planning.py`): `POST
+  /plan-phases/{id}/assign-person` ordnet eine Person direkt zu, ohne dass eine Rolle gewählt
+  werden muss — legt dafür transparent (idempotent, genau einmal je Phase) eine
+  `ResourceDemand` mit der internen Systemrolle "Ohne Rolle" an (`_get_or_create_system_role`/
+  `_get_or_create_carrier_demand`). `DELETE
+  /plan-phases/{id}/assign-person/{person_id}` entfernt nur diese direkte Zuordnung, rührt
+  eine etwaige echte Rollen-Aufschlüsselung nicht an. Beide Endpunkte lehnen Parent-Phasen
+  (`has_children=true`) mit `422` ab — Kapazität/Assignments sind Leaf-only (Abschnitt 6b.3).
+- **Bedarf/Besetzt/Offen** (`phase_metrics_calc.assignment_summary`, neu, + `GET
+  /plan-phases/{id}/assignment-summary`): `plan_fte` bleibt immer der Bedarf, `assigned_fte`
+  ist die Summe **aller** `ResourceAssignment.fte` über alle `ResourceDemand`s der Phase
+  (Systemrolle UND echte Rollen-Aufschlüsselung zählen gleichermaßen), `open_fte` kann negativ
+  sein (Überbesetzung wird angezeigt, nicht verhindert) — `plan_fte` wird dabei **nie**
+  automatisch erhöht (Kernprinzip, Abschnitt 3/6b.10, exakt das Zahlenbeispiel aus Abschnitt 8
+  der Aufgabenstellung nachgestellt und verifiziert: 0,40/0,20/0,20 → 0,40/0,50/−0,10).
+- **`GET /plan-phases/{id}/assignment-candidates`** (neu): wie die bestehenden
+  `resource-demands/{id}/candidates`, aber Available Capacity über den **gesamten**
+  Phasenzeitraum geprüft (`compute_person_capacity_for_range`) statt nur einen Monats-Bucket;
+  schließt bereits zugeordnete Personen aus (Systemrolle + echte Rollen-Demands gemeinsam).
+- **Rollen-Governance** (Abschnitt 6b.4/35.3, Teilumsetzung): `GET /resource-roles` blendet
+  die Systemrolle standardmäßig aus (`include_system_roles=true` als expliziter Opt-in).
+  Skill-Matching-Filterung existiert für **keine** Rolle im heutigen Code (`candidates`
+  filtert nie nach Skill, zeigt sie nur informativ an) — die Governance-Regel "kein
+  Skill-Matching für die Systemrolle" ist damit strukturell bereits erfüllt, ohne
+  Code-Änderung. **Noch offen (bewusst nicht in diesem Paket):** `GET /controlling/roles`
+  filtert die Systemrolle noch nicht explizit aus der Rollenauswertung heraus — das ist eine
+  reine Reporting-Kosmetik ohne Auswirkung auf Kapazitätszahlen und wird mit B-5
+  (Monatsaggregation/Portfolio-Cutover) mit erledigt, da beide denselben Router
+  (`controlling.py`) berühren.
+- **Verifikation:** `backend/scripts/test_direct_assignment_and_capacity_range.py`
+  (TestClient-Integrationstest) — prüft Range-Capacity über eine Monatsgrenze (inkl. exakter
+  Nachrechnung der werktage-anteiligen Gewichtung, nicht nur ein Toleranzband), Rollen-Picker-
+  Filterung, idempotente Carrier-Demand, Bedarf/Besetzt/Offen inkl. Überbesetzung, Parent-
+  Block, Candidates-Ausschluss. Alle Prüfungen grün, `check_migrations.py`/B-2/B-3-Skripte
+  weiterhin grün (keine Schema-Änderung in diesem Paket).
+- **Nächstes Paket:** B-5 (Monthly/Portfolio Capacity Cutover: `compute_project_monthly_
+  capacity`, Anschluss an Controlling/GAP/Cockpit — blockiert produktiv erst nach
+  ausgeführter B-2-Migration) — siehe Pass-2-Dokument Abschnitt 35.5.
+
 ---
 
 ## 17. Historie / Architecture Decision Log

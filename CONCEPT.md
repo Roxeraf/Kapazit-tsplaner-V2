@@ -814,9 +814,12 @@ Ist-Zustand:** Paket **B-1 (Hierarchy Domain Foundation) ist implementiert** (ad
 Schema-Grundlage: `PlanPhase.parent_phase_id`/`reihenfolge`, `Milestone.plan_phase_id`,
 `PlanHistory.plan_phase_id`, `ResourceRole.is_system_role` + Seed "Ohne Rolle" — siehe 16.7).
 Diese Spalten existieren, werden aber von **keinem** Endpoint gelesen/geschrieben/validiert —
-kein Backend-Guard, keine Datenmigration, kein Frontend nutzt sie. Bis B-2/B-3/B-4/B-5
-umgesetzt sind, gilt operativ unverändert Abschnitt 6 (Subprojects/Grobplanung bleiben die
-tatsächlich wirksame Planungsebene).
+kein Backend-Guard, kein Frontend nutzt sie. **B-2 (Migration Tooling) ist ebenfalls
+implementiert und verifiziert** (`backend/scripts/migrate_to_planphase_hierarchy.py`,
+Dry-Run-Default, siehe 16.8) — **aber noch nicht gegen echte Produktivdaten ausgeführt**
+(erfordert gesonderte Freigabe). Bis B-3/B-4/B-5(ausgeführt) umgesetzt sind, gilt operativ
+unverändert Abschnitt 6 (Subprojects/Grobplanung bleiben die tatsächlich wirksame
+Planungsebene).
 
 ### 6b.1 Kernidee
 
@@ -1741,6 +1744,49 @@ Backend-Logik, API-Änderung oder Datenmigration (folgt in B-2/B-3/B-4/B-5):
   ungenutzt (kein Router liest/schreibt sie), Regressionsrisiko minimal.
 - **Nächstes Paket:** B-2 (Migration Tooling, Dry-Run-Skript) und B-3 (Phase Tree API) —
   siehe Pass-2-Dokument Abschnitt 35.5.
+
+### 16.8 P18 Implementierung — B-2 Migration Tooling (dieser Durchgang)
+
+**Zweites Umsetzungspaket, Validation Gate bestanden.** Neues, eigenständiges Skript
+`backend/scripts/migrate_to_planphase_hierarchy.py` (kein Alembic-Bestandteil, reine
+Datenmigration) — setzt B-1 voraus, **noch keine Ausführung gegen Produktivdaten** (siehe
+Abschnitt 6b.12/BD-12, Pass-2-Dokument Abschnitt 35.5 Paket B-2):
+
+- **Sicherheitsdefault:** Ohne `--apply` läuft das Skript ausschließlich als Dry-Run —
+  alle Änderungen werden berechnet und reportet, danach steht ein expliziter Rollback (keine
+  Zeile geschrieben). Nur `--apply` committet wirklich. Kein automatischer Produktivlauf.
+- **Subproject-Migration** (Abschnitt 6b.7/Pass-2-Dokument Abschnitt 22): pro `Subproject`
+  eine neue Top-Level-Parent-`PlanPhase` (`phase_type = Subproject.name`,
+  `reihenfolge = Subproject.reihenfolge`), bestehende `PlanPhase`-Kinder reparented
+  (`parent_phase_id`), `Milestone`/`Comment` umgehängt (`plan_phase_id`).
+  `subprojects`/`subproject_id` bleiben unverändert bestehen (compat-only).
+- **Grobplanungs-Migration** (Abschnitt 6b.12, korrigierte Monats-Leaf-Strategie): pro
+  Projekt mit `ResourceDemand(plan_phase_id IS NULL)`-Zeilen eine neue Parent-Phase
+  "Grobplanung (migriert)" + eine Monats-Leaf-Phase je distinkter Periode, `plan_fte` der
+  Leaf-Phase einmalig aus `SUM(ResourceDemand.fte)` dieser Periode abgeleitet (keine neue
+  Laufzeitregel — danach gilt wieder uneingeschränkt "`plan_fte` ist führend").
+  `ResourceAssignment` bleibt unberührt (hängt nur an `resource_demand_id`).
+- **Idempotenz:** beide Migrationszweige filtern auf "noch nicht reparented/relinked"
+  (`parent_phase_id`/`plan_phase_id IS NULL`) bzw. "noch offene Grobplanungs-Demands" — ein
+  zweiter Lauf gegen bereits migrierte Daten findet nichts mehr und legt keine doppelten
+  Phasen an.
+- **Report:** je Projekt Subprojects/Grobplanung migriert, reparented/relinked-Zählungen,
+  FTE-Summen vorher/nachher, verwaiste `ResourceDemand`-Zeilen danach (Soll: 0),
+  Milestones vorher/nachher — plus ein globaler Hierarchietiefe-/Zyklus-Check über den
+  gesamten `PlanPhase`-Bestand (BD-12-Report-Anforderungen).
+- **Verifikation:** `backend/scripts/test_migrate_to_planphase_hierarchy.py` (kein pytest im
+  Repo, analog zu `check_migrations.py` als Muster für eigenständige Prüfskripte) — baut eine
+  Wegwerf-SQLite-DB, seedet einen repräsentativen Testfall (1 Subproject mit 2 Kindphasen,
+  Milestone, Comment; 2 Grobplanungsperioden mit je 2 Rollen, 1 Assignment) und prüft: Dry-Run
+  schreibt nichts, Apply verliert keine Milestones/Comments/Assignments/ResourceDemands, keine
+  verwaisten Demands danach, Re-Run nach Apply ist idempotent (kein doppelter Report-Eintrag,
+  keine doppelten Phasen). Alle Prüfungen grün.
+- **Keine Verhaltensänderung an bestehenden Endpunkten, keine Ausführung gegen echte
+  Projektdaten** — reines, verifiziertes Werkzeug. Die tatsächliche Ausführung gegen
+  Produktivdaten erfordert eine gesonderte Freigabe außerhalb dieses Pakets (B-2 Definition of
+  Done, unverändert).
+- **Nächstes Paket:** B-3 (Phase Tree API: CRUD-Guards, Baum-Payload, Löschguards gemäß
+  BD-11) — siehe Pass-2-Dokument Abschnitt 35.5.
 
 ---
 

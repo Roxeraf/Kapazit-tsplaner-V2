@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   PLAN_PHASE_STATUS_LABELS,
   type PlanPhase,
@@ -103,6 +104,9 @@ export default function PlanPhaseGantt({
   subprojects: SubprojectDetail[];
   onOpen?: (planPhaseId: number) => void;
 }) {
+  // P15.4 (Collapse/Filter): rein frontendseitig, konsistent mit PlanPhaseList.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number | null>>(new Set());
+
   if (phases.length === 0) {
     return <p className="gantt-empty">Noch keine Phasen geplant.</p>;
   }
@@ -172,13 +176,27 @@ export default function PlanPhaseGantt({
           {groupOrder.map((groupId) => {
             const drawable = groups.get(groupId)!.filter(hasBar);
             if (drawable.length === 0) return null;
+            const collapsed = collapsedGroups.has(groupId);
             return (
               <div key={groupId ?? "project"}>
-                <div className="gantt-group-header">
-                  <div className="gantt-row-label">{subprojectName(groupId)}</div>
+                <div
+                  className="gantt-group-header"
+                  style={{ cursor: "pointer" }}
+                  onClick={() =>
+                    setCollapsedGroups((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(groupId)) next.delete(groupId);
+                      else next.add(groupId);
+                      return next;
+                    })
+                  }
+                >
+                  <div className="gantt-row-label">
+                    {collapsed ? "▸" : "▾"} {subprojectName(groupId)} ({drawable.length})
+                  </div>
                   <div className="gantt-group-spacer" />
                 </div>
-                {drawable.map((phase) => {
+                {!collapsed && drawable.map((phase) => {
                   const left = posPct(toTs(phase.forecast_start!), min, max);
                   const right = posPct(toTs(phase.forecast_end!), min, max);
                   return (

@@ -29,8 +29,7 @@ export default function Utilization() {
         Auslastung
       </h2>
       <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-        Über ResourceAssignment zugeordnetes FTE der aktuellen Periode im Verhältnis zur individuellen
-        Kapazität je Teammitglied.
+        Zugeordnetes FTE der aktuellen Periode im Verhältnis zur individuellen Kapazität je Teammitglied.
       </p>
 
       {loading && <p>Lade Auslastung …</p>}

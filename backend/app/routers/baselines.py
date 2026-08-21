@@ -62,6 +62,7 @@ def _snapshot_out(db: Session, s: models.BaselineSnapshot) -> schemas.BaselineSn
         id=s.id,
         project_id=s.project_id,
         name=s.name,
+        reason=s.reason,
         created_at=s.created_at,
         created_by_person_id=s.created_by_person_id,
         tags=entity_links.tags_for(db, "baseline_snapshot", s.id),
@@ -88,6 +89,7 @@ def list_baselines(project_id: int, db: Session = Depends(get_db)):
                 id=s.id,
                 project_id=s.project_id,
                 name=s.name,
+                reason=s.reason,
                 created_at=s.created_at,
                 created_by_person_id=s.created_by_person_id,
                 entry_count=entry_count,
@@ -104,7 +106,11 @@ def create_baseline(project_id: int, payload: schemas.BaselineSnapshotCreate, db
         raise HTTPException(status_code=404, detail="Person (created_by_person_id) nicht gefunden")
 
     snapshot = models.BaselineSnapshot(
-        project_id=project_id, name=payload.name, created_at=_now(), created_by_person_id=payload.created_by_person_id
+        project_id=project_id,
+        name=payload.name,
+        reason=payload.reason,
+        created_at=_now(),
+        created_by_person_id=payload.created_by_person_id,
     )
     db.add(snapshot)
     db.flush()

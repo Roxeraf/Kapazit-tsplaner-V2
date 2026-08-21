@@ -38,6 +38,9 @@ export default function PlanPhaseList({
   const [openPhaseId, setOpenPhaseId] = useState<number | null>(null);
   const [view, setView] = useState<"list" | "gantt">("list");
   const [showCreate, setShowCreate] = useState(false);
+  // P15.4 (Collapse/Filter): rein frontendseitig, keine neue Backend-Logik.
+  const [subprojectFilter, setSubprojectFilter] = useState<number | null | "all">("all");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number | null>>(new Set());
   const people = usePeopleMap();
 
   const refresh = () => {
@@ -56,8 +59,19 @@ export default function PlanPhaseList({
   const subprojectName = (id: number | null) =>
     id === null ? "Projektweit" : subprojects.find((sp) => sp.id === id)?.name ?? "Unbekanntes Teilprojekt";
 
+  const toggleGroup = (id: number | null) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const filteredPhases = subprojectFilter === "all" ? phases : phases.filter((p) => p.subproject_id === subprojectFilter);
+
   const groups = new Map<number | null, PlanPhase[]>();
-  for (const phase of phases) {
+  for (const phase of filteredPhases) {
     const list = groups.get(phase.subproject_id) ?? [];
     list.push(phase);
     groups.set(phase.subproject_id, list);
@@ -90,18 +104,61 @@ export default function PlanPhaseList({
           </button>
         </div>
       </div>
+      {subprojects.length > 0 && (
+        <div className="field-row" style={{ marginTop: 0, marginBottom: "0.6rem" }}>
+          <label>
+            Teilprojekt-Filter
+            <select
+              value={subprojectFilter === "all" ? "all" : subprojectFilter === null ? "none" : subprojectFilter}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setSubprojectFilter(raw === "all" ? "all" : raw === "none" ? null : Number(raw));
+              }}
+            >
+              <option value="all">Alle</option>
+              <option value="none">Projektweit</option>
+              {subprojects.map((sp) => (
+                <option key={sp.id} value={sp.id}>
+                  {sp.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
       {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
 
       {view === "list" &&
-        (phases.length === 0 ? (
+        (filteredPhases.length === 0 ? (
           <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Phasen geplant.</p>
         ) : (
           groupOrder.map((groupId) => (
             <div key={groupId ?? "project"} style={{ marginBottom: "1rem" }}>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                {subprojectName(groupId)}
-              </div>
-              {groups.get(groupId)!.map((phase) => (
+              <button
+                type="button"
+                onClick={() => toggleGroup(groupId)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.3rem",
+                  border: "none",
+                  background: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: "0.8rem",
+                  color: "var(--text-muted)",
+                  marginBottom: "0.3rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.03em",
+                }}
+              >
+                <span>{collapsedGroups.has(groupId) ? "▸" : "▾"}</span>
+                <span>
+                  {subprojectName(groupId)} ({groups.get(groupId)!.length})
+                </span>
+              </button>
+              {!collapsedGroups.has(groupId) &&
+                groups.get(groupId)!.map((phase) => (
                 <div
                   key={phase.id}
                   className="card"
@@ -155,7 +212,7 @@ export default function PlanPhaseList({
           ))
         ))}
 
-      {view === "gantt" && <PlanPhaseGantt phases={phases} subprojects={subprojects} onOpen={setOpenPhaseId} />}
+      {view === "gantt" && <PlanPhaseGantt phases={filteredPhases} subprojects={subprojects} onOpen={setOpenPhaseId} />}
 
       {showCreate && (
         <PlanPhaseCreateModal projectId={projectId} subprojects={subprojects} onClose={() => setShowCreate(false)} onCreated={refresh} />

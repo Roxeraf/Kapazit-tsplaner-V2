@@ -558,12 +558,15 @@ destruktive Migration), Governance ist damit vollständig für dieses Konsolidie
 - vollständiger Schema-Drop aller deprecateten Felder (`progress`, `baseline_*` bleiben
   bewusst bestehen, bis alle Consumer entfernt sind)
 - großformatige neue Design-System-Einführung
+- Planstand-Relations-UX (Planstand ↔ Blocker/Decision/Comment über `EntityRelation`
+  verknüpfen) — geprüft in P13.6, keine bestehende generische Auswahl-UX dafür wiederverwendbar,
+  nicht künstlich gebaut (siehe Abschnitt 16.3)
 
 ---
 
 ## 16. Umsetzungsstand
 
-### 16.1 P1–P11 — Planungs- und Kapazitätskonsolidierung (dieser Durchgang)
+### 16.1 P1–P11 — Planungs- und Kapazitätskonsolidierung
 
 Konsolidierungsdurchgang, ausgelöst durch die Beobachtung, dass die Planungsoberfläche trotz
 bereits existierendem PlanPhase-Drawer (P7) weiterhin einen parallelen, vollständigen
@@ -662,6 +665,103 @@ Alle oben gelisteten Phasen sind vollständig umgesetzt. Nicht umgesetzt: Restau
 Hochrechnung (Variante 2 der Gap-Hochrechnung), Portal-SSO, offene-Jira-Issues-Endpoint für
 den Jira-Tab, ein tatsächlicher Excel-Migrationslauf gegen eine echte Bestands-`.xlsm`-Datei,
 Portfolio-PPTX-Export.
+
+---
+
+### 16.3 P12–P17 — Planning UX & Workflow Completion (dieser Durchgang)
+
+Konsolidierungsdurchgang auf Basis der bereits vorhandenen Bausteine aus P1–P11 und den
+früheren Phasen (Tag-System, Knowledge Layer, ActivityFeed, PlanPhaseWorkspace). Ziel: die
+fachlich längst vorhandenen Funktionen im Planung-Tab als EINEN zusammenhängenden Workflow
+erlebbar machen, statt technisch getrennte UI-Inseln. Keine neue Architektur, keine neue
+Grob-/Feinplanung, kein Tempo-Mapping, kein Gantt-Drag&Drop — reine Vervollständigung
+bestehender Endpoints/Komponenten.
+
+- **P12 Tag Experience:** `TagInput` zeigt jetzt explizit zwischen "vorhandener Tag"
+  (anklickbare Vorschläge) und "existiert nicht → direkt erstellen" (eigener Hinweis + Button)
+  – Backend-Autocreate (`entity_links.sync_tags`) unverändert, reine UX-Klarheit
+  (`components/TagInput.tsx`). `TagChip`/`TagDossierPanel` waren bereits vollständig
+  (klickbar überall, Dossier bereits nach Entity-Typ gruppiert mit Fachlabels aus
+  `entityTypeMeta.ts`) – ergänzt wurde nur `entity_links._ACTIVITY_TIMESTAMP_FIELD["baseline_snapshot"]
+  = "created_at"`, damit Planstände auch in der "Aktuelle Lage" eines Tag-Dossiers erscheinen
+  (vorher nur in den Counts). `ActivityFeed` bekam einen frontendseitigen Tag-Filter
+  (Chips aus den im Feed vorkommenden Tags, kein neuer Endpoint) und zeigt bei "aus Objekt
+  erstellen" jetzt die Tags des Ursprungs als abwählbare Vorschläge in einem `TagInput`
+  (`components/ActivityFeed.tsx`) – keine harte Vererbung, reine Vorauswahl. Tag-Merge bleibt
+  bewusst deferred (unverändert).
+- **P13 Planstand Experience:** Das Wort "Baseline" ist aus dem normalen UI entfernt
+  (`BaselineList.tsx` komplett neu geschrieben, technische Modell-/Endpointnamen bleiben
+  unverändert). Neu: Kopfzeile "Aktueller Plan" mit Erklärung, Versionsnummerierung (V1…Vn
+  nach Erstellreihenfolge), "Grund"-Feld beim Festhalten (`BaselineSnapshot.reason` war seit
+  P1 im Modell, aber nie in `schemas.py`/im Router exponiert – jetzt auf
+  `BaselineSnapshotCreate`/`-Out`/`-Summary` ergänzt und im Frontend sichtbar/editierbar bei
+  Erstellung). Neu gebaut: die Vergleichs-UX (`ComparisonPanel` in `BaselineList.tsx`) nutzt
+  den bestehenden `GET /projects/baselines/{id}/deviations`-Endpoint (`getBaselineDeviations`
+  in `client.ts`, `BaselineDeviation`-Typ in `types.ts`), filtert clientseitig auf tatsächlich
+  geänderte Felder (Backend liefert bewusst alle eingefrorenen Felder, auch unveränderte) und
+  zeigt nur `forecast_start/-end/-date`→"Start"/"Ende"/"Datum" sowie `plan_fte`→"Plan-Aufwand"
+  in Fachsprache – `baseline_start/-end/-date` (compat-only) werden im Vergleich bewusst nicht
+  angezeigt, sonst käme der Begriff "Baseline" durch die Hintertür zurück. Snapshot-vs-
+  Snapshot-Vergleich bleibt deferred; eine Relations-UI (Planstand ↔ Blocker/Decision/Comment)
+  wurde geprüft – es existiert keine generische "Verknüpfen mit …"-UX außerhalb des
+  "aus Objekt erstellen"-Musters in `ActivityFeed`, die dafür ohne neue Komponente
+  wiederverwendbar wäre; **neu deferred**, siehe unten.
+- **P14 Capacity UX:** `PlanPhaseCapacityTab.tsx` zeigt bei Überdeckung (Aufschlüsselung >
+  Plan-FTE) jetzt einen klaren Satz ("Aufgeschlüsselter Bedarf liegt X FTE über dem geplanten
+  Phasenaufwand. Plan-FTE bleibt führend.") statt einer rohen negativen Zahl – reine
+  Darstellung von bereits vorhandenem `reconciliation.open_fte` aus `phase_metrics_calc.py`,
+  keine neue Berechnung. Je Rolle wird jetzt zusätzlich "noch unbesetzt X FTE" angezeigt, wenn
+  `allocation_gap > 0`. Kartenüberschrift von "Aufwand" auf "Phasenaufwand" präzisiert, mit
+  Hinweistext, der explizit von der projektweiten Monatsachse abgrenzt. `ResourceDemandGrid.tsx`
+  (Portfolio-/Monatsachse) heißt jetzt "Projektkapazität nach Monat" mit demselben
+  Abgrenzungshinweis (P14.5 – zwei Achsen, keine automatische Synchronisierung, unverändert
+  zwei getrennte `ResourceDemand`-Populationen über `plan_phase_id`). `ProjectTeamSection.tsx`
+  bekam eine Klarstellungszeile "Projektteam ≠ Kapazitätsbesetzung" (P14.4, war UX-seitig
+  bereits sauber getrennt, nur nicht erklärt).
+- **P15 Milestones/Teilprojekte:** `MilestoneList.tsx` zeigt Milestones jetzt standardmäßig als
+  kompakte, scannbare Zeile (Name/Datum/Status/Teilprojekt/Owner/Tags, "◆"-Symbol wie im
+  Konzeptbeispiel) statt permanent offener Sechs-Feld-Editoren – Bearbeiten klappt die Felder
+  bei Bedarf auf (kein neues Drawer-Bauteil, Inline-Expand reicht für eine einzelne
+  Datumsentität). `PlanPhaseList.tsx`/`PlanPhaseGantt.tsx` bekamen einklappbare
+  Teilprojekt-Gruppen sowie `PlanPhaseList.tsx` einen Teilprojekt-Filter (beides rein
+  frontendseitig, keine neue Backend-Logik) – adressiert P15.4 für Projekte mit vielen
+  Teilprojekten.
+- **P16 Collaboration & Knowledge:** Beim Erstellen eines Folgeobjekts aus `ActivityFeed`
+  (Kommentar/Decision/Blocker → Task/Decision/Blocker/Risk) wird jetzt `plan_phase_id` vom
+  Ursprung übernommen, wenn der Feed im Phasenkontext läuft und der Zieltyp die Spalte hat
+  (Risk bewusst ausgenommen, hat keine `plan_phase_id`) – vorher wurde dieses Feld schlicht
+  nicht gesetzt, ein aus der Phasen-Aktivität heraus erstellter Blocker landete "phasenlos".
+  Dabei außerdem gefunden und behoben: `ActivityFeed` lud nur einmal beim Mount, bekam aber
+  keine Mitteilung, wenn eine Geschwisterkomponente im selben Tab (NotesSection/TaskList/
+  DecisionList/BlockerList/MeetingMinutesList) eine neue Aktivität anlegte – ein frisch
+  erstellter Kommentar erschien dadurch nicht im Feed, bis der Drawer neu geöffnet wurde. Fix:
+  neuer `refreshToken`-Prop, den `PlanPhaseWorkspace.tsx`/`ProjectCommunicationTab.tsx` bei
+  jeder Mutation hochzählen. "Aktuelle Themen" (P16.5) neu als `CurrentTopicsWidget.tsx` im
+  Kommunikation-Tab: nutzt `GET /knowledge/project/{id}` für die im Projekt verwendeten Tags
+  und je Tag `GET /knowledge/tags/dossier` für die Objektanzahl (keine neue Aggregation im
+  Backend, Anzahl Requests durch tatsächlich verwendete Tags begrenzt).
+- **P17 Final Review:** `npm run lint`/`npm run build` clean, Python-Import-/
+  `check_migrations.py`-Checks clean (kein Schema-Drift, `reason` war bereits im Modell). Ein
+  `TestClient`-Skript deckte die Backend-Änderungen ab (Planstand-`reason`-Roundtrip,
+  Deviations inkl. `plan_fte`, Tag-Dossier-Aktivität, `plan_phase_id`-Vererbung + Relation).
+  Ein Playwright-Lauf gegen den echten Dev-Server (Backend :8000/Frontend :5173) deckte den
+  Projektleiter-Flow end-to-end ab: Phase anlegen → öffnen → Plan-FTE ändern → Tag direkt
+  erstellen → Kapazitätstab → Kommentar → daraus Blocker (inkl. `plan_phase_id`+Relation) →
+  Termin ändern → Planstand festhalten (kein "Baseline"-Wort im UI) → Vergleich zeigt
+  Plan-Aufwand-Abweichung → Gantt-Klick öffnet denselben Drawer → Tag-Klick öffnet Dossier →
+  Milestone anlegen (15/15 Checks grün). Negativ-Grep über `frontend/src` fand und behob zwei
+  zusätzliche Vorkommen technischer Begriffe im normalen UI außerhalb des Planung-Tabs
+  (`Utilization.tsx`: "ResourceAssignment" im Beschreibungstext; `ProjectOverviewTab.tsx`:
+  "Forecast-Ende" im Cockpit → "Voraussichtliches Projektende").
+
+**Neu deferred (P13.6):** eine generische "Planstand mit Blocker/Decision/Comment verknüpfen"-UX
+existiert nicht und wurde nicht künstlich gebaut – es gibt keine saubere bestehende
+Relations-Auswahlkomponente außerhalb des kontextgebundenen "aus Objekt erstellen"-Musters in
+`ActivityFeed`, die sich ohne neue UI-Bauteile dafür wiederverwenden ließe. `EntityRelation`
+bleibt technisch bereits generisch genug (Baseline ist seit je regsitriert in
+`entity_links.ENTITY_TYPES`); eine erste UX dafür ist ein sinnvoller eigener nächster Schritt,
+kein Blocker für diesen Durchgang.
+
 
 ---
 

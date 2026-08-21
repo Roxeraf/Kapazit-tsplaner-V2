@@ -4,6 +4,7 @@ import NotesSection from "../../components/NotesSection";
 import type { Blocker, Comment, Decision, EntityType, MeetingMinutes, Risk, Task } from "../../types";
 import ActivityFeed from "./components/ActivityFeed";
 import BlockerList from "./components/BlockerList";
+import CurrentTopicsWidget from "./components/CurrentTopicsWidget";
 import DecisionList from "./components/DecisionList";
 import MeetingMinutesList from "./components/MeetingMinutesList";
 import RiskList from "./components/RiskList";
@@ -36,6 +37,11 @@ export default function ProjectCommunicationTab() {
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ActivityFeed lädt selbst nach, bekommt Mutationen aus den Geschwister-Listen (Tasks/
+  // Decisions/Risks/Meetings/Blockers/Comments) sonst nicht automatisch mit (P16.1, siehe
+  // PlanPhaseWorkspace für dasselbe Muster im Phasenkontext).
+  const [activityVersion, setActivityVersion] = useState(0);
+  const bumpActivity = () => setActivityVersion((v) => v + 1);
 
   const refreshComments = () => api.listComments(project.id).then(setComments).catch((e) => setError(String(e)));
   const refreshDecisions = () => api.listDecisions(project.id).then(setDecisions).catch((e) => setError(String(e)));
@@ -66,11 +72,13 @@ export default function ProjectCommunicationTab() {
       await api.uploadDocument(project.id, file, { entityType: "comment", entityId: comment.id });
     }
     refreshComments();
+    bumpActivity();
   };
 
   const handleDeleteComment = async (commentId: number) => {
     await api.deleteComment(commentId);
     refreshComments();
+    bumpActivity();
   };
 
   const allTags = useMemo(() => {
@@ -107,6 +115,8 @@ export default function ProjectCommunicationTab() {
   return (
     <div>
       {error && <p style={{ color: "var(--rot)" }}>{error}</p>}
+
+      <CurrentTopicsWidget projectId={project.id} />
 
       <div className="toolbar" style={{ marginBottom: "0.75rem", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
@@ -160,7 +170,9 @@ export default function ProjectCommunicationTab() {
             refreshRisks();
             refreshTasks();
             refreshBlockers();
+            bumpActivity();
           }}
+          refreshToken={activityVersion}
         />
       )}
 
@@ -187,15 +199,21 @@ export default function ProjectCommunicationTab() {
         </div>
       )}
 
-      {section === "aufgaben" && <TaskList projectId={project.id} tasks={filteredTasks} onChanged={refreshTasks} />}
+      {section === "aufgaben" && (
+        <TaskList projectId={project.id} tasks={filteredTasks} onChanged={() => { refreshTasks(); bumpActivity(); }} />
+      )}
       {section === "entscheidungen" && (
-        <DecisionList projectId={project.id} decisions={filteredDecisions} onChanged={refreshDecisions} />
+        <DecisionList projectId={project.id} decisions={filteredDecisions} onChanged={() => { refreshDecisions(); bumpActivity(); }} />
       )}
-      {section === "risiken" && <RiskList projectId={project.id} risks={filteredRisks} onChanged={refreshRisks} />}
+      {section === "risiken" && (
+        <RiskList projectId={project.id} risks={filteredRisks} onChanged={() => { refreshRisks(); bumpActivity(); }} />
+      )}
       {section === "meetingprotokolle" && (
-        <MeetingMinutesList projectId={project.id} meetings={filteredMeetings} onChanged={refreshMeetings} />
+        <MeetingMinutesList projectId={project.id} meetings={filteredMeetings} onChanged={() => { refreshMeetings(); bumpActivity(); }} />
       )}
-      {section === "blocker" && <BlockerList projectId={project.id} blockers={filteredBlockers} onChanged={refreshBlockers} />}
+      {section === "blocker" && (
+        <BlockerList projectId={project.id} blockers={filteredBlockers} onChanged={() => { refreshBlockers(); bumpActivity(); }} />
+      )}
     </div>
   );
 }

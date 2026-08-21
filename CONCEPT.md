@@ -813,13 +813,16 @@ B-1–B-8, siehe Pass-2-Dokument Abschnitt 35.5). **Löst Abschnitt 6a (P18 Pass
 Ist-Zustand:** Paket **B-1 (Hierarchy Domain Foundation) ist implementiert** (additive
 Schema-Grundlage: `PlanPhase.parent_phase_id`/`reihenfolge`, `Milestone.plan_phase_id`,
 `PlanHistory.plan_phase_id`, `ResourceRole.is_system_role` + Seed "Ohne Rolle" — siehe 16.7).
-Diese Spalten existieren, werden aber von **keinem** Endpoint gelesen/geschrieben/validiert —
-kein Backend-Guard, kein Frontend nutzt sie. **B-2 (Migration Tooling) ist ebenfalls
-implementiert und verifiziert** (`backend/scripts/migrate_to_planphase_hierarchy.py`,
-Dry-Run-Default, siehe 16.8) — **aber noch nicht gegen echte Produktivdaten ausgeführt**
-(erfordert gesonderte Freigabe). Bis B-3/B-4/B-5(ausgeführt) umgesetzt sind, gilt operativ
-unverändert Abschnitt 6 (Subprojects/Grobplanung bleiben die tatsächlich wirksame
-Planungsebene).
+**B-2 (Migration Tooling) ist ebenfalls implementiert und verifiziert**
+(`backend/scripts/migrate_to_planphase_hierarchy.py`, Dry-Run-Default, siehe 16.8) — **aber
+noch nicht gegen echte Produktivdaten ausgeführt** (erfordert gesonderte Freigabe). **B-3
+(Phase Tree API) ist implementiert** (CRUD-Guards, Leaf→Parent-Historisierung, Löschguard
+BD-11, reparent-children/subtree-impact/delete-subtree — siehe 16.9): `parent_phase_id`
+ist damit erstmals operativ wirksam, allerdings **nur über die API** — kein Frontend nutzt
+diese Endpunkte, es gibt noch keine direkte Personenzuordnung ohne Rollenzwang (B-4) und
+keine Migration wurde gegen echte Daten ausgeführt (B-2 noch nicht angewendet). Bis B-4/B-5
+(ausgeführt)/B-6 umgesetzt sind, bleibt Abschnitt 6 (Subprojects/Grobplanung) für alle
+Nutzer:innen die tatsächlich sichtbare/bediente Planungsebene.
 
 ### 6b.1 Kernidee
 
@@ -1787,6 +1790,53 @@ Abschnitt 6b.12/BD-12, Pass-2-Dokument Abschnitt 35.5 Paket B-2):
   Done, unverändert).
 - **Nächstes Paket:** B-3 (Phase Tree API: CRUD-Guards, Baum-Payload, Löschguards gemäß
   BD-11) — siehe Pass-2-Dokument Abschnitt 35.5.
+
+### 16.9 P18 Implementierung — B-3 Phase Tree API (dieser Durchgang)
+
+**Drittes Umsetzungspaket, Validation Gate bestanden.** Erstes Paket mit echter
+Backend-Logik/API-Verhaltensänderung — `PlanPhase.parent_phase_id` ist jetzt operativ
+wirksam (CONCEPT.md Abschnitt 6b.1/6b.1a/6b.3/6b.9, Pass-2-Dokument Abschnitt 35.5 Paket B-3):
+
+- Neues Modul `backend/app/planning_calc.py`: `has_children`, `direct_children`, `depth_of`,
+  `all_descendants`, `leaf_descendants`, `subtree_max_depth`, `derive_parent_bounds`,
+  `derive_parent_capacity` — reine, lesende Aggregationsfunktionen, kein neues Statusfeld
+  (Leaf/Parent bleibt query-seitig berechnet).
+- **CRUD-Guards** (`_check_parent_phase` in `routers/planning.py`): projektfremder Parent
+  (`422`), Selbst-Parent (`422`), Zyklus — auch bei Reparenting eines ganzen Teilbaums, nicht
+  nur der einzelnen Phase (`422`), maximale Hierarchietiefe 3 Ebenen inkl. der Höhe eines
+  bereits vorhandenen eigenen Teilbaums (`422`, BD-10).
+- **Leaf→Parent-Übergang** (`_maybe_historize_parent_fte`): sobald eine Phase ihr erstes Kind
+  erhält (per `POST .../plan-phases` oder `PUT /plan-phases/{id}`), wird ihr `plan_fte`
+  serverseitig auf `NULL` gesetzt und der alte Wert in `PlanHistory`
+  (`bereich="phase_struktur"`, `plan_phase_id` gesetzt) historisiert — keine automatische
+  Reaktivierung beim Rückweg (Abschnitt 6b.1a). `PlanHistoryOut`/`GET
+  /projects/{id}/history` geben `plan_phase_id` jetzt mit aus (kleine, additive Erweiterung,
+  nötig um die Historisierung überhaupt beobachtbar zu machen).
+- **Löschguard** (BD-11, CLOSED): Standard-`DELETE /plan-phases/{id}` einer Phase mit Kindern
+  liefert `409` mit `{child_count, message}` statt zu kaskadieren.
+- **Neu:** `POST /plan-phases/{id}/reparent-children` (Kinder auf einen anderen Parent oder
+  Top-Level verschieben, danach ist die Phase leaf und normal löschbar).
+- **Neu:** `GET /plan-phases/{id}/subtree-impact` (Vorschau: Anzahl Nachfahren, betroffene
+  Comments/Tasks/Blocker/Decisions/Milestones/Documents/ResourceDemands/ResourceAssignments)
+  und `POST /plan-phases/{id}/delete-subtree` (separate, stark bestätigte Aktion — verlangt
+  `confirm_phase_type`/`confirm_descendant_count` exakt passend zur aktuellen Impact-Zahl,
+  sonst `422`). Löscht Nachfahren-Phasen inkl. ihrer `ResourceDemand`/`ResourceAssignment`-
+  Zeilen; Collaboration-Inhalte (Comment/Task/Blocker/Decision/Milestone) werden **nicht**
+  gelöscht, nur entkoppelt (`plan_phase_id → NULL`, wie beim bestehenden Einzel-Delete);
+  auditiert über einen `PlanHistory`-Eintrag (`bereich="phase_subtree_delete"`).
+- **`PlanPhaseOut`/`PlanPhaseDetail` erweitert:** `parent_phase_id`, `reihenfolge`,
+  `has_children`, `derived_forecast_start`/`derived_forecast_end`/`derived_capacity` (nur bei
+  `has_children=true` befüllt, abgeleitet aus Leaf-Nachfahren, nie aus einem eigenen Feld der
+  Parent-Phase); `PlanPhaseDetail.children` (direkte Kinder, für die Baum-UI in B-6).
+- **Verifikation:** `backend/scripts/test_planning_phase_tree_api.py` (TestClient gegen die
+  echte FastAPI-App, kein pytest im Repo) — prüft alle sieben oben genannten Punkte plus
+  subtree-impact/delete-subtree inkl. Assignment-/Comment-Erhalt. Alle Prüfungen grün,
+  `check_migrations.py` weiterhin grün (keine Schema-Änderung in diesem Paket).
+- **Noch nicht in Scope:** Direct-Assignment-UX ohne Rollenzwang, Available Capacity über
+  Zeiträume (B-4); Monatsaggregation/Portfolio-Cutover (B-5); Frontend (B-6/B-7).
+- **Nächstes Paket:** B-4 (Capacity/Assignment Simplification: direkte Personenzuordnung ohne
+  Rollenzwang über die interne Systemrolle "Ohne Rolle", `compute_person_capacity_for_range`)
+  — siehe Pass-2-Dokument Abschnitt 35.5.
 
 ---
 

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import entity_links, models, phase_metrics_calc, schemas
+from .. import entity_links, models, phase_metrics_calc, planning_calc, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["planning"])
@@ -43,16 +43,90 @@ def _check_owner(db: Session, owner_person_id: int | None, owner_team_id: int | 
         raise HTTPException(status_code=404, detail="Team (owner_team_id) nicht gefunden")
 
 
+def _check_parent_phase(
+    db: Session, project_id: int, plan_phase_id: int | None, parent_phase_id: int | None
+) -> None:
+    """Validiert parent_phase_id beim Anlegen/Verschieben einer PlanPhase (P18/B-3, BD-10,
+    CLOSED): Projekt-Grenze, kein Selbst-Parent, kein Zyklus, maximale Hierarchietiefe 3
+    Ebenen. plan_phase_id ist None beim Anlegen (die Phase existiert noch nicht, ein Zyklus
+    ist dann unmöglich)."""
+    if parent_phase_id is None:
+        return
+    parent = db.get(models.PlanPhase, parent_phase_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail="Übergeordnete Phase nicht gefunden")
+    if parent.project_id != project_id:
+        raise HTTPException(status_code=422, detail="parent_phase_id muss zum selben Projekt gehören")
+    if plan_phase_id is not None:
+        if parent_phase_id == plan_phase_id:
+            raise HTTPException(
+                status_code=422, detail="Eine Phase kann nicht ihre eigene übergeordnete Phase sein"
+            )
+        descendant_ids = {d.id for d in planning_calc.all_descendants(db, plan_phase_id)}
+        if parent_phase_id in descendant_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="Zyklus: die gewählte übergeordnete Phase ist eine Unterphase dieser Phase",
+            )
+    # Tiefen-Check berücksichtigt bewusst nicht nur die neue Tiefe von plan_phase_id selbst,
+    # sondern auch die Höhe ihres eigenen Teilbaums (falls sie bereits Kinder hat, z.B. beim
+    # Reparenting einer ganzen Parent-Phase mitsamt Enkeln) - sonst könnten Nachfahren
+    # unbemerkt über die maximale Hierarchietiefe hinausrutschen.
+    new_own_depth = planning_calc.depth_of(db, parent_phase_id) + 1
+    subtree_extra_levels = 0
+    if plan_phase_id is not None:
+        subtree_extra_levels = planning_calc.subtree_max_depth(db, plan_phase_id) - planning_calc.depth_of(
+            db, plan_phase_id
+        )
+    if new_own_depth + subtree_extra_levels > planning_calc.MAX_HIERARCHY_DEPTH:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Maximale Hierarchietiefe ({planning_calc.MAX_HIERARCHY_DEPTH} Ebenen) erreicht - "
+                "diese Phase (bzw. ihre Unterphasen) kann/können hier nicht eingehängt werden"
+            ),
+        )
+
+
+def _maybe_historize_parent_fte(db: Session, parent: models.PlanPhase) -> None:
+    """P18/B-3 (CONCEPT.md Abschnitt 6b.1a): sobald eine Phase ihr erstes Kind erhält, wird
+    ihr plan_fte serverseitig auf NULL gesetzt und der alte Wert in PlanHistory historisiert -
+    keine automatische Reaktivierung, falls sie später wieder zum Leaf wird (letztes Kind
+    entfernt/reparented: keine Sonderbehandlung, plan_fte bleibt NULL, Korrektur 35.1). Ein
+    bereits kinderloser Aufruf mit plan_fte=None ist ein No-Op (idempotent bei weiteren
+    Kindern derselben Phase)."""
+    if parent.plan_fte is None:
+        return
+    db.add(
+        models.PlanHistory(
+            project_id=parent.project_id,
+            plan_phase_id=parent.id,
+            bereich="phase_struktur",
+            feld="plan_fte",
+            alter_wert=str(parent.plan_fte),
+            neuer_wert=None,
+            geaendert_am=_now(),
+        )
+    )
+    parent.plan_fte = None
+
+
 # ---------------------------------------------------------------------------
 # PlanPhase
 # ---------------------------------------------------------------------------
 
 
 def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
+    has_children = planning_calc.has_children(db, p.id)
+    derived_start, derived_end = (
+        planning_calc.derive_parent_bounds(db, p.id) if has_children else (None, None)
+    )
     return schemas.PlanPhaseOut(
         id=p.id,
         project_id=p.project_id,
         subproject_id=p.subproject_id,
+        parent_phase_id=p.parent_phase_id,
+        reihenfolge=p.reihenfolge,
         phase_type=p.phase_type,
         baseline_start=p.baseline_start,
         baseline_end=p.baseline_end,
@@ -69,6 +143,10 @@ def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
         aktualisiert_am=p.aktualisiert_am,
         tags=entity_links.tags_for(db, "plan_phase", p.id),
         documents=entity_links.documents_for(db, "plan_phase", p.id),
+        has_children=has_children,
+        derived_forecast_start=derived_start,
+        derived_forecast_end=derived_end,
+        derived_capacity=planning_calc.derive_parent_capacity(db, p.id) if has_children else None,
     )
 
 
@@ -199,10 +277,16 @@ def _plan_phase_metrics(db: Session, p: models.PlanPhase) -> schemas.PhaseMetric
 
 
 def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDetail:
+    has_children = planning_calc.has_children(db, p.id)
+    derived_start, derived_end = (
+        planning_calc.derive_parent_bounds(db, p.id) if has_children else (None, None)
+    )
     return schemas.PlanPhaseDetail(
         id=p.id,
         project_id=p.project_id,
         subproject_id=p.subproject_id,
+        parent_phase_id=p.parent_phase_id,
+        reihenfolge=p.reihenfolge,
         phase_type=p.phase_type,
         baseline_start=p.baseline_start,
         baseline_end=p.baseline_end,
@@ -219,6 +303,11 @@ def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDet
         aktualisiert_am=p.aktualisiert_am,
         tags=entity_links.tags_for(db, "plan_phase", p.id),
         documents=entity_links.documents_for(db, "plan_phase", p.id),
+        has_children=has_children,
+        derived_forecast_start=derived_start,
+        derived_forecast_end=derived_end,
+        derived_capacity=planning_calc.derive_parent_capacity(db, p.id) if has_children else None,
+        children=[_plan_phase_out(db, child) for child in planning_calc.direct_children(db, p.id)],
         comments=[
             _comment_out(db, c)
             for c in (
@@ -285,10 +374,13 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
     _get_project_or_404(db, project_id)
     _check_subproject(db, project_id, payload.subproject_id)
     _check_owner(db, payload.owner_person_id, payload.owner_team_id)
+    _check_parent_phase(db, project_id, plan_phase_id=None, parent_phase_id=payload.parent_phase_id)
     now = _now()
     plan_phase = models.PlanPhase(
         project_id=project_id,
         subproject_id=payload.subproject_id,
+        parent_phase_id=payload.parent_phase_id,
+        reihenfolge=payload.reihenfolge,
         phase_type=payload.phase_type,
         baseline_start=payload.baseline_start,
         baseline_end=payload.baseline_end,
@@ -306,6 +398,12 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
     )
     db.add(plan_phase)
     db.flush()
+    if payload.parent_phase_id is not None:
+        # P18/B-3 (Abschnitt 6b.1a): das ist das erste Kind der übergeordneten Phase (oder
+        # eines von mehreren) - _maybe_historize_parent_fte ist idempotent (No-Op, sobald
+        # plan_fte bereits None ist), daher unabhängig von "erstes Kind ja/nein" sicher.
+        parent = db.get(models.PlanPhase, payload.parent_phase_id)
+        _maybe_historize_parent_fte(db, parent)
     if payload.tags:
         entity_links.sync_tags(db, "plan_phase", plan_phase.id, payload.tags)
     db.commit()
@@ -323,10 +421,16 @@ def update_plan_phase(plan_phase_id: int, payload: schemas.PlanPhaseUpdate, db: 
     if "subproject_id" in changes:
         _check_subproject(db, plan_phase.project_id, changes["subproject_id"])
     _check_owner(db, changes.get("owner_person_id"), changes.get("owner_team_id"))
+    new_parent_id = changes.get("parent_phase_id")
+    if "parent_phase_id" in changes and new_parent_id != plan_phase.parent_phase_id:
+        _check_parent_phase(db, plan_phase.project_id, plan_phase_id=plan_phase.id, parent_phase_id=new_parent_id)
     if changes:
         for field, value in changes.items():
             setattr(plan_phase, field, value)
         plan_phase.aktualisiert_am = _now()
+    if "parent_phase_id" in changes and new_parent_id is not None:
+        parent = db.get(models.PlanPhase, new_parent_id)
+        _maybe_historize_parent_fte(db, parent)
     if payload.tags is not None:
         entity_links.sync_tags(db, "plan_phase", plan_phase.id, payload.tags)
     db.commit()
@@ -337,8 +441,206 @@ def update_plan_phase(plan_phase_id: int, payload: schemas.PlanPhaseUpdate, db: 
 @router.delete("/plan-phases/{plan_phase_id}", status_code=204)
 def delete_plan_phase(plan_phase_id: int, db: Session = Depends(get_db)):
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    child_count = len(planning_calc.direct_children(db, plan_phase_id))
+    if child_count > 0:
+        # BD-11, CLOSED (Abschnitt 6b.9): Standard-DELETE einer Parent-Phase mit Kindern wird
+        # blockiert, NICHT kaskadiert. Angebotene Wege: reparent-children (danach ist die
+        # Phase leaf und normal löschbar) oder die separate, stark bestätigte
+        # delete-subtree-Aktion.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    f"Diese Phase enthält {child_count} Unterphase(n) und kann nicht direkt "
+                    "gelöscht werden. Unterphasen verschieben oder den gesamten Zweig löschen."
+                ),
+                "child_count": child_count,
+            },
+        )
     entity_links.delete_links_for_entity(db, "plan_phase", plan_phase_id)
     entity_links.delete_relations_for_entity(db, "plan_phase", plan_phase_id)
+    db.delete(plan_phase)
+    db.commit()
+
+
+@router.post(
+    "/plan-phases/{plan_phase_id}/reparent-children",
+    response_model=schemas.PlanPhaseReparentChildrenResult,
+)
+def reparent_children(
+    plan_phase_id: int, payload: schemas.PlanPhaseReparentChildrenRequest, db: Session = Depends(get_db)
+):
+    """P18/B-3 (CONCEPT.md Abschnitt 6b.9): verschiebt alle direkten Kinder dieser Phase auf
+    eine andere übergeordnete Phase (oder auf Top-Level, new_parent_phase_id=None). Danach ist
+    diese Phase leaf und normal per DELETE löschbar - plan_fte bleibt dabei unverändert NULL
+    (keine automatische Reaktivierung, Abschnitt 6b.1a)."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    children = planning_calc.direct_children(db, plan_phase_id)
+    for child in children:
+        _check_parent_phase(
+            db, plan_phase.project_id, plan_phase_id=child.id, parent_phase_id=payload.new_parent_phase_id
+        )
+    now = _now()
+    for child in children:
+        child.parent_phase_id = payload.new_parent_phase_id
+        child.aktualisiert_am = now
+    if payload.new_parent_phase_id is not None:
+        new_parent = db.get(models.PlanPhase, payload.new_parent_phase_id)
+        _maybe_historize_parent_fte(db, new_parent)
+    db.commit()
+    return schemas.PlanPhaseReparentChildrenResult(
+        moved_count=len(children),
+        children=[_plan_phase_out(db, child) for child in children],
+    )
+
+
+def _collect_subtree_impact(db: Session, plan_phase: models.PlanPhase) -> dict:
+    descendants = planning_calc.all_descendants(db, plan_phase.id)
+    all_ids = [plan_phase.id] + [d.id for d in descendants]
+
+    def _count(model, column) -> int:
+        return db.query(model).filter(column.in_(all_ids)).count()
+
+    demand_ids = [
+        row[0]
+        for row in db.query(models.ResourceDemand.id)
+        .filter(models.ResourceDemand.plan_phase_id.in_(all_ids))
+        .all()
+    ]
+    assignments = (
+        db.query(models.ResourceAssignment)
+        .filter(models.ResourceAssignment.resource_demand_id.in_(demand_ids))
+        .count()
+        if demand_ids
+        else 0
+    )
+    documents_affected = (
+        db.query(models.DocumentLink)
+        .filter(models.DocumentLink.entity_type == "plan_phase", models.DocumentLink.entity_id.in_(all_ids))
+        .count()
+    )
+    return {
+        "descendants": descendants,
+        "all_ids": all_ids,
+        "comments_affected": _count(models.Comment, models.Comment.plan_phase_id),
+        "tasks_affected": _count(models.Task, models.Task.plan_phase_id),
+        "blockers_affected": _count(models.Blocker, models.Blocker.plan_phase_id),
+        "decisions_affected": _count(models.Decision, models.Decision.plan_phase_id),
+        "milestones_affected": _count(models.Milestone, models.Milestone.plan_phase_id),
+        "documents_affected": documents_affected,
+        "resource_demands_affected": len(demand_ids),
+        "resource_assignments_affected": assignments,
+        "demand_ids": demand_ids,
+    }
+
+
+@router.get("/plan-phases/{plan_phase_id}/subtree-impact", response_model=schemas.PlanPhaseSubtreeImpactOut)
+def get_subtree_impact(plan_phase_id: int, db: Session = Depends(get_db)):
+    """P18/B-3 (Abschnitt 6b.9): zeigt die Auswirkungen einer "Gesamten Zweig löschen"-Aktion
+    an, BEVOR sie ausgeführt wird - Anzahl betroffener Nachfahren-Phasen sowie Assignments/
+    Collaboration (Comments/Tasks/Blocker/Decisions)/Milestones/Documents."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    impact = _collect_subtree_impact(db, plan_phase)
+    return schemas.PlanPhaseSubtreeImpactOut(
+        plan_phase_id=plan_phase.id,
+        phase_type=plan_phase.phase_type,
+        descendant_phase_count=len(impact["descendants"]),
+        comments_affected=impact["comments_affected"],
+        tasks_affected=impact["tasks_affected"],
+        blockers_affected=impact["blockers_affected"],
+        decisions_affected=impact["decisions_affected"],
+        milestones_affected=impact["milestones_affected"],
+        documents_affected=impact["documents_affected"],
+        resource_demands_affected=impact["resource_demands_affected"],
+        resource_assignments_affected=impact["resource_assignments_affected"],
+    )
+
+
+@router.post("/plan-phases/{plan_phase_id}/delete-subtree", status_code=204)
+def delete_subtree(
+    plan_phase_id: int, payload: schemas.PlanPhaseDeleteSubtreeRequest, db: Session = Depends(get_db)
+):
+    """P18/B-3 (BD-11, CLOSED, Abschnitt 6b.9): separate, stark bestätigte, auditierbare
+    Aktion - NIE die Standardaktion (das ist der blockierende Standard-DELETE oben). Löscht
+    diese Phase und alle Nachfahren-Phasen inkl. ihrer ResourceDemand/ResourceAssignment-
+    Zeilen. Collaboration-Inhalte (Comments/Tasks/Blocker/Decisions/Milestones) werden NICHT
+    gelöscht, nur entkoppelt (plan_phase_id -> NULL, analog zum bestehenden ON DELETE SET
+    NULL-Verhalten eines einzelnen Phasen-Deletes) - ihre Historie bleibt erhalten."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    impact = _collect_subtree_impact(db, plan_phase)
+    descendant_count = len(impact["descendants"])
+    if (
+        payload.confirm_phase_type != plan_phase.phase_type
+        or payload.confirm_descendant_count != descendant_count
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Bestätigung stimmt nicht überein - erwartet phase_type="
+                f"'{plan_phase.phase_type}' und descendant_count={descendant_count}"
+            ),
+        )
+
+    all_ids = impact["all_ids"]
+    demand_ids = impact["demand_ids"]
+    now = _now()
+
+    if demand_ids:
+        db.query(models.ResourceAssignment).filter(
+            models.ResourceAssignment.resource_demand_id.in_(demand_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.ResourceDemand).filter(models.ResourceDemand.id.in_(demand_ids)).delete(
+            synchronize_session=False
+        )
+
+    # Collaboration-Inhalte bleiben erhalten, nur die Verknüpfung entfällt (wie beim
+    # bestehenden ON DELETE SET NULL-Verhalten eines einzelnen Phasen-Deletes).
+    for model in (models.Comment, models.Task, models.Blocker, models.Decision, models.Milestone):
+        db.query(model).filter(model.plan_phase_id.in_(all_ids)).update(
+            {"plan_phase_id": None}, synchronize_session=False
+        )
+    db.query(models.PlanHistory).filter(models.PlanHistory.plan_phase_id.in_(all_ids)).update(
+        {"plan_phase_id": None}, synchronize_session=False
+    )
+    db.query(models.DocumentLink).filter(
+        models.DocumentLink.entity_type == "plan_phase", models.DocumentLink.entity_id.in_(all_ids)
+    ).delete(synchronize_session=False)
+    db.query(models.TagLink).filter(
+        models.TagLink.entity_type == "plan_phase", models.TagLink.entity_id.in_(all_ids)
+    ).delete(synchronize_session=False)
+    db.query(models.EntityRelation).filter(
+        (
+            (models.EntityRelation.source_entity_type == "plan_phase")
+            & (models.EntityRelation.source_entity_id.in_(all_ids))
+        )
+        | (
+            (models.EntityRelation.target_entity_type == "plan_phase")
+            & (models.EntityRelation.target_entity_id.in_(all_ids))
+        )
+    ).delete(synchronize_session=False)
+
+    # Audit-Eintrag (Abschnitt 6b.9: auditierbar, wer wann welchen Zweig gelöscht hat).
+    # plan_phase_id bleibt bewusst None - die referenzierten Phasen existieren gleich nicht
+    # mehr, der Alt-Wert hält die Information stattdessen im Klartext fest.
+    db.add(
+        models.PlanHistory(
+            project_id=plan_phase.project_id,
+            plan_phase_id=None,
+            bereich="phase_subtree_delete",
+            feld="phase_type",
+            alter_wert=f"{plan_phase.phase_type} (+{descendant_count} Unterphasen)",
+            neuer_wert=None,
+            geaendert_am=now,
+        )
+    )
+
+    # Nachfahren-Phasen tiefste Ebene zuerst löschen (parent_phase_id-FK hat kein
+    # ON DELETE CASCADE - ein Kind muss vor seinem Elternteil gelöscht werden).
+    descendants_by_depth = sorted(
+        impact["descendants"], key=lambda phase: planning_calc.depth_of(db, phase.id), reverse=True
+    )
+    for phase in descendants_by_depth:
+        db.delete(phase)
     db.delete(plan_phase)
     db.commit()
 

@@ -455,6 +455,7 @@ def _history_out(db: Session, entry: models.PlanHistory) -> schemas.PlanHistoryO
     return schemas.PlanHistoryOut(
         id=entry.id,
         subproject_id=entry.subproject_id,
+        plan_phase_id=entry.plan_phase_id,
         bereich=entry.bereich,
         monat=entry.monat,
         feld=entry.feld,

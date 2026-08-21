@@ -543,19 +543,29 @@ export interface TagDossier {
   activity: ActivityItem[];
 }
 
-// Phase 26.2: PlanPhase/Milestone (Phase 17 der Zielarchitektur, backend/app/routers/planning.py)
+// Phase 26.2/P11: PlanPhase/Milestone (Phase 17 der Zielarchitektur, backend/app/routers/planning.py)
 // - Zielarchitektur-native Entitäten, ersetzen ab jetzt das alte Gantt/FTE-Raster als
 // Bedienoberfläche. status ist im Backend bewusst Freitext (kein Enum) - die folgenden
-// Wertelisten sind reine Frontend-Konvention, exakt aus den Code-Kommentaren in
-// backend/app/models.py übernommen (PlanPhase und Milestone haben je eigene Vokabulare).
-export type PlanPhaseStatus = "geplant" | "laufend" | "abgeschlossen" | "verzoegert";
+// Wertelisten sind reine Frontend-Konvention. Zielvokabular (P11, Planungs-/Kapazitäts-
+// konsolidierung): Geplant/In Arbeit/Abgeschlossen/Entfällt. "verzoegert" bleibt als
+// historischer Wert lesbar (Altdaten vor der Konsolidierung) - er wird NICHT automatisch zu
+// "entfaellt" migriert (fachlich falsch, siehe CONCEPT.md) und ist in
+// PLAN_PHASE_STATUS_OPTIONS bewusst nicht enthalten: Verzögerung ist künftig eine berechnete
+// Steuerungsinformation (Schedule Gap), kein manuell wählbarer Status mehr.
+export type PlanPhaseStatus = "geplant" | "laufend" | "abgeschlossen" | "entfaellt" | "verzoegert";
 
 export const PLAN_PHASE_STATUS_LABELS: Record<PlanPhaseStatus, string> = {
   geplant: "Geplant",
-  laufend: "Laufend",
+  laufend: "In Arbeit",
   abgeschlossen: "Abgeschlossen",
-  verzoegert: "Verzögert",
+  entfaellt: "Entfällt",
+  verzoegert: "Verzögert (historisch)",
 };
+
+// Für Create-/Edit-Dropdowns: nur das aktuelle Zielvokabular, "verzoegert" absichtlich
+// ausgeschlossen (siehe Kommentar oben). Bestehende Phasen mit status="verzoegert" behalten
+// ihren Wert und ihr Label, bis sie manuell auf einen der vier Zielwerte umgestellt werden.
+export const PLAN_PHASE_STATUS_OPTIONS: PlanPhaseStatus[] = ["geplant", "laufend", "abgeschlossen", "entfaellt"];
 
 // Vorschläge für phase_type (Freitext im Backend) - aus den bisherigen Gantt-Phasencodes
 // übernommen, damit die neue Ansicht für Nutzer:innen des alten Gantt vertraut bleibt.

@@ -487,7 +487,7 @@ class PlanPhaseCreate(BaseModel):
     forecast_end: str | None = None
     actual_start: str | None = None
     actual_end: str | None = None
-    status: str = "geplant"  # geplant/laufend/abgeschlossen/verzoegert
+    status: str = "geplant"  # Zielvokabular: geplant/laufend/abgeschlossen/entfaellt (siehe models.PlanPhase.status)
     progress: float | None = None
     plan_fte: float | None = None
     owner_person_id: int | None = None
@@ -505,6 +505,9 @@ class PlanPhaseUpdate(BaseModel):
     actual_start: str | None = None
     actual_end: str | None = None
     status: str | None = None
+    # Deprecated (P6/P11): bleibt im Schema aus Rückwärtskompatibilität, wird von
+    # update_plan_phase() aber ignoriert (siehe routers/planning.py) - kein Update-Pfad soll
+    # progress mehr schreiben können, nicht nur create_plan_phase().
     progress: float | None = None
     plan_fte: float | None = None
     owner_person_id: int | None = None

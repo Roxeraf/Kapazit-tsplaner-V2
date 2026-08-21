@@ -1,23 +1,29 @@
 import { useEffect, useState } from "react";
 import { api } from "../../../api/client";
-import AttachmentList from "../../../components/AttachmentList";
-import AttachmentPicker from "../../../components/AttachmentPicker";
 import ConfirmDialog from "../../../components/ConfirmDialog";
-import PersonPicker from "../../../components/PersonPicker";
 import TagChip from "../../../components/TagChip";
-import TagInput from "../../../components/TagInput";
 import usePeopleMap from "../../../hooks/usePeopleMap";
-import {
-  PLAN_PHASE_STATUS_LABELS,
-  PLAN_PHASE_TYPE_SUGGESTIONS,
-  type PlanPhase,
-  type PlanPhaseStatus,
-  type SubprojectDetail,
-} from "../../../types";
+import { PLAN_PHASE_STATUS_LABELS, type PlanPhase, type SubprojectDetail } from "../../../types";
+import PlanPhaseCreateModal from "./PlanPhaseCreateModal";
 import PlanPhaseGantt from "./PlanPhaseGantt";
 import PlanPhaseWorkspace from "./PlanPhaseWorkspace";
 
-const NO_SUBPROJECT = "__none__";
+// P11 (Planungs-/Kapazitätskonsolidierung): Liste ist ab jetzt eine kompakte Übersicht
+// (scannable Karten: Name, Zeitraum, Status, Plan-FTE, Owner, Tags, "Öffnen"). Bearbeitung
+// findet ausschließlich im PlanPhaseWorkspace-Drawer statt - der bisherige, parallel zum
+// Drawer bestehende Voll-Inline-Editor (sechs Datumsfelder + PersonPicker + TagInput direkt in
+// jeder Karte) ist entfernt. Das war das konkrete UX-Debt-Symptom aus dem Screenshot: der
+// Drawer war nur zusätzlich eingebaut worden, statt den alten Editor zu ersetzen.
+function fmtRange(start: string | null, end: string | null): string {
+  const fmt = (iso: string) => {
+    const d = new Date(iso + "T00:00:00");
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+  };
+  if (start && end) return `${fmt(start)} – ${fmt(end)}`;
+  if (start) return `ab ${fmt(start)}`;
+  if (end) return `bis ${fmt(end)}`;
+  return "Kein Termin";
+}
 
 export default function PlanPhaseList({
   projectId,
@@ -31,56 +37,14 @@ export default function PlanPhaseList({
   const [toDelete, setToDelete] = useState<PlanPhase | null>(null);
   const [openPhaseId, setOpenPhaseId] = useState<number | null>(null);
   const [view, setView] = useState<"list" | "gantt">("list");
+  const [showCreate, setShowCreate] = useState(false);
   const people = usePeopleMap();
-
-  const [phaseType, setPhaseType] = useState("");
-  const [subprojectId, setSubprojectId] = useState("");
-  const [ownerPersonId, setOwnerPersonId] = useState<number | null>(null);
-  const [tags, setTags] = useState<string[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
-  const [saving, setSaving] = useState(false);
 
   const refresh = () => {
     api.listPlanPhases(projectId).then(setPhases).catch((e) => setError(String(e)));
   };
 
   useEffect(refresh, [projectId]);
-
-  const handleAdd = async () => {
-    if (!phaseType.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const phase = await api.createPlanPhase(projectId, {
-        phase_type: phaseType.trim(),
-        subproject_id: subprojectId ? Number(subprojectId) : null,
-        owner_person_id: ownerPersonId,
-        tags,
-      });
-      for (const file of files) {
-        await api.uploadDocument(projectId, file, { entityType: "plan_phase", entityId: phase.id });
-      }
-      setPhaseType("");
-      setSubprojectId("");
-      setOwnerPersonId(null);
-      setTags([]);
-      setFiles([]);
-      refresh();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const update = async (phase: PlanPhase, changes: Partial<PlanPhase>) => {
-    try {
-      await api.updatePlanPhase(phase.id, changes);
-      refresh();
-    } catch (e) {
-      setError(String(e));
-    }
-  };
 
   const handleDelete = async () => {
     if (!toDelete) return;
@@ -121,205 +85,81 @@ export default function PlanPhaseList({
           >
             Gantt-Ansicht
           </button>
+          <button type="button" className="btn" onClick={() => setShowCreate(true)}>
+            + Phase hinzufügen
+          </button>
         </div>
       </div>
       {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
 
-      {view === "list" && (phases.length === 0 ? (
-        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Phasen geplant.</p>
-      ) : (
-        groupOrder.map((groupId) => (
-          <div key={groupId ?? "project"} style={{ marginBottom: "1rem" }}>
-            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.3rem" }}>
-              {subprojectName(groupId)}
-            </div>
-            {groups
-              .get(groupId)!
-              .map((phase) => (
-                <div key={phase.id} className="card" style={{ marginBottom: "0.6rem", padding: "0.6rem 0.85rem", fontSize: "0.88rem" }}>
+      {view === "list" &&
+        (phases.length === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Phasen geplant.</p>
+        ) : (
+          groupOrder.map((groupId) => (
+            <div key={groupId ?? "project"} style={{ marginBottom: "1rem" }}>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                {subprojectName(groupId)}
+              </div>
+              {groups.get(groupId)!.map((phase) => (
+                <div
+                  key={phase.id}
+                  className="card"
+                  style={{ marginBottom: "0.5rem", padding: "0.6rem 0.85rem", fontSize: "0.88rem", cursor: "pointer" }}
+                  onClick={() => setOpenPhaseId(phase.id)}
+                >
                   <div className="toolbar">
-                    <input
-                      key={phase.phase_type}
-                      defaultValue={phase.phase_type}
-                      list="plan-phase-type-suggestions"
-                      style={{ fontWeight: 600, border: "none", background: "none", padding: 0, fontSize: "0.95rem" }}
-                      onBlur={(e) => {
-                        const value = e.target.value.trim();
-                        if (value && value !== phase.phase_type) update(phase, { phase_type: value });
-                      }}
-                    />
+                    <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{phase.phase_type}</span>
                     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                      <select
-                        value={phase.status}
-                        onChange={(e) => update(phase, { status: e.target.value as PlanPhaseStatus })}
-                      >
-                        {Object.entries(PLAN_PHASE_STATUS_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
+                      <span className="legend-chip" style={{ background: "#eef3fa", padding: "0.1rem 0.55rem", borderRadius: "999px", fontSize: "0.78rem" }}>
+                        {PLAN_PHASE_STATUS_LABELS[phase.status]}
+                      </span>
                       <button
                         type="button"
                         className="btn secondary"
                         style={{ fontSize: "0.72rem", padding: "0.05rem 0.4rem" }}
-                        onClick={() => setOpenPhaseId(phase.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenPhaseId(phase.id);
+                        }}
                       >
                         Öffnen →
                       </button>
                       <button
                         type="button"
-                        onClick={() => setToDelete(phase)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setToDelete(phase);
+                        }}
                         style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
                       >
                         ×
                       </button>
                     </div>
                   </div>
-
-                  <div className="field-row" style={{ marginTop: "0.5rem" }}>
-                    <label>
-                      Plan-Start
-                      <input
-                        key={`${phase.id}-bs-${phase.baseline_start}`}
-                        type="date"
-                        defaultValue={phase.baseline_start ?? ""}
-                        onBlur={(e) => update(phase, { baseline_start: e.target.value || null })}
-                      />
-                    </label>
-                    <label>
-                      Plan-Ende
-                      <input
-                        key={`${phase.id}-be-${phase.baseline_end}`}
-                        type="date"
-                        defaultValue={phase.baseline_end ?? ""}
-                        onBlur={(e) => update(phase, { baseline_end: e.target.value || null })}
-                      />
-                    </label>
-                    <label>
-                      Forecast-Start
-                      <input
-                        key={`${phase.id}-fs-${phase.forecast_start}`}
-                        type="date"
-                        defaultValue={phase.forecast_start ?? ""}
-                        onBlur={(e) => update(phase, { forecast_start: e.target.value || null })}
-                      />
-                    </label>
-                    <label>
-                      Forecast-Ende
-                      <input
-                        key={`${phase.id}-fe-${phase.forecast_end}`}
-                        type="date"
-                        defaultValue={phase.forecast_end ?? ""}
-                        onBlur={(e) => update(phase, { forecast_end: e.target.value || null })}
-                      />
-                    </label>
+                  <div style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap", color: "var(--text-muted)", fontSize: "0.82rem", marginTop: "0.2rem" }}>
+                    <span>{fmtRange(phase.forecast_start, phase.forecast_end)}</span>
+                    {phase.plan_fte != null && <span>{phase.plan_fte.toFixed(2)} FTE</span>}
+                    {phase.owner_person_id != null && <span>{people.get(phase.owner_person_id) ?? "…"}</span>}
                   </div>
-                  <div className="field-row">
-                    <label>
-                      Ist-Start
-                      <input
-                        key={`${phase.id}-as-${phase.actual_start}`}
-                        type="date"
-                        defaultValue={phase.actual_start ?? ""}
-                        onBlur={(e) => update(phase, { actual_start: e.target.value || null })}
-                      />
-                    </label>
-                    <label>
-                      Ist-Ende
-                      <input
-                        key={`${phase.id}-ae-${phase.actual_end}`}
-                        type="date"
-                        defaultValue={phase.actual_end ?? ""}
-                        onBlur={(e) => update(phase, { actual_end: e.target.value || null })}
-                      />
-                    </label>
-                    <label>
-                      Teilprojekt
-                      <select
-                        value={phase.subproject_id ?? NO_SUBPROJECT}
-                        onChange={(e) =>
-                          update(phase, {
-                            subproject_id: e.target.value === NO_SUBPROJECT ? null : Number(e.target.value),
-                          })
-                        }
-                      >
-                        <option value={NO_SUBPROJECT}>Projektweit</option>
-                        {subprojects.map((sp) => (
-                          <option key={sp.id} value={sp.id}>
-                            {sp.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <label style={{ display: "block", marginTop: "0.4rem" }}>
-                    Owner
-                    <PersonPicker
-                      value={phase.owner_person_id}
-                      onChange={(personId) => update(phase, { owner_person_id: personId })}
-                    />
-                  </label>
-                  {phase.owner_person_id != null && (
-                    <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
-                      {people.get(phase.owner_person_id) ?? "…"}
-                    </p>
-                  )}
                   {phase.tags.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.35rem" }}>
                       {phase.tags.map((t) => (
                         <TagChip key={t} name={t} />
                       ))}
                     </div>
                   )}
-                  <AttachmentList documents={phase.documents} />
                 </div>
               ))}
-          </div>
-        ))
-      ))}
-
-      {view === "gantt" && <PlanPhaseGantt phases={phases} subprojects={subprojects} />}
-
-      <datalist id="plan-phase-type-suggestions">
-        {PLAN_PHASE_TYPE_SUGGESTIONS.map((s) => (
-          <option key={s} value={s} />
+            </div>
+          ))
         ))}
-      </datalist>
 
-      {view === "list" && <div className="field-row" style={{ marginTop: "0.75rem", flexDirection: "column", alignItems: "stretch" }}>
-        <label>
-          Neue Phase
-          <input
-            value={phaseType}
-            onChange={(e) => setPhaseType(e.target.value)}
-            list="plan-phase-type-suggestions"
-            placeholder="z. B. Pflichtenheft"
-          />
-        </label>
-        <div className="field-row" style={{ marginTop: 0 }}>
-          <label>
-            Teilprojekt
-            <select value={subprojectId} onChange={(e) => setSubprojectId(e.target.value)}>
-              <option value="">Projektweit</option>
-              {subprojects.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {sp.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Owner
-            <PersonPicker value={ownerPersonId} onChange={setOwnerPersonId} />
-          </label>
-        </div>
-        <TagInput value={tags} onChange={setTags} />
-        <AttachmentPicker files={files} onChange={setFiles} />
-        <button type="button" className="btn secondary" style={{ alignSelf: "flex-start" }} disabled={saving} onClick={handleAdd}>
-          + Phase hinzufügen
-        </button>
-      </div>}
+      {view === "gantt" && <PlanPhaseGantt phases={phases} subprojects={subprojects} onOpen={setOpenPhaseId} />}
+
+      {showCreate && (
+        <PlanPhaseCreateModal projectId={projectId} subprojects={subprojects} onClose={() => setShowCreate(false)} onCreated={refresh} />
+      )}
 
       <ConfirmDialog
         open={toDelete !== null}
@@ -332,6 +172,7 @@ export default function PlanPhaseList({
       <PlanPhaseWorkspace
         planPhaseId={openPhaseId}
         projectId={projectId}
+        subprojects={subprojects}
         onClose={() => setOpenPhaseId(null)}
         onChanged={refresh}
       />

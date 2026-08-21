@@ -14,11 +14,22 @@ from ..database import get_db
 router = APIRouter(prefix="/projects", tags=["baselines"])
 
 # Welche Felder je entity_type beim Erstellen eines Snapshots eingefroren werden (Master-MD
-# Abschnitt 9/10: Baseline/Forecast/Status je PlanPhase (Progress seit P6 deprecatet),
-# Baseline/Forecast/Status je Milestone). Nur PlanPhase/Milestone sind baseline-fähig,
+# Abschnitt 9/10: Phasentyp/Termine/plan_fte/Status je PlanPhase (Progress seit P6
+# deprecatet), Name/Termin/Status je Milestone). Nur PlanPhase/Milestone sind baseline-fähig,
 # siehe CONCEPT.md Abschnitt 12.3 Frage 5 - keine strukturierte Baseline für das Legacy-Gantt-Grid.
+# plan_fte seit P11 (Planungs-/Kapazitätskonsolidierung) mit eingefroren, da plan_fte die
+# Source of Truth für geplanten Aufwand ist - ein Planstand ohne plan_fte könnte historischen
+# Aufwand nicht rekonstruieren.
 _SNAPSHOT_FIELDS: dict[str, list[str]] = {
-    "plan_phase": ["phase_type", "baseline_start", "baseline_end", "forecast_start", "forecast_end", "status"],
+    "plan_phase": [
+        "phase_type",
+        "baseline_start",
+        "baseline_end",
+        "forecast_start",
+        "forecast_end",
+        "plan_fte",
+        "status",
+    ],
     "milestone": ["name", "baseline_date", "forecast_date", "status"],
 }
 

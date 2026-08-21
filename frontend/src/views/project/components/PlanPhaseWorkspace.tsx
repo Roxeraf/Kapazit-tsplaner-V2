@@ -63,6 +63,10 @@ export default function PlanPhaseWorkspace({
   const [tab, setTab] = useState<Tab>("uebersicht");
   const [correctingActual, setCorrectingActual] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // ActivityFeed lädt selbst nach, bekommt Mutationen von NotesSection/TaskList/DecisionList/
+  // BlockerList (Geschwisterkomponenten im selben Tab) aber nicht automatisch mit - dieser
+  // Zähler wird bei jedem reload() hochgezählt und an ActivityFeed durchgereicht (P16.1).
+  const [activityVersion, setActivityVersion] = useState(0);
   const people = usePeopleMap();
 
   const load = () => {
@@ -83,6 +87,7 @@ export default function PlanPhaseWorkspace({
 
   const reload = () => {
     load();
+    setActivityVersion((v) => v + 1);
     onChanged?.();
   };
 
@@ -363,6 +368,7 @@ export default function PlanPhaseWorkspace({
               filterTypes={PHASE_ACTIVITY_TYPES}
               onOpenSection={() => setTab("aktivitaet")}
               onChanged={reload}
+              refreshToken={activityVersion}
             />
           </div>
 

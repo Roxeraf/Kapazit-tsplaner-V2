@@ -143,10 +143,20 @@ export default function PlanPhaseCapacityTab({
     onChanged();
   };
 
+  // P14.2 (Reconciliation sichtbar): plan_fte bleibt führend (CONCEPT.md Abschnitt 3/6) - wenn
+  // die Rollen-Aufschlüsselung mehr FTE summiert als geplant, wird das nicht automatisch
+  // korrigiert, sondern klar erklärt statt eine verwirrende negative Zahl zu zeigen.
+  const openFte = metrics.reconciliation.open_fte;
+  const overAllocated = openFte != null && openFte < 0;
+
   return (
     <div>
       <div className="card" style={{ marginBottom: "0.75rem" }}>
-        <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Aufwand</h4>
+        <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Phasenaufwand</h4>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 0 }}>
+          Der Aufwand dieser einen Phase - unabhängig von der projektweiten Monatsansicht "Projektkapazität nach
+          Monat" weiter oben im Planung-Tab (zwei getrennte Achsen, keine doppelte Pflege).
+        </p>
         <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem" }}>
           <div>
             <strong>Plan-Aufwand:</strong> {fmtFte(planFte)}
@@ -173,9 +183,10 @@ export default function PlanPhaseCapacityTab({
                   {expandedId === d.id ? "▾" : "▸"} {d.resource_role_name}
                 </button>
                 <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", fontSize: "0.85rem" }}>
-                  <span>{d.fte.toFixed(2)} FTE</span>
+                  <span>Bedarf {d.fte.toFixed(2)} FTE</span>
                   <span style={{ color: d.allocation_gap > 0 ? "var(--rot)" : "var(--gruen)" }}>
-                    {d.assigned_fte.toFixed(2)} besetzt
+                    Besetzt {d.assigned_fte.toFixed(2)}
+                    {d.allocation_gap > 0 && ` · noch unbesetzt ${d.allocation_gap.toFixed(2)}`}
                   </span>
                   <button type="button" onClick={() => handleDeleteDemand(d.id)} style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}>
                     ×
@@ -187,13 +198,23 @@ export default function PlanPhaseCapacityTab({
           ))
         )}
 
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginTop: "0.5rem" }}>
-          <span>
-            <strong>Aufgeschlüsselt:</strong> {fmtFte(metrics.reconciliation.breakdown_fte)}
-          </span>
-          <span>
-            <strong>Noch nicht aufgeschlüsselt:</strong> {fmtFte(metrics.reconciliation.open_fte)}
-          </span>
+        <div style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>
+              <strong>Aufgeschlüsselt:</strong> {fmtFte(metrics.reconciliation.breakdown_fte)}
+            </span>
+            {!overAllocated && (
+              <span>
+                <strong>Noch nicht aufgeschlüsselt:</strong> {fmtFte(openFte)}
+              </span>
+            )}
+          </div>
+          {overAllocated && (
+            <p style={{ color: "var(--rot)", margin: "0.3rem 0 0", fontSize: "0.82rem" }}>
+              Aufgeschlüsselter Bedarf liegt {Math.abs(openFte!).toFixed(2)} FTE über dem geplanten
+              Phasenaufwand. Plan-FTE bleibt führend.
+            </p>
+          )}
         </div>
 
         {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}

@@ -4,25 +4,120 @@ import ConfirmDialog from "../../../components/ConfirmDialog";
 import PersonPicker from "../../../components/PersonPicker";
 import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
-import type { BaselineSnapshotSummary } from "../../../types";
+import type { BaselineDeviation, BaselineSnapshotSummary } from "../../../types";
 
-function formatDateTime(iso: string): string {
+// P13 (Planstand Experience Completion): fachlicher Begriff ist "Planstand", nicht "Baseline" -
+// das Wort "Baseline" verschwindet aus dem normalen UI (CONCEPT.md Abschnitt 5.3/13.1). Der
+// technische Modell-/Endpointname (BaselineSnapshot, /baselines) bleibt unverändert, nur die
+// UI-Beschriftung ändert sich. Reine Wiederverwendung bestehender Endpoints
+// (POST/GET/DELETE .../baselines, GET .../baselines/{id}/deviations) - kein neuer Endpoint.
+
+function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-// Phase 26.2: POST /projects/{id}/baselines friert automatisch alle aktuellen
-// PlanPhase/Milestone-Felder ein (backend/app/routers/baselines.py) - kein Formular mit
-// Einzelwerten nötig, nur ein Name.
+// Nur die Felder, die im normalen Planstand-Vergleich fachlich sichtbar sein sollen. baseline_*
+// -Felder (baseline_start/baseline_end/baseline_date) sind compat-only (siehe CONCEPT.md
+// Abschnitt 3) und werden hier bewusst nicht angezeigt, obwohl compute_deviations sie technisch
+// mitliefert - sonst würde der Begriff "Baseline" durch die Hintertür zurückkommen.
+const FIELD_LABELS: Record<string, string> = {
+  forecast_start: "Start",
+  forecast_end: "Ende",
+  forecast_date: "Datum",
+  plan_fte: "Plan-Aufwand",
+};
+
+// Entity-Label vom Backend kommt als `Planphase „Konfiguration“` (entity_links._resolve_entity_label)
+// - für die Vergleichsansicht reicht der reine Name, das technische Präfix ist Rauschen.
+function entityDisplayName(label: string | null, fallback: string): string {
+  if (!label) return fallback;
+  const match = label.match(/„(.+)“/);
+  return match ? match[1] : label;
+}
+
+function valuesEqual(a: string | null, b: string | null): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  const na = Number(a);
+  const nb = Number(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return na === nb;
+  return false;
+}
+
+function formatDeviation(dev: BaselineDeviation): string {
+  if (dev.field === "plan_fte") {
+    const from = dev.baseline_value == null ? "—" : Number(dev.baseline_value).toFixed(2);
+    const to = dev.current_value == null ? "—" : Number(dev.current_value).toFixed(2);
+    const delta =
+      dev.baseline_value != null && dev.current_value != null
+        ? Number(dev.current_value) - Number(dev.baseline_value)
+        : null;
+    const deltaText = delta == null ? "" : ` (${delta > 0 ? "+" : ""}${delta.toFixed(2)} FTE)`;
+    return `${from} → ${to} FTE${deltaText}`;
+  }
+  const from = dev.baseline_value ? formatDate(dev.baseline_value) : "—";
+  const to = dev.current_value ? formatDate(dev.current_value) : "—";
+  const deltaText = dev.delta_days == null ? "" : ` (${dev.delta_days > 0 ? "+" : ""}${dev.delta_days} Tage)`;
+  return `${from} → ${to}${deltaText}`;
+}
+
+function ComparisonPanel({ baselineId }: { baselineId: number }) {
+  const [deviations, setDeviations] = useState<BaselineDeviation[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getBaselineDeviations(baselineId).then(setDeviations).catch((e) => setError(String(e)));
+  }, [baselineId]);
+
+  if (error) return <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>;
+  if (!deviations) return <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Lade Vergleich …</p>;
+
+  const relevant = deviations.filter((d) => FIELD_LABELS[d.field] && !valuesEqual(d.baseline_value, d.current_value));
+
+  if (relevant.length === 0) {
+    return <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Keine Abweichungen zum aktuellen Plan.</p>;
+  }
+
+  const groups = new Map<string, { name: string; devs: BaselineDeviation[] }>();
+  for (const dev of relevant) {
+    const key = `${dev.entity_type}-${dev.entity_id}`;
+    const group = groups.get(key) ?? { name: entityDisplayName(dev.label, `#${dev.entity_id}`), devs: [] };
+    group.devs.push(dev);
+    groups.set(key, group);
+  }
+
+  return (
+    <div style={{ marginTop: "0.5rem", display: "grid", gap: "0.6rem" }}>
+      {Array.from(groups.values()).map((group) => (
+        <div key={group.name} style={{ fontSize: "0.85rem" }}>
+          <strong>{group.name}</strong>
+          <div style={{ display: "grid", gap: "0.15rem", marginTop: "0.2rem" }}>
+            {group.devs.map((dev) => (
+              <div key={dev.field} style={{ display: "flex", gap: "0.5rem", color: "var(--text-muted)" }}>
+                <span style={{ minWidth: "5rem" }}>{FIELD_LABELS[dev.field]}</span>
+                <span>{formatDeviation(dev)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function BaselineList({ projectId }: { projectId: number }) {
   const [baselines, setBaselines] = useState<BaselineSnapshotSummary[]>([]);
   const [name, setName] = useState("");
+  const [reason, setReason] = useState("");
   const [createdByPersonId, setCreatedByPersonId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [toDelete, setToDelete] = useState<BaselineSnapshotSummary | null>(null);
+  const [comparingId, setComparingId] = useState<number | null>(null);
 
   const refresh = () => {
     api.listBaselines(projectId).then(setBaselines).catch((e) => setError(String(e)));
@@ -35,10 +130,17 @@ export default function BaselineList({ projectId }: { projectId: number }) {
     setSaving(true);
     setError(null);
     try {
-      await api.createBaseline(projectId, { name: name.trim(), created_by_person_id: createdByPersonId, tags });
+      await api.createBaseline(projectId, {
+        name: name.trim(),
+        reason: reason.trim() || null,
+        created_by_person_id: createdByPersonId,
+        tags,
+      });
       setName("");
+      setReason("");
       setCreatedByPersonId(null);
       setTags([]);
+      setShowCreate(false);
       refresh();
     } catch (e) {
       setError(String(e));
@@ -54,69 +156,110 @@ export default function BaselineList({ projectId }: { projectId: number }) {
     refresh();
   };
 
+  // Versionsnummerierung: Liste kommt neueste zuerst (created_at desc) - V1 ist der älteste
+  // festgehaltene Planstand, Vn der neueste.
+  const total = baselines.length;
+
   return (
     <div>
-      <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Baselines</h3>
+      <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
+        <h3 style={{ color: "var(--navy)", margin: 0 }}>Planstände</h3>
+        <button type="button" className="btn" onClick={() => setShowCreate((v) => !v)}>
+          {showCreate ? "Abbrechen" : "+ Planstand festhalten"}
+        </button>
+      </div>
+      <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: 0 }}>
+        <strong>Aktueller Plan</strong> ist der live bearbeitbare Plan in der Phasen-/Milestone-Liste oben. Ein
+        Planstand ist ein benannter, eingefrorener historischer Stand davon, gegen den später verglichen werden
+        kann.
+      </p>
       {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
-      {baselines.length === 0 ? (
-        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Baseline gespeichert.</p>
-      ) : (
-        baselines.map((b) => (
-          <div
-            key={b.id}
-            className="toolbar"
-            style={{ padding: "0.4rem 0", borderBottom: "1px solid var(--border)", fontSize: "0.85rem" }}
-          >
-            <div>
-              <span>
-                <strong>{b.name}</strong> · {formatDateTime(b.created_at)} · {b.entry_count} Einträge
-              </span>
-              {b.tags.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
-                  {b.tags.map((t) => (
-                    <TagChip key={t} name={t} />
-                  ))}
-                </div>
-              )}
+
+      {showCreate && (
+        <div className="card" style={{ marginBottom: "0.75rem", background: "#f8fafc" }}>
+          <div className="field-row" style={{ marginTop: 0, flexDirection: "column", alignItems: "stretch" }}>
+            <label>
+              Name
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. V4 – Replanung nach Kundenworkshop" />
+            </label>
+            <label>
+              Grund
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="optional, z. B. Kunde verschiebt Schnittstellenfreigabe"
+              />
+            </label>
+            <div className="field-row" style={{ marginTop: 0 }}>
+              <label>
+                Erstellt von
+                <PersonPicker value={createdByPersonId} onChange={setCreatedByPersonId} />
+              </label>
             </div>
+            <label>
+              Tags
+              <TagInput value={tags} onChange={setTags} />
+            </label>
+            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
+              Enthält: ✓ Planphasen · ✓ Plan-Aufwand · ✓ Meilensteine
+            </p>
             <button
               type="button"
-              onClick={() => setToDelete(b)}
-              style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
+              className="btn"
+              style={{ alignSelf: "flex-start", marginTop: "0.4rem" }}
+              disabled={saving || !name.trim()}
+              onClick={handleSave}
             >
-              ×
+              Planstand festhalten
             </button>
+          </div>
+        </div>
+      )}
+
+      {baselines.length === 0 ? (
+        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch kein Planstand festgehalten.</p>
+      ) : (
+        baselines.map((b, idx) => (
+          <div key={b.id} className="card" style={{ marginBottom: "0.5rem", padding: "0.6rem 0.85rem", fontSize: "0.88rem" }}>
+            <div className="toolbar">
+              <span>
+                <strong>V{total - idx}</strong> {b.name} · {formatDate(b.created_at)}
+              </span>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ fontSize: "0.75rem", padding: "0.1rem 0.5rem" }}
+                  onClick={() => setComparingId(comparingId === b.id ? null : b.id)}
+                >
+                  {comparingId === b.id ? "Vergleich schließen" : "Mit aktuellem Plan vergleichen"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setToDelete(b)}
+                  style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            {b.reason && <p style={{ fontSize: "0.82rem", margin: "0.3rem 0 0" }}>{b.reason}</p>}
+            {b.tags.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0 0" }}>
+                {b.tags.map((t) => (
+                  <TagChip key={t} name={t} />
+                ))}
+              </div>
+            )}
+            {comparingId === b.id && <ComparisonPanel baselineId={b.id} />}
           </div>
         ))
       )}
-      <div className="field-row" style={{ marginTop: "0.75rem" }}>
-        <label>
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Kickoff-Freigabe" />
-        </label>
-        <label>
-          Erstellt von
-          <PersonPicker value={createdByPersonId} onChange={setCreatedByPersonId} />
-        </label>
-        <label>
-          Tags
-          <TagInput value={tags} onChange={setTags} />
-        </label>
-        <button
-          type="button"
-          className="btn secondary"
-          style={{ alignSelf: "flex-end" }}
-          disabled={saving || !name.trim()}
-          onClick={handleSave}
-        >
-          Baseline speichern
-        </button>
-      </div>
 
       <ConfirmDialog
         open={toDelete !== null}
-        title="Baseline löschen"
-        message={`Baseline "${toDelete?.name}" wirklich löschen?`}
+        title="Planstand löschen"
+        message={`Planstand "${toDelete?.name}" wirklich löschen?`}
         onConfirm={handleDelete}
         onCancel={() => setToDelete(null)}
       />

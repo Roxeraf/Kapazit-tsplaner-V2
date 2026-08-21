@@ -586,6 +586,7 @@ class MilestoneOut(BaseModel):
 
 class BaselineSnapshotCreate(BaseModel):
     name: str
+    reason: str | None = None
     created_by_person_id: int | None = None
     tags: list[str] = []
 
@@ -602,6 +603,7 @@ class BaselineSnapshotOut(BaseModel):
     id: int
     project_id: int
     name: str
+    reason: str | None = None
     created_at: str
     created_by_person_id: int | None
     tags: list[str] = []
@@ -612,6 +614,7 @@ class BaselineSnapshotSummary(BaseModel):
     id: int
     project_id: int
     name: str
+    reason: str | None = None
     created_at: str
     created_by_person_id: int | None
     entry_count: int

@@ -28,8 +28,10 @@ import type {
   PortfolioUtilizationEntry,
   ResourceProfile,
   ActivityItem,
+  BaselineDeviation,
   BaselineSnapshot,
   BaselineSnapshotSummary,
+  KnowledgeProjectContext,
   Blocker,
   BlockerParty,
   BlockerStatus,
@@ -222,9 +224,13 @@ export const api = {
   deleteMilestone: (milestoneId: number) => request<void>(`/projects/milestones/${milestoneId}`, { method: "DELETE" }),
 
   listBaselines: (projectId: number) => request<BaselineSnapshotSummary[]>(`/projects/${projectId}/baselines`),
-  createBaseline: (projectId: number, payload: { name: string; created_by_person_id?: number | null; tags?: string[] }) =>
-    request<BaselineSnapshot>(`/projects/${projectId}/baselines`, { method: "POST", body: JSON.stringify(payload) }),
+  createBaseline: (
+    projectId: number,
+    payload: { name: string; reason?: string | null; created_by_person_id?: number | null; tags?: string[] },
+  ) => request<BaselineSnapshot>(`/projects/${projectId}/baselines`, { method: "POST", body: JSON.stringify(payload) }),
   deleteBaseline: (baselineId: number) => request<void>(`/projects/baselines/${baselineId}`, { method: "DELETE" }),
+  getBaselineDeviations: (baselineId: number) =>
+    request<BaselineDeviation[]>(`/projects/baselines/${baselineId}/deviations`),
 
   // Kapazität (Phase 26.3): ResourceDemand/ResourceAssignment ersetzen ab jetzt das alte
   // FTE-Raster (backend/app/routers/capacity.py)
@@ -309,6 +315,8 @@ export const api = {
     if (projectId !== undefined) query.set("project_id", String(projectId));
     return request<TagDossier>(`/knowledge/tags/dossier?${query.toString()}`);
   },
+  getProjectKnowledgeContext: (projectId: number) =>
+    request<KnowledgeProjectContext>(`/knowledge/project/${projectId}`),
 
   exportPptxUrl: (projectId: number) => `${API_BASE}/projects/${projectId}/export/pptx`,
   exportPortfolioPptxUrl: () => `${API_BASE}/projects/export/pptx/portfolio`,

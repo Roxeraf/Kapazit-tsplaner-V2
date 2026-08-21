@@ -101,7 +101,7 @@ export default function ProjectOverviewTab() {
               <p style={{ margin: "0.2rem 0" }}>
                 Aktuelle Phase: {cockpit.current_phase ?? "—"}
                 <br />
-                Forecast-Ende: {cockpit.forecast_end ?? "—"}
+                Voraussichtliches Projektende: {cockpit.forecast_end ?? "—"}
                 {cockpit.health.schedule.status !== "gruen" && cockpit.health.schedule.status !== "grau" && (
                   <>
                     <br />

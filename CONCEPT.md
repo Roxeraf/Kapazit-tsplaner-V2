@@ -458,10 +458,14 @@ projektweiten Grobplanung sind also **bereits unterstützt**, nicht nur eine Ide
 **Wichtige technische Grenze (P18-relevant, Abschnitt 6a.8):** `compute_person_capacity`
 nimmt ausschließlich einen Monats-Bucket (`period: "Apr 26"`, via `constants.parse_period`)
 entgegen, keinen beliebigen Datumsbereich. Ein `PlanPhase`-Zeitraum wie "20.10.–20.11." kann
-damit heute **nicht direkt** an die Available-Capacity-Berechnung übergeben werden — jeder
-Aufrufer (inkl. `GET /resource-demands/{id}/candidates`) prüft Kapazität faktisch nur für den
-einen Monat, der in `ResourceDemand.period` steht (siehe 6.1), nicht für den vollen
-Phasenzeitraum.
+damit heute **nicht direkt** an `compute_person_capacity` übergeben werden — dafür existiert
+seit P18/B-4 die bereichsbasierte Erweiterung `compute_person_capacity_for_range` (Abschnitt
+6b.5/6b.11). **Historische Anmerkung (Stand vor P18.1 Stabilization, Abschnitt 16.16):** bis
+zu diesem Stabilization-Durchgang prüfte `GET /resource-demands/{id}/candidates` Kapazität
+weiterhin nur für den einen Monat aus `ResourceDemand.period`, unabhängig von einer gesetzten
+`plan_phase_id` — seit 16.16 nutzt dieser Endpoint bei gesetzter `plan_phase_id`
+`compute_person_capacity_for_range` über die volle Phasen-Range, mit unverändertem
+Perioden-Fallback für Legacy-Demands ohne `plan_phase_id`.
 
 ### 6.3 Bekannte Aggregationslücke (aktueller Stand, kein P18-Vorschlag)
 
@@ -854,7 +858,10 @@ Projekt-/Monatssicht, keine Phasensicht.
 ---
 
 ## 6b. PlanPhase-only Zielarchitektur (P18 Pass 2 — **final gelockt, B-1–B-7 IMPLEMENTIERT und
-gegen Code CONFIRMED, B-8 Legacy Cutover BLOCKED**)
+gegen Code CONFIRMED, P18.1 Stabilization abgeschlossen (Abschnitt 16.16), B-8 Legacy Cutover
+weiterhin BLOCKED — nur noch wegen des ausstehenden realistischen Migrations-Dry-Runs gegen
+echte Produktivdaten (externe Vorbedingung, siehe 16.16), nicht mehr wegen offener
+Code-Defekte**)
 
 **Status dieses Abschnitts:** Fachlich vollständig spezifiziert, gegen Code geprüft und **final
 freigegeben/gelockt** (Codebase Validation Matrix + vollständige Herleitung siehe separates
@@ -882,11 +889,16 @@ die API. **B-7 (Gantt/Milestone/Planstand Integration) ist ebenfalls implementie
 dokumentierten Gap bei der Planstand-Deviation-Erkennung (`Milestone.plan_phase_id` operativ in
 Router+UI, Planstand friert `parent_phase_id`/`reihenfolge`/`Milestone.plan_phase_id` mit ein,
 Planstand-Vergleich zeigt strukturelle Abweichungen mit Phasennamen statt roher IDs für die
-meisten Fälle — siehe 16.13/16.15). Weiterhin offen: keine Migration wurde gegen echte
-Produktivdaten ausgeführt (B-2 noch nicht angewendet, bestehende Subprojects/Grobplanung sind
-daher weiterhin die einzige Quelle für bereits existierende Projekte), und
+meisten Fälle — siehe 16.13/16.15). **P18.1 Stabilization (16.16) hat die Planstand-
+Deviation-Erkennung vervollständigt** (Phase hinzugefügt/entfernt strukturell erkannt, kein
+Roh-ID-Leck mehr) **und den verbliebenen Range-Gap im Legacy-Candidates-Endpoint geschlossen**
+(`GET /resource-demands/{id}/candidates` prüft bei gesetzter `plan_phase_id` jetzt ebenfalls
+die volle Phasen-Range). Weiterhin offen: keine Migration wurde gegen echte Produktivdaten
+ausgeführt (B-2 noch nicht angewendet, bestehende Subprojects/Grobplanung sind daher weiterhin
+die einzige Quelle für bereits existierende Projekte — dieser Schritt ist eine externe
+Vorbedingung außerhalb dieser Entwicklungsumgebung, siehe 16.16), und
 `ResourceDemandGrid`/Subproject-Verwaltung sind noch nicht entfernt (B-8, **BLOCKIERT** — siehe
-16.15 für die vollständige Blocker-Liste).
+16.16 für den aktuellen, verkleinerten Blocker-Stand).
 
 ### 6b.1 Kernidee
 
@@ -2319,6 +2331,241 @@ Kern (Baum, Direktzuweisung, abgeleitete Kapazität, Gantt) ist live end-to-end 
 sind **konkrete, klein-skalierte Nacharbeiten** (Defekte 1–2 oben schließen genügt, um die drei
 roten Punkte grün zu bekommen), gefolgt von einem echten Produktiv-Dry-Run (Defekt 7), bevor der
 eigentliche Cutover (finaler Plan siehe unten) angestoßen werden sollte.
+
+### 16.16 P18.1 Stabilization & B-8 Unblock (dieser Durchgang)
+
+**Auftrag:** die drei in 16.15 identifizierten B-8-Blocker (Defekte 1/2/9-Deviation-Erkennung,
+2/8-Legacy-Candidates-Range, plus die begleitenden Defekte 3/6/7) gezielt schließen und das
+GO/NO-GO-Gate erneut ausführen — **ausdrücklich ohne** produktive Migration, ohne
+`ResourceDemandGrid`-Removal, ohne Subproject-Cutover, ohne irreversible Änderungen (siehe
+Auftrag Abschnitt 10). Alle Änderungen sind Code+Test, keine neue Architekturentscheidung.
+
+#### 1. Fixed Defects
+
+| # (aus 16.15) | Defekt | Status nach diesem Durchgang |
+|---|---|---|
+| 1 | Planstand erkennt "Phase hinzugefügt" gar nicht, "Phase entfernt" unvollständig (Roh-ID-Leck) | **FIXED** — siehe Abschnitt 2 unten |
+| 2 | `GET /resource-demands/{id}/candidates` prüft nur einen Monats-Bucket statt der vollen Phasen-Range | **FIXED** — siehe Abschnitt 3 unten |
+| 3 | Kein Backend-Guard verhindert das Löschen der Systemrolle "Ohne Rolle" | **FIXED** (Domain-Guard, kein künstlicher Endpoint) — siehe Abschnitt 5 unten |
+| 4 | Kein atomarer Bulk-Reorder-Endpoint für `PlanPhase.reihenfolge` | **unverändert offen** — außerhalb des Scopes dieses Durchgangs (kein B-8-Blocker laut 16.15-Kategorisierung, reine UX-Komfortfunktion ohne Datenrisiko) |
+| 5 | Einfaches `DELETE /plan-phases/{id}` verlässt sich auf DB-seitiges `ON DELETE SET NULL` statt Anwendungscode | **unverändert offen** — außerhalb des Scopes dieses Durchgangs (unter Produktions-Postgres funktional, kein B-8-Blocker) |
+| 6 | Testabdeckung für `compute_person_capacity_for_range` unvollständig | **FIXED** — siehe Abschnitt 4 unten |
+| 7 | Migrations-Dry-Run nur gegen synthetische Fixture, nie gegen echte Produktivdaten | **Tooling/Runbook vorbereitet, Ausführung weiterhin extern blockiert** — siehe Abschnitt 7 unten |
+
+Defekte 4/5 waren in der Aufgabenstellung dieses Durchgangs nicht explizit adressiert (Fokus:
+Abschnitte 1–7 des Auftrags) und sind laut 16.15 kein B-8-Blocker (sie tauchten nicht unter den
+drei roten GO/NO-GO-Punkten 1/8/9 auf) — bewusst nicht mit-erledigt (Minimal-Change-Prinzip),
+bleiben aber als offene, dokumentierte Kleinfunde bestehen.
+
+#### 2. Planstand Diff
+
+`baseline_calc.compute_deviations` (Backend) erkennt jetzt zusätzlich zur bestehenden
+Feld-für-Feld-Abweichung strukturelle Baum-Änderungen einer `PlanPhase`, über eine neue
+`_structural_plan_phase_deviations`-Hilfsfunktion — **erweitert die bestehende Baseline-/
+Deviation-API additiv, keine zweite Diff-Engine, kein neuer Endpoint**:
+
+- **Phase hinzugefügt:** aktuelle `PlanPhase`-ID des Projekts ohne Snapshot-Eintrag → neue
+  Deviation mit `type="added"`, `label`/`current_value` = aktueller `phase_type` (Live-Wert).
+- **Phase entfernt:** Snapshot-`entity_id` (aus `BaselineEntry`) ohne zugehörige aktuelle
+  `PlanPhase`-Zeile → neue Deviation mit `type="removed"`, Name aus dem eigenen, zum
+  Snapshot-Zeitpunkt bereits eingefrorenen `phase_type`-Feld rekonstruiert (kein neues
+  Snapshot-Feld nötig, `phase_type` war schon vorher Teil von `_SNAPSHOT_FIELDS`) — **kein
+  `#<id>`-Fallback im normalen UI**, da die Quelle immer vorhanden ist.
+- Für eine bereits als `removed` markierte Phase werden die redundanten Feld-Deltas (z.B.
+  "Start: 2024-01-01 → —") unterdrückt, damit dieselbe Löschung nicht doppelt/widersprüchlich
+  dargestellt wird.
+- `BaselineDeviationOut` bekommt ein additives Feld `type: "changed" | "added" | "removed"`
+  (Default `"changed"`, keine Breaking Change für bestehende Konsumenten wie
+  `routers/controlling.py`s portfolioweite Baseline-Deviations, die weiterhin nur auf
+  `delta_days is not None` filtern und `type="added"/"removed"` damit automatisch ignorieren —
+  fachlich korrekt, da diese Ansicht reine Termin-Abweichungen zeigt).
+- Frontend (`BaselineList.tsx`): strukturelle Deviations werden getrennt von den
+  Feld-Änderungs-Gruppen als eigene Zeilen dargestellt — `"+ Phase hinzugefügt: <Name>"` (grün)
+  bzw. `"− Phase entfernt: <Name>"` (rot), ohne rohe ID.
+- "reihenfolge geändert" bleibt weiterhin bewusst kein fachlicher Delta (unverändert, wie
+  CONCEPT.md das seit B-7 definiert).
+
+**Tests** (`backend/scripts/test_milestone_and_baseline_tree.py`, erweitert, Schritte 5–8):
+Phase added, Phase removed, Parent geändert (Regression, bereits vorher grün), plan_fte
+geändert (Regression), forecast_start geändert inkl. `delta_days` (Regression), gelöschte
+Entität liefert lesbaren Namen statt Roh-ID, kein Roh-ID-Leck in normalen Deviation-Labels,
+unveränderter Baum liefert keine strukturellen Deviations. Live grün verifiziert.
+
+#### 3. Legacy Candidates Range Fix
+
+`GET /resource-demands/{demand_id}/candidates` (`routers/capacity.py`) prüft jetzt: ist
+`ResourceDemand.plan_phase_id` gesetzt, wird die zugehörige `PlanPhase` geladen und — sofern
+`forecast_start`/`forecast_end` gesetzt sind — Available Capacity über
+`compute_person_capacity_for_range` (**wiederverwendet, kein neuer Kapazitätsalgorithmus**)
+für den vollen Phasenzeitraum geprüft, exakt wie der bereits bestehende Haupt-Flow
+`GET /plan-phases/{id}/assignment-candidates`. Ohne `plan_phase_id` (unmigrierte
+Alt-Grobplanung) bleibt die bisherige `compute_person_capacity(db, person_id, demand.period)`-
+Logik unverändert als Fallback erhalten — kein Regressionsrisiko für Legacy-Daten.
+
+**Tests** (`backend/scripts/test_direct_assignment_and_capacity_range.py`, erweitert, Schritte
+7–8): Phasen-Demand über eine Monatsgrenze hinweg (Person mit Kapazität nur im zweiten Monat,
+via volle Oktober-Abwesenheit erzwungen) wird jetzt korrekt als Kandidat gefunden; Ergebnis ist
+deckungsgleich (Personen-IDs + `available_fte`) mit `GET /plan-phases/{id}/assignment-
+candidates` für dieselbe Phase; Legacy-Demand ohne `plan_phase_id` bleibt nachweislich
+periodenbasiert (dieselbe Person mit reiner November-Kapazität taucht dort korrekt NICHT auf).
+Live grün verifiziert.
+
+#### 4. Capacity Edge-Case Tests
+
+Neues Testskript `backend/scripts/test_capacity_range_edge_cases.py`, ruft
+`capacity_calc.compute_person_capacity_for_range` direkt auf (11 Szenarien, keine
+Formeländerung — reine Testabdeckung gemäß Auftrag Abschnitt 3): WorkingTime,
+ResourceProfile-Fallback, Holiday, Absence, InternalAllocation, fehlendes
+ResourceProfile/WorkingTime (→ `None`), bestehende ResourceAssignments (Kapazität bleibt
+unverändert — Demand ≠ Assignment-Invariante bestätigt), überbuchte Person (`available_fte`
+wird negativ, kein Clamping bei 0), Teilmonat, mehrere Monate (3 Kalendermonate), Zero-Workday
+Edge Case (reines Wochenende → `None`). Alle 11 Szenarien live grün, keine fachliche Formel
+geändert.
+
+#### 5. System Role Invariant
+
+Es existiert weiterhin **kein** `DELETE /resource-roles/{id}`-Endpoint (verifiziert: keine
+Route registriert, `DELETE` liefert 405). Da damit aktuell kein realer Löschpfad existiert,
+wurde bewusst **kein** künstlicher Endpoint nur für diesen Guard ergänzt (Auftrag Abschnitt 4:
+"Wenn aktuell wirklich kein Delete-Pfad existiert: kein künstlicher Endpoint nur dafür
+bauen"). Stattdessen verankert ein neuer, zentraler Domain-Helper
+`ensure_role_deletable(role)` (`routers/capacity.py`, direkt neben
+`create_resource_role`/`update_resource_role`) die Invariante `is_system_role == True →
+Löschen verboten` (wirft `HTTPException(409)`) — ein künftiger Lösch-Pfad (Admin-UI,
+Cleanup-Skript) muss ihn beim Einbau zwingend aufrufen, statt die Regel unabhängig neu zu
+erfinden oder zu vergessen. Test (`test_direct_assignment_and_capacity_range.py`, Schritt 2b):
+kein `DELETE`-Endpoint (405), Guard wirft für die Systemrolle (409), lässt eine normale Rolle
+unangetastet. Live grün.
+
+#### 6. Secondary Consumer Assessment
+
+Geprüft: `gap_analysis._soll_je_monat` (Tempo-/Effort-Gap-Track), `health_calc._effort_health`
+(nutzt dieselbe Quelle), PPTX-Export `"fte"`-Feld (`routers/export.py`, nutzt ebenfalls
+dieselbe Quelle über `gap_analysis.project_gap(...)["soll"]`). **Entscheidung: B) bewusst
+deferred**, aus zwei zusammenhängenden Gründen, nicht nur wegen Semantik-Unschärfe:
+
+1. **Fachliche Semantik unterscheidet sich real:** `_soll_je_monat` speist die
+   Tempo-/Effort-Gap-Analyse (Soll-Aufwand vs. Ist-Aufwand aus Jira, Trendfortschreibung,
+   BD-1-Kontext) — das ist eine andere fachliche Frage ("wird so gearbeitet wie geplant?") als
+   die zentrale Projektkapazität ("wie viel Kapazität ist für dieses Projekt verplant?", seit
+   B-5 exklusiv aus `PlanPhase.plan_fte` abgeleitet). Eine Gleichsetzung von Effort-Soll und
+   Capacity-Soll ohne explizite fachliche Prüfung würde eine Architekturentscheidung erfinden,
+   die der Auftrag ausdrücklich untersagt ("Nicht versehentlich Effort-Soll und Capacity-Soll
+   gleichsetzen").
+2. **Konkretes Regressionsrisiko vor B-2:** Da die produktive Migration (B-2) noch nicht
+   ausgeführt wurde, haben die meisten aktuell aktiven Projekte **keinen** oder nur einen
+   unvollständigen `PlanPhase`-Baum — ihre Kapazität steht ausschließlich in
+   `ResourceDemand` (Alt-Grobplanung). Ein Umstieg von `_soll_je_monat` auf eine rein
+   `PlanPhase`-abgeleitete Quelle **jetzt** würde für praktisch alle unmigrierten Projekte
+   sofort `Soll = 0` liefern und sowohl die Effort-Gap-Anzeige als auch das PPTX-"Übersicht
+   FTE"-Slide für den überwiegenden Teil des aktuellen Portfolios kaputt machen — ein reales,
+   vermeidbares Regressionsrisiko, keine bloße Geschmacksfrage.
+
+**Konsequenz:** alle drei Konsumenten bleiben unverändert auf `ResourceDemand.fte` (Track
+"Effort-Soll", separat von "Capacity-Soll") — dokumentiert deferred, keine Doppelzählung zur
+zentralen `PlanPhase`-Kapazität (unverändert CONFIRMED, siehe Kapazitäts-Konsumenten-Matrix in
+16.15). Diese Entscheidung sollte spätestens direkt nach einer tatsächlich ausgeführten
+B-2-Migration neu bewertet werden, sobald `PlanPhase.plan_fte` flächendeckend vorhanden ist.
+
+#### 7. Migration Dry-Run Status
+
+**Diese Entwicklungsumgebung hat keinen Zugriff auf eine Kopie oder einen Snapshot der
+Produktivdatenbank** (kein Docker-/Postgres-Zugriff, keine Zugangsdaten) — Schritt 1/2 eines
+realistischen Dry-Runs (Snapshot beziehen, isoliert restaurieren) sind damit ein **externer,
+hier nicht ausführbarer Vorbedingungs-Schritt**. Es wurden **keine Daten erfunden oder
+simuliert** (Auftrag Abschnitt 6). Stattdessen in diesem Durchgang vorbereitet:
+
+- Neues Runbook `backend/scripts/MIGRATION_DRY_RUN_RUNBOOK.md` mit dem vollständigen
+  10-Schritte-Ablauf (Snapshot → Restore → Dry-Run → Report → Apply-auf-Kopie → Integrity →
+  Capacity Parity → Tree/Assignment/Milestone Validation) inkl. der geforderten Stichproben
+  (Projekt mit Subprojects/Grob-Demands/Assignments/Milestones/mehreren Monaten/ohne
+  Grob-Demands) als Checkliste.
+- `migrate_to_planphase_hierarchy.py` erweitert: neues `--report-file PATH` (JSON-Export des
+  vollständigen Reports, für ein archivierbares Freigabe-Artefakt) und ein zusätzlicher
+  Vorher/Nachher-Vergleich für `ResourceAssignment` (Anzahl UND FTE-Summe je Projekt,
+  `assignments_count_before/after`, `assignments_fte_sum_before/after`) — fließt in
+  `has_discrepancies` mit ein, ergänzt die bereits bestehenden Orphan-/FTE-Summen-/
+  Hierarchietiefe-/Zyklus-/Milestone-Checks. Weiterhin: kein Schreibzugriff ohne `--apply`,
+  Dry-Run macht explizit `db.rollback()`.
+- Beides gegen die bestehende synthetische Fixture verifiziert
+  (`test_migrate_to_planphase_hierarchy.py`, weiterhin grün) sowie `--report-file` manuell
+  gegen eine frische, migrierte SQLite-DB durchgespielt (JSON-Report korrekt geschrieben).
+
+**Status: weiterhin nicht gegen echte Produktivdaten ausgeführt** — das bleibt der offene,
+extern zu beschaffende Schritt vor dem eigentlichen B-8-Cutover (unverändert gegenüber 16.15,
+Defekt 7, jetzt mit vollständig vorbereitetem Tooling/Runbook statt nur der synthetischen
+Fixture).
+
+#### 8. Regression Results
+
+Alle bestehenden Verifikationsskripte erneut live ausgeführt, **alle grün**, keine Regression:
+`check_migrations.py` (kein Drift, Seeds vollständig, Downgrade/Upgrade-Roundtrip sauber),
+`test_planning_phase_tree_api.py`, `test_direct_assignment_and_capacity_range.py` (erweitert),
+`test_derived_monthly_capacity.py`, `test_migrate_to_planphase_hierarchy.py` (erweitert),
+`test_milestone_and_baseline_tree.py` (erweitert), plus die zwei neuen Skripte
+`test_capacity_range_edge_cases.py`. Zusätzlich: Frontend-Typecheck (`tsc -b`) fehlerfrei nach
+den `BaselineList.tsx`/`types.ts`-Änderungen.
+
+#### 9. CONCEPT Updates
+
+Dieser Abschnitt (16.16) sowie Ergänzungen in Abschnitt 6 (Available-Capacity-Grenze,
+historische Anmerkung zum jetzt geschlossenen Legacy-Candidates-Gap) und Abschnitt 6b
+(Kopfzeile: B-8-Status präzisiert — nicht mehr wegen Code-Defekten blockiert, nur noch wegen
+des externen Migrations-Dry-Run-Schritts). Keine Aufwertung der alten Pass-1-Architektur
+(Abschnitt 6a bleibt unverändert als abgelöst markiert).
+
+#### 10. GO/NO-GO Checklist
+
+| # | Kriterium | Status (16.15) | Status (16.16, dieser Durchgang) |
+|---|---|---|---|
+| 1 | B-1–B-7 Codeaudit vollständig CONFIRMED | PARTIAL (7 Gaps) | **PARTIAL** (nur noch 2 nicht-blockierende Kleinfunde #4/#5, außerhalb Scope) |
+| 2 | Migration Dry-Run realistic green | PARTIAL (nur synthetische Fixture) | **PARTIAL** — Tooling/Runbook fertig, Ausführung extern blockiert (kein Prod-Zugriff in dieser Umgebung) |
+| 3 | Orphan-Count = 0 | CONFIRMED | CONFIRMED (unverändert) |
+| 4 | Hierarchy-Violations = 0 | CONFIRMED | CONFIRMED (unverändert, jetzt zusätzlich mit Assignment-Vorher/Nachher-Check im Migrationsreport) |
+| 5 | Capacity parity valid | CONFIRMED (Fixture) | CONFIRMED (Fixture) — echte Parity erst nach Schritt 1/2 des Runbooks möglich |
+| 6 | Zentrale Capacity-Konsumenten derived-only | CONFIRMED (5 zentrale Endpunkte), 2 sekundäre Tracks offen | CONFIRMED (unverändert) — sekundäre Tracks jetzt explizit als Entscheidung B) deferred dokumentiert (Abschnitt 6 oben), kein Doppelzählungsrisiko |
+| 7 | Direct Assignment funktioniert | CONFIRMED | CONFIRMED (unverändert) |
+| 8 | Available Capacity über Phase Range funktioniert | **PARTIAL** | **GREEN** — Legacy-Candidates-Endpoint jetzt ebenfalls range-basiert |
+| 9 | Planstand Tree funktioniert | **PARTIAL** | **GREEN** — Phase hinzugefügt/entfernt jetzt strukturell erkannt, kein Roh-ID-Leck |
+| 10 | Gantt Tree funktioniert | CONFIRMED | CONFIRMED (unverändert) |
+| 11 | ResourceDemandGrid Removal Dependencies bekannt | CONFIRMED | CONFIRMED (unverändert) |
+| 12 | Subproject Removal Dependencies bekannt | CONFIRMED | CONFIRMED (unverändert) |
+| 13 | CONCEPT auf echtem IST-Stand | CONFIRMED | CONFIRMED (dieser Durchgang) |
+
+Punkte 8 und 9 sind jetzt **grün** (die beiden explizit benannten B-8-Blocker aus 16.15 sind
+geschlossen). Punkt 1 bleibt PARTIAL, aber nur noch wegen zweier kleiner, nicht
+B-8-relevanter Restfunde (#4/#5, bewusst außerhalb dieses Scopes). **Punkt 2 bleibt PARTIAL**
+— nicht durch einen Code-Defekt, sondern durch eine externe Vorbedingung (kein
+Produktivdaten-Zugriff in dieser Umgebung), die dieser Durchgang nicht auflösen kann, ohne
+Daten zu erfinden.
+
+#### 11. Remaining Risks
+
+- **Migration Dry-Run gegen echte Produktivdaten steht weiterhin aus** (externe
+  Vorbedingung — Snapshot/Restore außerhalb dieser Umgebung, siehe Runbook). Solange das
+  nicht erfolgt ist, ist die Aussage "Orphan=0/FTE-Parity/Capacity-Parity" nur gegen die
+  synthetische Fixture, nicht gegen die reale Datenrealität abgesichert.
+- Zwei kleine, nicht B-8-relevante Code-Funde bleiben offen (#4 Bulk-Reorder-Endpoint für
+  `reihenfolge`, #5 defensives Anwendungscode-Löschen statt DB-`ON DELETE SET NULL`) —
+  unter Produktions-Postgres funktional korrekt, aber nicht Anwendungscode-abgesichert.
+- Sekundäre Effort-/PPTX-Konsumenten bleiben bewusst auf `ResourceDemand.fte` — nach der
+  echten B-2-Migration sollte diese Deferred-Entscheidung erneut geprüft werden (Abschnitt 6
+  oben), sonst driftet die PPTX-"Übersicht FTE"-Folie langfristig von der neuen
+  PlanPhase-Kapazität weg.
+
+#### 12. Final Status
+
+**B-8 CUTOVER BLOCKED**
+
+Grund: GO/NO-GO-Punkt 2 (Migration Dry-Run realistic) ist weiterhin nicht grün — nicht wegen
+eines Code-Defekts, sondern wegen einer externen Vorbedingung (kein Zugriff auf eine
+Produktivdaten-Kopie in dieser Entwicklungsumgebung), die dieser Durchgang nicht auflösen
+kann, ohne gegen die ausdrückliche Vorgabe zu verstoßen, keine Daten zu erfinden. Alle
+Code-seitigen B-8-Blocker aus 16.15 (Punkte 1/8/9, konkret Defekte 1/2 sowie die begleitenden
+Defekte 3/6) sind geschlossen und live verifiziert. **Nächster Schritt vor dem eigentlichen
+Cutover:** Schritt 1/2 des neuen Runbooks (`backend/scripts/MIGRATION_DRY_RUN_RUNBOOK.md`)
+extern ausführen (Produktivdaten-Snapshot beziehen, isoliert restaurieren), danach Schritt 3–10
+gegen die reale Kopie durchlaufen und das GO/NO-GO-Gate ein drittes Mal ausführen.
 
 ---
 

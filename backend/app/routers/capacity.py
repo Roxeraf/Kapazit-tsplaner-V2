@@ -74,6 +74,24 @@ def update_resource_role(role_id: int, payload: schemas.ResourceRoleUpdate, db: 
     return role
 
 
+def ensure_role_deletable(role: models.ResourceRole) -> None:
+    """Domain-Invariante (P18.1 Stabilization, CONCEPT.md Abschnitt 16.16, ehem.
+    Audit-Defekt #3, Abschnitt 16.15): die interne Systemrolle "Ohne Rolle"
+    (is_system_role=True) darf niemals gelöscht werden - sie trägt die technische
+    Trägerschicht für die direkte Personenzuordnung ohne erzwungene Rollenauswahl
+    (CONCEPT.md Abschnitt 6b.4) und ist Ziel mehrerer FKs (ResourceDemand.resource_role_id).
+
+    Es existiert aktuell KEIN DELETE /resource-roles/{id}-Endpoint - die Regel ist damit
+    faktisch, aber ohne diesen Helper nicht durch Code erzwungen, sondern nur durch
+    Abwesenheit eines Löschpfads zufällig erfüllt (Audit-Finding). Es wird hier bewusst KEIN
+    künstlicher DELETE-Endpoint nur für diesen Guard ergänzt (Minimal-Change-Prinzip, kein
+    realer Löschbedarf bekannt) - dieser zentrale Helper verankert die Regel stattdessen dort,
+    wo ein künftiger Lösch-Pfad (Admin-UI, Cleanup-Skript, Bulk-Import-Rollback o.ä.) sie beim
+    Einbau zwingend aufrufen muss, statt sie unabhängig neu zu erfinden oder zu vergessen."""
+    if role.is_system_role:
+        raise HTTPException(status_code=409, detail="Die Systemrolle 'Ohne Rolle' kann nicht gelöscht werden")
+
+
 # ---------------------------------------------------------------------------
 # Skill & PersonSkill
 # ---------------------------------------------------------------------------
@@ -389,7 +407,24 @@ def get_person_capacity_range(person_id: int, start: str, end: str, db: Session 
 
 @router.get("/resource-demands/{demand_id}/candidates", response_model=list[schemas.CandidatePersonOut])
 def list_resource_demand_candidates(demand_id: int, db: Session = Depends(get_db)):
+    """P18.1 Stabilization (CONCEPT.md Abschnitt 16.16, ehem. Audit-Defekt #2, Abschnitt
+    16.15): dieser Legacy-Rollen-Sub-Flow (erreichbar über den optionalen
+    Rollen-Aufschlüsselungspfad in PlanPhaseCapacityTab.tsx) prüfte bisher immer nur einen
+    einzelnen Monats-Bucket (demand.period), selbst wenn der Demand bereits einer PlanPhase
+    zugeordnet ist. Ist demand.plan_phase_id gesetzt, wird jetzt wie beim Haupt-Flow
+    (GET /plan-phases/{id}/assignment-candidates) über den GESAMTEN Phasenzeitraum
+    (forecast_start..forecast_end) via compute_person_capacity_for_range geprüft - kein neuer
+    Kapazitätsalgorithmus, reine Wiederverwendung. Ohne plan_phase_id (unmigrierte
+    Alt-Grobplanung) bleibt die bisherige periodenbasierte Logik unverändert erhalten."""
     demand = _get_resource_demand_or_404(db, demand_id)
+
+    range_start: date | None = None
+    range_end: date | None = None
+    if demand.plan_phase_id is not None:
+        plan_phase = db.get(models.PlanPhase, demand.plan_phase_id)
+        if plan_phase is not None and plan_phase.forecast_start and plan_phase.forecast_end:
+            range_start = date.fromisoformat(plan_phase.forecast_start)
+            range_end = date.fromisoformat(plan_phase.forecast_end)
 
     already_assigned = {
         a.person_id
@@ -411,7 +446,10 @@ def list_resource_demand_candidates(demand_id: int, db: Session = Depends(get_db
     for person in persons:
         if person.id in already_assigned:
             continue
-        capacity = capacity_calc.compute_person_capacity(db, person.id, demand.period)
+        if range_start is not None and range_end is not None:
+            capacity = capacity_calc.compute_person_capacity_for_range(db, person.id, range_start, range_end)
+        else:
+            capacity = capacity_calc.compute_person_capacity(db, person.id, demand.period)
         if capacity is None or capacity.available_fte <= 0:
             continue
         skill_rows = (

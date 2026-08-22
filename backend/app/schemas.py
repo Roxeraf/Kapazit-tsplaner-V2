@@ -652,6 +652,12 @@ class BaselineDeviationOut(BaseModel):
     baseline_value: str | None
     current_value: str | None
     delta_days: int | None  # None, wenn baseline_value/current_value kein gültiges Datum ist
+    # P18.1 Stabilization (CONCEPT.md Abschnitt 16.16): "changed" (Default, bestehendes
+    # Feld-Delta-Verhalten) vs. "added"/"removed" für strukturelle Baum-Änderungen (eine nach
+    # dem Snapshot neu angelegte bzw. seither gelöschte PlanPhase). field/baseline_value/
+    # current_value bleiben bei "added"/"removed" auf den rekonstruierbaren Phasennamen
+    # bezogen (siehe baseline_calc.py), nicht auf ein echtes vergleichbares Feld.
+    type: Literal["changed", "added", "removed"] = "changed"
 
 
 # ---------------------------------------------------------------------------

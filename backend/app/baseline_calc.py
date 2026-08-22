@@ -49,10 +49,92 @@ def latest_snapshot(db: Session, project_id: int) -> models.BaselineSnapshot | N
     )
 
 
+def _structural_plan_phase_deviations(
+    db: Session, snapshot: models.BaselineSnapshot
+) -> list[schemas.BaselineDeviationOut]:
+    """P18.1 Stabilization (CONCEPT.md Abschnitt 16.16, ehem. Audit-Defekt #1, Abschnitt
+    16.15): erkennt PlanPhase-Zeilen, die zwischen Snapshot-Zeitpunkt und heute hinzugekommen
+    oder entfernt wurden - die reine Feld-für-Feld-Schleife in compute_deviations vergleicht
+    nur Entitäten, die zum Snapshot-Zeitpunkt bereits eingefroren wurden, und übersieht daher
+    strukturelle Baum-Änderungen. Erweitert die bestehende Baseline-/Deviation-API additiv
+    (keine zweite Diff-Engine, kein neuer Endpoint) - eine "added"/"removed" PlanPhase liefert
+    genau eine synthetische Deviation-Zeile statt eines Feld-Deltas je eingefrorenem Feld."""
+    snapshot_ids = {
+        row[0]
+        for row in db.query(models.BaselineEntry.entity_id)
+        .filter(
+            models.BaselineEntry.baseline_id == snapshot.id,
+            models.BaselineEntry.entity_type == "plan_phase",
+        )
+        .distinct()
+    }
+    current_ids = {
+        row[0]
+        for row in db.query(models.PlanPhase.id).filter(models.PlanPhase.project_id == snapshot.project_id)
+    }
+
+    deviations: list[schemas.BaselineDeviationOut] = []
+
+    for added_id in sorted(current_ids - snapshot_ids):
+        phase = db.get(models.PlanPhase, added_id)
+        name = phase.phase_type if phase is not None else None
+        deviations.append(
+            schemas.BaselineDeviationOut(
+                entity_type="plan_phase",
+                entity_id=added_id,
+                label=name,
+                field="phase_added",
+                baseline_value=None,
+                current_value=name,
+                delta_days=None,
+                type="added",
+            )
+        )
+
+    for removed_id in sorted(snapshot_ids - current_ids):
+        # Die Zeile existiert nicht mehr - der Name muss aus den eigenen, zum Snapshot-Zeitpunkt
+        # eingefrorenen Daten rekonstruiert werden (phase_type ist bereits Teil von
+        # routers/baselines.py._SNAPSHOT_FIELDS, keine Migration nötig). Kein "#<id>"-Fallback
+        # im normalen UI (CONCEPT.md Auftrag Abschnitt 1) - falls die Zeile ausnahmsweise fehlt
+        # (z.B. sehr alter Snapshot ohne phase_type-Eintrag), liefert label=None und das
+        # Frontend zeigt einen sprechenden Platzhalter statt der rohen ID.
+        name_entry = (
+            db.query(models.BaselineEntry)
+            .filter(
+                models.BaselineEntry.baseline_id == snapshot.id,
+                models.BaselineEntry.entity_type == "plan_phase",
+                models.BaselineEntry.entity_id == removed_id,
+                models.BaselineEntry.field == "phase_type",
+            )
+            .first()
+        )
+        name = name_entry.value if name_entry is not None else None
+        deviations.append(
+            schemas.BaselineDeviationOut(
+                entity_type="plan_phase",
+                entity_id=removed_id,
+                label=name,
+                field="phase_removed",
+                baseline_value=name,
+                current_value=None,
+                delta_days=None,
+                type="removed",
+            )
+        )
+
+    return deviations
+
+
 def compute_deviations(db: Session, baseline_id: int) -> list[schemas.BaselineDeviationOut]:
     """Schedule-/Milestone-Abweichungen: vergleicht die eingefrorenen Datumsfelder mit dem
     aktuellen Live-Wert der referenzierten PlanPhase/Milestone (Master-MD Phase 18). Kein
-    generischer Multi-Dimensions-GAP - das bleibt Phase 21 (GAP Engine)."""
+    generischer Multi-Dimensions-GAP - das bleibt Phase 21 (GAP Engine). Seit P18.1
+    Stabilization zusätzlich strukturelle PlanPhase-Added/-Removed-Erkennung, siehe
+    _structural_plan_phase_deviations."""
+    snapshot = db.get(models.BaselineSnapshot, baseline_id)
+    structural = _structural_plan_phase_deviations(db, snapshot) if snapshot is not None else []
+    removed_plan_phase_ids = {d.entity_id for d in structural if d.type == "removed"}
+
     entries = (
         db.query(models.BaselineEntry)
         .filter(models.BaselineEntry.baseline_id == baseline_id, models.BaselineEntry.field.in_(DEVIATION_FIELDS))
@@ -60,6 +142,12 @@ def compute_deviations(db: Session, baseline_id: int) -> list[schemas.BaselineDe
     )
     deviations = []
     for entry in entries:
+        # Eine bereits als "removed" markierte PlanPhase liefert keine zusätzlichen
+        # Feld-Deltas mehr (z.B. "Start: 2024-01-01 -> -") - die eine strukturelle
+        # "− Phase entfernt"-Zeile aus _structural_plan_phase_deviations genügt, sonst würde
+        # dieselbe Löschung doppelt und widersprüchlich dargestellt.
+        if entry.entity_type == "plan_phase" and entry.entity_id in removed_plan_phase_ids:
+            continue
         model = entity_links.model_for(entry.entity_type)
         if model is None:
             continue
@@ -82,6 +170,9 @@ def compute_deviations(db: Session, baseline_id: int) -> list[schemas.BaselineDe
                 baseline_value=entry.value,
                 current_value=current_value,
                 delta_days=delta_days,
+                type="changed",
             )
         )
+
+    deviations.extend(structural)
     return deviations

@@ -1,27 +1,42 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Version:** v0.21 (P18 Pass 2 — PlanPhase-only/hierarchische Phasen: **Architektur final
-gelockt**, löst P18 Pass 1 fachlich ab)
-**Stand:** Alle in Abschnitt 16 gelisteten Phasen bis P17 sind umgesetzt. **P18 ist weiterhin
-ein reiner Design-/Spezifikations-Durchgang — noch nicht implementiert, keine Migration
-ausgeführt, kein Produktcode/Frontend geändert.** P18 lief in zwei Durchgängen: **Pass 1**
-(Abschnitt 6a, Grob-/Feinplanung + Reconciliation, **superseded**) und **Pass 2** (Abschnitt 6b,
+**Version:** v0.22 (P18 Pass 2 — PlanPhase-only/hierarchische Phasen: **B-1–B-7 implementiert und
+verifiziert, B-8 Legacy Cutover BLOCKED** — siehe Final-Audit-Durchgang, Abschnitt 16.15)
+**Stand:** Alle in Abschnitt 16 gelisteten Phasen bis P17 sind umgesetzt. **P18 ist kein reiner
+Design-Durchgang mehr.** P18 lief in zwei Design-Durchgängen — **Pass 1** (Abschnitt 6a,
+Grob-/Feinplanung + Reconciliation, **superseded**) und **Pass 2** (Abschnitt 6b,
 PlanPhase-only/hierarchische Phasen,
-[`P18_ARCHITECTURE_RECONCILIATION_PASS2.md`](P18_ARCHITECTURE_RECONCILIATION_PASS2.md)). Mit
-diesem Durchgang (**Pass 2 Review/Final Lock**, Abschnitt 16.6) ist die Zielarchitektur
-**fachlich final freigegeben und gelockt**: BD-10 bis BD-13 sind **geschlossen** (Abschnitt 14),
-drei Korrekturen gegenüber dem ursprünglichen Pass-2-Entwurf wurden eingearbeitet (Parent-
-`plan_fte`-Lifecycle, Migration der Grobplanung, Rollen-Governance — siehe Abschnitt 6b und
-[`P18_ARCHITECTURE_RECONCILIATION_PASS2.md`](P18_ARCHITECTURE_RECONCILIATION_PASS2.md) Abschnitt
-35), und ein finaler Implementierungsplan B-1–B-8 liegt vor. **Es gilt: keine erneute
-Grundsatzdiskussion Grob vs. Fein / Subproject vs. PlanPhase / Monatsplanung vs. Phasenplanung
-mehr — nur noch Umsetzung der hier festgelegten Regeln.** Abschnitt 6a bleibt zu
-Dokumentationszwecken/Nachvollziehbarkeit im Dokument stehen, ist aber **superseded** — bei
-Widerspruch zwischen 6a und 6b gilt 6b. Kein Code, keine Migration, keine Frontend-Änderung
-wurde für P18 (weder Pass 1 noch Pass 2) vorgenommen; bis zur Umsetzung gilt technisch
-unverändert das in Abschnitt 6 beschriebene Verhalten (inkl. der dort dokumentierten, bereits
-heute bestehenden Doppelzählungs-Lücke in der Portfolio-Aggregation, die durch Pass 2
-strukturell — nicht nur per Filter-Fix — aufgelöst würde, siehe Abschnitt 6b).
+[`P18_ARCHITECTURE_RECONCILIATION_PASS2.md`](P18_ARCHITECTURE_RECONCILIATION_PASS2.md)) —, danach
+wurde die Zielarchitektur **fachlich final gelockt** (BD-10–13 **CLOSED**, Abschnitt 14) und in
+acht Paketen umgesetzt:
+
+```
+B-1 Hierarchy Domain Foundation ............ IMPLEMENTED (16.7)
+B-2 Migration Tooling ....................... IMPLEMENTED, Dry-Run verifiziert,
+                                               produktive Ausführung noch nicht erfolgt (16.8)
+B-3 Phase Tree API ........................... IMPLEMENTED (16.9)
+B-4 Capacity/Assignment Simplification ....... IMPLEMENTED (16.10)
+B-5 Derived Monthly & Portfolio Capacity ..... IMPLEMENTED (16.11)
+B-6 PlanPhase Tree UX ......................... IMPLEMENTED (16.12)
+B-7 Gantt/Milestone/Planstand Integration .... IMPLEMENTED (16.13)
+B-8 Legacy Cutover ............................ TEILWEISE, CUTOVER BLOCKED (16.14/16.15)
+```
+
+**B-1 bis B-7 sind gegen den realen Code geprüft (nicht nur laut Selbstauskunft dieses
+Dokuments) und CONFIRMED**, mit einer kleinen Zahl dokumentierter Einzel-Gaps ohne
+Architekturrelevanz (Abschnitt 16.15). Produktcode und Frontend **wurden** für P18 geändert —
+die frühere Aussage "kein Produktcode/Frontend geändert" war nach B-6 nicht mehr richtig und ist
+hiermit korrigiert. **Die produktive Legacy-Migration (B-2 gegen echte Produktivdaten) wurde
+weiterhin nicht ausgeführt** — bestehende Projekte laufen bis dahin unverändert über
+`ResourceDemandGrid`/`Subproject` (Abschnitt 6, weiterhin technisch aktiv als Alt-Datenpfad).
+Neue Kapazitätsberechnungen (Abschnitt 6b) sind produktiv scharf und lesen ausschließlich noch
+den `PlanPhase`-Baum — die in Abschnitt 6.3 beschriebene Doppelzählungs-Lücke ist für die fünf
+zentralen Portfolio-/Cockpit-/GAP-Endpunkte **strukturell aufgelöst** (Abschnitt 16.15,
+Kapazitäts-Konsumenten-Matrix) und **kein aktiver Blocker mehr**, bleibt aber technisch relevant,
+solange `plan_phase_id = NULL`-Zeilen nicht migriert sind. **B-8 (`ResourceDemandGrid`/
+Subproject-UI entfernen) bleibt BLOCKIERT** — sowohl weil die produktive Migration aussteht, als
+auch wegen zwei im Final-Audit gefundener Einzel-Defekte, die vor einem Cutover geschlossen
+werden sollten (Abschnitt 16.15).
 **Führende Modelle (aktuelle Source of Truth):** `PlanPhase`, `Milestone`,
 `BaselineSnapshot`/`BaselineEntry`, `ResourceDemand`/`ResourceAssignment`, `Person` +
 `ResourceProfile`. Die ursprünglichen Excel-abgeleiteten Parallelmodelle (`GanttPhase`/
@@ -41,22 +56,26 @@ Excel-1:1-Architektur, obwohl spätere Phasen sie bereits ersetzt hatten.
 
 **Abschnitte 1–14 beschreiben den aktuellen Zielzustand** — das, was heute gilt, unabhängig
 davon, wann es eingeführt wurde. Bei Widersprüchen zwischen diesen Abschnitten und Code:
-Code hat Vorrang, aber meldet es als Doku-Bug. **Ausnahme: Abschnitt 6a** ist explizit als
-P18-Design markiert (Kopfzeile "noch nicht implementiert") — dort gilt bei Widerspruch zu
-Code **nicht** "Code hat Vorrang", sondern Abschnitt 6 (aktuelles Verhalten) bleibt
-maßgeblich, bis Abschnitt 16.4/BD-7/8/9 als umgesetzt markiert sind.
+Code hat Vorrang, aber meldet es als Doku-Bug.
 
 **Abschnitt 14 (Offene Business Decisions)** und **Abschnitt 16 (Umsetzungsstand)** sind das
 Bindeglied zwischen Ist und Soll.
 
-**Ausnahme innerhalb der Ausnahme:** Abschnitt 6a (P18 Pass 1) und Abschnitt 6b (P18 Pass 2)
-sind beide als Design markiert, widersprechen sich aber teilweise (Pass 2 schlägt eine andere
-Zielarchitektur vor als Pass 1). Bei Widerspruch zwischen 6a und 6b gilt **6b** — 6a bleibt nur
-aus Nachvollziehbarkeit über den Entscheidungsweg im Dokument (kein stilles Löschen einer
-bereits durchgeführten, sauberen Analyse), ist aber fachlich **nicht mehr** die empfohlene
-Richtung. **Seit dem Final-Lock-Durchgang (Abschnitt 16.6) ist 6b nicht mehr nur "empfohlen",
-sondern fachlich final freigegeben** (BD-10–13 geschlossen) — offen ist ausschließlich noch die
-technische Umsetzung (Pakete B-1–B-8), keine weitere Architekturdiskussion.
+**Abschnitt 6a (P18 Pass 1) und Abschnitt 6b (P18 Pass 2):** Beide waren ursprünglich als
+Design markiert und widersprechen sich teilweise (Pass 2 schlägt eine andere Zielarchitektur vor
+als Pass 1). Bei Widerspruch zwischen 6a und 6b gilt **6b** — 6a bleibt nur aus
+Nachvollziehbarkeit über den Entscheidungsweg im Dokument stehen (kein stilles Löschen einer
+bereits durchgeführten, sauberen Analyse), ist aber fachlich **nicht mehr** gültig
+(**superseded**). **Seit dem Final-Lock-Durchgang (Abschnitt 16.6) ist 6b final freigegeben**
+(BD-10–13 geschlossen) **und seit dem P18-Implementierungsdurchgang (Abschnitt 16.7–16.13)
+gegen realen Code CONFIRMED implementiert** — 6b beschreibt damit für neu angelegte
+`PlanPhase`-Bäume echtes IST-Verhalten, nicht mehr nur Zielarchitektur. **Abschnitt 6
+(Grob-/Feinplanung über `ResourceDemandGrid`/`Subproject`) bleibt daneben weiterhin technisch
+aktiv** — nicht weil es noch die Zielarchitektur wäre, sondern weil die produktive
+B-2-Datenmigration (Abschnitt 6b.12) noch nicht ausgeführt wurde (Abschnitt 16.15/B-8) und
+bestehende Projekte bis dahin ausschließlich über diesen Pfad bedienbar bleiben. Bei
+Widerspruch zwischen Abschnitt 6 und 6b für **neue** Planung gilt 6b; für **bestehende,
+unmigrierte** Projektdaten bleibt Abschnitt 6 der tatsächliche Bedienweg.
 
 **Abschnitt 17 (Historie)** enthält alles, was fachlich überholt, aber historisch
 dokumentationswürdig ist — insbesondere die ursprüngliche Excel-Herkunft und den Legacy
@@ -122,15 +141,17 @@ projektfremden Rollen (Development, Sales, …) angelegt.
 
 ## 3. Fachliche Kernprinzipien
 
-Diese Sätze sind die Kurzfassung von Abschnitt 5/6 — bei jeder Änderung an Planung/Kapazität
-gegen diese Liste prüfen. **Hinweis zum Umsetzungsstand:** Die Prinzipien unten sind seit dem
-P18-Pass-2-Final-Lock (Abschnitt 6b/16.6) die verbindliche, fachlich freigegebene
-Zielarchitektur — sie beschreiben aber noch **kein umgesetztes Verhalten**. Solange P18 nicht
-implementiert ist, gilt technisch unverändert das in Abschnitt 6/6a beschriebene
-Grob-/Feinplanungs-Verhalten (zwei `ResourceDemand`-Achsen, Abschnitt 6.1). Diese Liste ersetzt
-die früheren Pass-1-Grundsätze ("Grobplanung/Feinplanung sind zwei Konkretisierungsgrade,
-`max()`-Reconciliation") — jene bleiben ausschließlich als Historie in Abschnitt 6a erhalten
-(**superseded**, nicht mehr gültig).
+Diese Sätze sind die Kurzfassung von Abschnitt 5/6b — bei jeder Änderung an Planung/Kapazität
+gegen diese Liste prüfen. **Hinweis zum Umsetzungsstand:** Die Prinzipien unten (P18 Pass 2,
+Abschnitt 6b, final gelockt seit 16.6) sind seit dem P18-Implementierungsdurchgang
+(Abschnitt 16.7–16.13) **gegen realen Code CONFIRMED umgesetzt** — für neu angelegte
+`PlanPhase`-Bäume ist dies das tatsächliche IST-Verhalten, nicht mehr nur Zielarchitektur. Für
+**bestehende, noch nicht per B-2-Migration überführte** Projektdaten gilt technisch weiterhin
+das in Abschnitt 6/6a beschriebene ältere Grob-/Feinplanungs-Verhalten (zwei
+`ResourceDemand`-Achsen, Abschnitt 6.1) — dieser Pfad bleibt aktiv, bis B-8 abgeschlossen ist
+(Abschnitt 16.15). Diese Liste ersetzt die früheren Pass-1-Grundsätze ("Grobplanung/Feinplanung
+sind zwei Konkretisierungsgrade, `max()`-Reconciliation") — jene bleiben ausschließlich als
+Historie in Abschnitt 6a erhalten (**superseded**, nicht mehr gültig).
 
 - **`PlanPhase` ist die Planungseinheit.** Sie wird **tagegenau** geplant (Start/Ende als
   Datum), nicht als Monats-/Phasencode-Zelle.
@@ -165,7 +186,7 @@ die früheren Pass-1-Grundsätze ("Grobplanung/Feinplanung sind zwei Konkretisie
 - **Tags sind eine Querschnittsschicht** mit generischer `TagLink`-Verknüpfung — kein
   Admin-Zwang zum Anlegen eines neuen Tags im normalen Arbeitsfluss.
 - **`PlanPhase` ist die einzige operative Planungseinheit (P18 Pass 2, Abschnitt 6b, final
-  gelockt, noch nicht implementiert).** Es gibt **keine** zweite, projektweite
+  gelockt, IMPLEMENTIERT — CONFIRMED, Abschnitt 16.15).** Es gibt **keine** zweite, projektweite
   FTE-Monatsplanung mehr — eine noch nicht weiter aufgeteilte Phase (Leaf ohne Kinder) *ist*
   bereits die Grobplanung, kein separates Werkzeug.
 - **`PlanPhase` kann hierarchisch sein** (`parent_phase_id`, max. 3 Ebenen, BD-10 **CLOSED**).
@@ -198,34 +219,37 @@ die früheren Pass-1-Grundsätze ("Grobplanung/Feinplanung sind zwei Konkretisie
 ## 4. Aktuelles Datenmodell
 
 Nur die aktuell gültigen, führenden Tabellen. Entfernte/historische Modelle stehen in
-Abschnitt 17.3, nicht hier. **IST vs. ZIEL:** Diese Tabelle beschreibt den heute im Code
-existierenden Stand (IST). Wo P18 Pass 2 (final gelockt, Abschnitt 6b, noch nicht
-implementiert) eine Änderung vorsieht, steht das explizit als **"ZIEL P18"**-Hinweis in der
-jeweiligen Zeile — bis zur Umsetzung gilt ausschließlich die IST-Spalte technisch.
+Abschnitt 17.3, nicht hier. **IST-Stand seit dem P18-Implementierungsdurchgang (B-1–B-7,
+Abschnitt 16.7–16.13, gegen Code CONFIRMED, Abschnitt 16.15):** alle unten als "P18" markierten
+Felder **existieren im Schema und sind operativ wirksam** — das ist keine Zielbeschreibung
+mehr. Offen ist ausschließlich noch **B-8** (Abschnitt 16.15): die produktive Migration
+bestehender Alt-Projekte auf diese Felder wurde noch nicht ausgeführt, und
+`ResourceDemandGrid`/Subproject-UI wurden noch nicht entfernt — bis dahin bedienen Alt-Projekte
+weiterhin `plan_phase_id = NULL`-Demands/`subprojects` parallel zum neuen Baum.
 
 | Tabelle | Zweck |
 |---|---|
 | `projects` | Projektstammdaten (Name, Kunde, Startmonat, Anzahl Monate, Status, Jira-Verknüpfung, `projektleiter_person_id`) |
-| `subprojects` | **IST:** Optionale Teilprojekte (reine Gruppierung für Phasen/Milestones, kein eigenes Jira-Mapping). **ZIEL P18 (Abschnitt 6b.7, final gelockt):** wird fachlich durch hierarchische `PlanPhase` (`parent_phase_id`) abgelöst — Tabelle bleibt dabei zunächst compat-only bestehen, keine Codeänderung in diesem Durchgang. |
-| `plan_phases` | **IST:** **Die** Planungseinheit — tagegenau, siehe Abschnitt 5, aktuell **flach** (kein Selbstbezug). **ZIEL P18 (Abschnitt 6b, final gelockt):** zusätzliche, noch nicht implementierte Felder `parent_phase_id` (self-referencing, nullable, max. 3 Ebenen) und `reihenfolge` (int) für eine hierarchische Struktur. |
-| `milestones` | **IST:** Eigenständige Milestone-Entität, projektweit oder teilprojektbezogen (`subproject_id`). **ZIEL P18 (Abschnitt 6b.8):** zusätzliches Feld `plan_phase_id` (nullable, zeigt auf Leaf **oder** Parent), löst `subproject_id` operativ ab. |
-| `baseline_snapshots` / `baseline_entries` | Planstände (eingefrorene Feldwerte je PlanPhase/Milestone). **ZIEL P18:** `_SNAPSHOT_FIELDS` erweitert um `parent_phase_id`/`reihenfolge` (PlanPhase) und `plan_phase_id` (Milestone) — keine Schemaänderung nötig (Abschnitt 6b.13). |
-| `resource_roles`, `skills`, `person_skills` | Rollen-/Skill-Vokabular für Kapazitätsplanung. **ZIEL P18:** eine interne, nicht löschbare System-Rolle "Ohne Rolle" wird geseedet (Abschnitt 6b.4). |
-| `resource_demands` | **IST:** Bedarf (Rolle × Periode × FTE, optional `plan_phase_id`, `plan_phase_id = NULL` = projektweite Grobplanung). **ZIEL P18:** `plan_phase_id` ist im Zielzustand für jede Zeile gesetzt — keine projektweite Grobplanung mehr (Abschnitt 6b.2/6b.9). |
+| `subprojects` | Teilprojekte (reine Gruppierung für Phasen/Milestones, kein eigenes Jira-Mapping). **Fachlich durch hierarchische `PlanPhase` (`parent_phase_id`) abgelöst** (Abschnitt 6b.7, P18/B-2 IMPLEMENTIERT) — Tabelle/Router/Schemas bleiben bewusst compat-only bestehen (kein Drop-and-Pray), Backend-Endpoints sind explizit `@deprecated` dokumentiert. Frontend nutzt sie noch aktiv in `ProjectPlanningTab.tsx` (CRUD), `ProjectHistoryTab.tsx` (Historie) und `ProjectCommunicationTab.tsx` (Kommentar-Gruppierung) — Entfernung ist B-8-Scope, blockiert bis zur produktiven Migration (Abschnitt 16.15). |
+| `plan_phases` | **Die** Planungseinheit — tagegenau, siehe Abschnitt 5. **Hierarchisch** (P18/B-1 IMPLEMENTIERT): `parent_phase_id` (self-referencing, nullable, max. 3 Ebenen, backend-validiert) und `reihenfolge` (int). Leaf/Parent-Baum operativ über `routers/planning.py`/`planning_calc.py` (B-3, IMPLEMENTIERT). |
+| `milestones` | Eigenständige Milestone-Entität. `plan_phase_id` (nullable, zeigt auf Leaf **oder** Parent) ist die primäre Verknüpfung (P18/B-7 IMPLEMENTIERT) — löst `subproject_id` operativ ab; `subproject_id` bleibt compat-only im Schema, aber nicht mehr in der UI (`MilestoneList.tsx` zeigt nur noch "Übergeordnete Phase"). |
+| `baseline_snapshots` / `baseline_entries` | Planstände (eingefrorene Feldwerte je PlanPhase/Milestone). `_SNAPSHOT_FIELDS` umfasst `parent_phase_id`/`reihenfolge` (PlanPhase) und `plan_phase_id` (Milestone) (P18/B-7 IMPLEMENTIERT, Abschnitt 6b.13/16.15) — Deviation-Erkennung deckt Parent-Wechsel/Zeitraum/`plan_fte` ab, **erkennt aber "Phase hinzugefügt" nicht** und "Phase entfernt" nur unvollständig (bekannter Gap, Abschnitt 16.15). |
+| `resource_roles`, `skills`, `person_skills` | Rollen-/Skill-Vokabular für Kapazitätsplanung. Interne, per Migration geseedete System-Rolle "Ohne Rolle" (`is_system_role`, P18/B-1 IMPLEMENTIERT) — im normalen Picker ausgeblendet, aus Rollenauswertungen ausgeblendet (P18/B-4/B-5 IMPLEMENTIERT). **Bekannter Gap:** es existiert aktuell kein `DELETE`-Endpoint für `resource_roles` überhaupt — die dokumentierte "nicht löschbar"-Regel ist damit faktisch, aber nicht durch einen Backend-Guard erzwungen (Abschnitt 16.15). |
+| `resource_demands` | Bedarf (Rolle × Periode × FTE, optional `plan_phase_id`). Für **neue**, Baum-basierte Planung ist `plan_phase_id` immer gesetzt (direkte Personenzuordnung erzeugt automatisch eine `ResourceDemand` mit der System-Rolle, P18/B-4 IMPLEMENTIERT) — `plan_phase_id = NULL` (projektweite Grobplanung) bleibt für **bestehende, unmigrierte** Projekte weiterhin ein gültiger, aktiver Zustand (Abschnitt 6.1), bis B-2 produktiv ausgeführt wurde. |
 | `resource_assignments` | Personenbesetzung eines `ResourceDemand` |
-| `capacity_calendars`, `holidays`, `working_times`, `absences`, `internal_allocations` | Available-Capacity-Berechnung je Person/Periode |
+| `capacity_calendars`, `holidays`, `working_times`, `absences`, `internal_allocations` | Available-Capacity-Berechnung je Person/Periode — seit P18/B-4 zusätzlich bereichsbasiert abrufbar (`compute_person_capacity_for_range`, IMPLEMENTIERT) |
 | `people`, `resource_profiles` | Personenstammdaten + Kapazitätsplanbarkeit (`weekly_hours`, `team_id`) |
 | `teams` | Team-Stammdaten (Kapazitätsgruppierung) |
 | `project_roles`, `project_memberships` | Person ↔ Projekt mit Rolle (≠ Assignment, siehe Abschnitt 3) |
 | `permissions`, `app_roles`, `role_permissions` | Vorbereitung für künftiges Rollen-/Rechtesystem (kein Auth im Repo) |
-| `comments` (inkl. `parent_id` für Threading), `tasks`, `blockers`, `decisions`, `risks`, `meeting_minutes` | Zusammenarbeit — alle taggbar, dokumentverknüpfbar, relationsfähig; alle außer `risks`/`meeting_minutes` zusätzlich `plan_phase_id`-verknüpfbar. **ZIEL P18:** an Leaf **und** Parent-Phasen weiterhin uneingeschränkt erlaubt (Abschnitt 6b.3). |
+| `comments` (inkl. `parent_id` für Threading), `tasks`, `blockers`, `decisions`, `risks`, `meeting_minutes` | Zusammenarbeit — alle taggbar, dokumentverknüpfbar, relationsfähig; alle außer `risks`/`meeting_minutes` zusätzlich `plan_phase_id`-verknüpfbar. An Leaf **und** Parent-Phasen uneingeschränkt erlaubt (Abschnitt 6b.3, IMPLEMENTIERT/unverändert). |
 | `documents`, `document_links` | Zentrale Dokumentenablage (Abschnitt 8) |
 | `tags`, `tag_links`, `tag_categories` | Tag-System inkl. AI-Metadaten (`ai_relevant`, `ai_description`, `synonyms`) |
 | `entity_relations` | Generische, typisierte Beziehung zwischen zwei beliebigen Entitäten (z. B. `resulted_in`, `depends_on`, `resolves`) |
 | `health_thresholds` | Admin-konfigurierbare Schwellen für die neun Health-Dimensionen |
 | `jira_worklogs_cache` | Ist-Daten-Cache aus Jira/Tempo |
 | `gap_snapshots` | Modell existiert, wird aktuell nicht befüllt — GAP Engine rechnet live (siehe Abschnitt 9) |
-| `plan_history` | Änderungsprotokoll (Audit-Trail), gruppiert über `batch_id`. **ZIEL P18:** zusätzliches, additives Feld `plan_phase_id` (nullable) — historisiert automatisch den `plan_fte`-Wert einer Phase, wenn sie durch das erste Kind zur Parent-Phase wird (Abschnitt 6b.1a). |
+| `plan_history` | Änderungsprotokoll (Audit-Trail), gruppiert über `batch_id`. Additives Feld `plan_phase_id` (nullable, P18/B-1/B-3 IMPLEMENTIERT) — historisiert automatisch den `plan_fte`-Wert einer Phase, wenn sie durch das erste Kind zur Parent-Phase wird (Abschnitt 6b.1a), verifiziert per Live-Testlauf (Abschnitt 16.15). |
 
 Entfernt (Phase 26.9, siehe Abschnitt 17.3): `gantt_phases`, `project_gantt_phases`,
 `fte_plan`, `project_fte_plan`, `team_members`, `assignments`, `projects.projektleiter`
@@ -241,8 +265,11 @@ Entfernt (Phase 26.9, siehe Abschnitt 17.3): `gantt_phases`, `project_gantt_phas
 (Beispiel: "Pflichtenheft, 01.10.2026–17.10.2026", nicht "Oktober = Pflichtenheft").
 
 Der User plant eine PlanPhase über: Name (`phase_type`, Freitext mit Vorschlägen aus den
-ehemaligen Gantt-Phasencodes), Start, Ende, Status, optionales Teilprojekt, Owner, Tags,
-Plan-FTE.
+ehemaligen Gantt-Phasencodes), Start, Ende, Status, **Übergeordnete Phase** (optional,
+`parent_phase_id` — Baumstruktur, P18/B-6 IMPLEMENTIERT), Owner, Tags, Plan-FTE. "Optionales
+Teilprojekt" (`subproject_id`) ist **kein primäres Planungsfeld mehr** — die Baum-UI
+(`PlanPhaseCreateModal.tsx`) bietet ausschließlich den "Übergeordnete Phase"-Picker an;
+`subproject_id` bleibt nur als IST-/Legacy-Verknüpfung im Schema bestehen (Abschnitt 5.4).
 
 Die normale Oberfläche zeigt **nicht** `baseline_start`/`baseline_end`,
 `forecast_start`/`forecast_end`, `actual_start`/`actual_end` als sechs parallel editierbare
@@ -305,24 +332,33 @@ Planstand anlegen: Name, Grund (optional), Tags. Tags werden über die generisch
 `TagLink`-Infrastruktur verwaltet; Baselines sind seit P5 taggbar (Erstellzeit-only, kein
 Update-Endpoint — ein eingefrorener Stand ist unveränderlich).
 
-### 5.4 Teilprojekte
+### 5.4 Teilprojekte (Legacy/IST-Hinweis)
 
-Teilprojekte bleiben optional (`PlanPhase.subproject_id`/`Milestone.subproject_id`
-nullable). `NULL` = projektweit, gesetzt = teilprojektbezogen. Listenansicht und Gantt
-gruppieren konsequent: "Projektweit" zuerst, dann Teilprojekte in Reihenfolge. Projekte ohne
-Teilprojekte zeigen einfach nur die "Projektweit"-Gruppe (kein Sonderfall/Leerlauf-UI nötig).
+**Fachlich durch die hierarchische `PlanPhase` (`parent_phase_id`) abgelöst** (Abschnitt 6b.7,
+P18/B-2/B-6/B-7 IMPLEMENTIERT, gegen Code CONFIRMED, Abschnitt 16.15) — eine Parent-`PlanPhase`
+leistet alles, was `Subproject` leistete, zusätzlich mit abgeleiteten Zeiträumen/Kapazität und
+bis zu drei Gruppierungsebenen (BD-10, **CLOSED**). `PlanPhaseList.tsx`/`PlanPhaseGantt.tsx`/
+`MilestoneList.tsx` gruppieren bereits ausschließlich nach `parent_phase_id`, nicht mehr nach
+Subproject.
 
-**P18 Pass 2 (Abschnitt 6b.7, final gelockt, noch nicht implementiert):** `Subproject` ist
-fachlich nicht mehr als eine PlanPhase-Gruppierung (bestätigt per Codebase-Audit) und wird durch
-eine hierarchische Parent-`PlanPhase` (`parent_phase_id`) ersetzt — mit denselben Vorteilen plus
-abgeleiteten Zeiträumen/Kapazität und bis zu drei Gruppierungsebenen (BD-10, **CLOSED**). Diese
-Beschreibung (Abschnitt 5.4) bleibt bis zur Umsetzung der aktuelle, gültige Ist-Zustand.
+`subprojects`/`subproject_id` bleiben **compat-only** bestehen (`PlanPhase.subproject_id`/
+`Milestone.subproject_id` weiterhin nullable, `NULL` = projektweit, gesetzt =
+teilprojektbezogen) — kein Drop-and-Pray. Sie sind aber **kein primärer Bedienweg für neue
+Planung** mehr. Noch aktiv genutzt: `ProjectPlanningTab.tsx` (Teilprojekt-CRUD),
+`ProjectHistoryTab.tsx` (Teilprojekt-Historie), `ProjectCommunicationTab.tsx`
+(Kommentar-Gruppierung nach Teilprojekt) und `export.py` (Export-Gruppierung) — diese Pfade
+bleiben bestehen, bis die produktive B-2-Migration ausgeführt und B-8 (Legacy Cutover)
+abgeschlossen ist (Abschnitt 16.15). Router-Endpunkte unter `/subprojects` sind bereits
+`@deprecated` dokumentiert.
 
 ### 5.5 Milestones
 
 Milestones sind echte Entitäten (`Milestone`-Tabelle seit Phase 17), kein Rückfall auf den
-ehemaligen Gantt-Phasencode `?`. Projektweit oder teilprojektbezogen (nullable
-`subproject_id`, analog PlanPhase). Dieselbe UX-Regel wie bei PlanPhase gilt: das normale
+ehemaligen Gantt-Phasencode `?`. **Primäre Verknüpfung ist `plan_phase_id`** (nullable, zeigt
+auf eine Leaf- **oder** Parent-`PlanPhase`; P18/B-7 IMPLEMENTIERT, gegen Code CONFIRMED) —
+`NULL` bleibt "projektweiter Meilenstein". `subproject_id` bleibt im Schema compat-only, wird
+aber in der UI (`MilestoneList.tsx`) nicht mehr angeboten — dort steht ausschließlich die
+"Übergeordnete Phase"-Auswahl. Dieselbe UX-Regel wie bei PlanPhase gilt: das normale
 Datumsfeld heißt schlicht "Datum" (= `forecast_date`), `baseline_date` ist compat-only,
 `actual_date` sekundär mit expliziter Korrektur-Aktion ("Ist-Datum korrigieren").
 
@@ -331,10 +367,14 @@ Datumsfeld heißt schlicht "Datum" (= `forecast_date`), `baseline_date` ist comp
 Gantt ist **ausschließlich Visualisierung**. Source of Truth bleiben `PlanPhase`/`Milestone`.
 Gantt liest `forecast_start`/`forecast_end`, zeigt sie aber als normale Plan-Zeiträume (ein
 Balken pro Phase, keine technisch benannten Baseline-/Forecast-/Ist-Balken nebeneinander).
+**Primär gruppiert Gantt nach dem `PlanPhase`-Baum** (`parent_phase_id`, P18/B-6 IMPLEMENTIERT,
+gegen Code CONFIRMED): eine Parent-Phase rendert als umrandete Hüllkurve
+(`derived_forecast_start`/`derived_forecast_end`), eine Leaf-Phase als gefüllter Balken; beide
+öffnen per Klick denselben `PlanPhaseWorkspace`. Teilprojekt-Gruppierung ist kein aktiver
+Gantt-Pfad mehr.
 
-Gantt darf: PlanPhases tagegenau darstellen, nach Teilprojekten gruppieren (inkl.
-"Projektweit"), Tag/Woche/Monat/Quartal zoomen (aktuell: Monatsraster), Phase anklickbar
-machen → öffnet den PlanPhaseWorkspace-Drawer.
+Gantt darf: PlanPhases tagegenau darstellen, Tag/Woche/Monat/Quartal zoomen (aktuell:
+Monatsraster), Phase anklickbar machen → öffnet den PlanPhaseWorkspace-Drawer.
 
 Gantt soll **nicht**: primäre Planungsoberfläche sein, eigene Planungsdaten speichern,
 Drag&Drop oder Resize als notwendigen Workflow erzwingen (beides deferred, Abschnitt 15).
@@ -342,13 +382,27 @@ Milestones im Gantt darstellen ist ebenfalls deferred (bewusster Scope-Cut aus P
 
 ---
 
-## 6. Kapazitätsplanung
+## 6. Kapazitätsplanung (Legacy-Pfad, aktiv nur für unmigrierte Alt-Projekte)
 
-**IST vs. ZIEL:** Dieser gesamte Abschnitt 6 (inkl. 6.1–6.4) beschreibt den **heute im Code
-laufenden IST-Zustand** — zwei getrennte Kapazitätsachsen (Grobplanung/Feinplanung, siehe 6.1).
-Das **ZIEL** nach P18 Pass 2 (Abschnitt 6b, final gelockt) ist `PlanPhase`-only ohne zweite
-Achse. Beide Abschnitte bleiben nebeneinander bestehen, bis P18 tatsächlich implementiert ist —
-kein Leser darf 6 (IST) und 6b (ZIEL) verwechseln.
+**Status seit dem P18-Implementierungsdurchgang (Abschnitt 16.7–16.13, final CONFIRMED per
+Audit, Abschnitt 16.15):** Dieser Abschnitt 6 (inkl. 6.1–6.4) beschrieb ursprünglich den
+projektweit einzig gültigen IST-Zustand — zwei getrennte Kapazitätsachsen
+(Grobplanung/Feinplanung, siehe 6.1). Das ist **nicht mehr korrekt für neu geplante
+`PlanPhase`-Bäume**: dort gilt ausschließlich Abschnitt 6b (`PlanPhase`-only, IMPLEMENTIERT).
+Abschnitt 6 bleibt trotzdem **technisch aktiver Code**, weil:
+
+1. bestehende Projekte mit bereits gepflegter `ResourceDemand(plan_phase_id = NULL)`-Grobplanung
+   bis zur produktiven B-2-Migration ausschließlich über `ResourceDemandGrid` bedienbar sind
+   (kein anderer Bedienweg existiert für diese Altdaten), und
+2. `ResourceDemandGrid.tsx`/die Subproject-Verwaltung noch nicht entfernt sind (B-8, blockiert).
+
+Für die **fünf zentralen Portfolio-/Cockpit-/GAP-Endpunkte** ist die in Abschnitt 6.3
+beschriebene Doppelzählungs-Lücke bereits **strukturell aufgelöst** — sie lesen seit B-5
+ausschließlich noch den `PlanPhase`-Baum, nicht mehr `ResourceDemand.plan_phase_id = NULL`
+(Abschnitt 16.15, Kapazitäts-Konsumenten-Matrix). Zwei sekundäre Auswertungen
+(`gap_analysis`-Soll-Track/Health-Dimension "Aufwand" und der PPTX-Export) lesen weiterhin
+direkt `ResourceDemand.fte`, unabhängig von P18 — kein Doppelzählungs-Risiko (sie addieren
+nichts zur PlanPhase-Kapazität), aber auch noch nicht auf die neue Quelle umgestellt.
 
 ### 6.1 Zwei Achsen — aktueller Stand
 
@@ -799,8 +853,8 @@ Projekt-/Monatssicht, keine Phasensicht.
 
 ---
 
-## 6b. PlanPhase-only Zielarchitektur (P18 Pass 2 — **final gelockte Zielarchitektur**, noch
-nicht implementiert)
+## 6b. PlanPhase-only Zielarchitektur (P18 Pass 2 — **final gelockt, B-1–B-7 IMPLEMENTIERT und
+gegen Code CONFIRMED, B-8 Legacy Cutover BLOCKED**)
 
 **Status dieses Abschnitts:** Fachlich vollständig spezifiziert, gegen Code geprüft und **final
 freigegeben/gelockt** (Codebase Validation Matrix + vollständige Herleitung siehe separates
@@ -809,25 +863,30 @@ Abschnitt 35 "Final Lock Addendum" mit den in diesem Durchgang eingearbeiteten K
 **BD-10/BD-11/BD-12/BD-13 sind CLOSED** (Abschnitt 14) — es gibt keine offene
 Architekturentscheidung mehr, nur noch die technische Umsetzung (Implementierungspakete
 B-1–B-8, siehe Pass-2-Dokument Abschnitt 35.5). **Löst Abschnitt 6a (P18 Pass 1) fachlich ab**
-(Begründung: Abschnitt 2 des Pass-2-Dokuments). Beschreibt Zielverhalten, **teilweise bereits
-Ist-Zustand:** Paket **B-1 (Hierarchy Domain Foundation) ist implementiert** (additive
-Schema-Grundlage: `PlanPhase.parent_phase_id`/`reihenfolge`, `Milestone.plan_phase_id`,
-`PlanHistory.plan_phase_id`, `ResourceRole.is_system_role` + Seed "Ohne Rolle" — siehe 16.7).
-**B-2 (Migration Tooling) ist ebenfalls implementiert und verifiziert**
-(`backend/scripts/migrate_to_planphase_hierarchy.py`, Dry-Run-Default, siehe 16.8) — **aber
-noch nicht gegen echte Produktivdaten ausgeführt** (erfordert gesonderte Freigabe). **B-3
+(Begründung: Abschnitt 2 des Pass-2-Dokuments). **Ein unabhängiger Final-Audit-Durchgang
+(Abschnitt 16.15) hat B-1 bis B-7 gegen den realen Code — nicht nur gegen diese
+Selbstauskunft — nachverifiziert:** Paket **B-1 (Hierarchy Domain Foundation) ist implementiert
+und CONFIRMED** (additive Schema-Grundlage: `PlanPhase.parent_phase_id`/`reihenfolge`,
+`Milestone.plan_phase_id`, `PlanHistory.plan_phase_id`, `ResourceRole.is_system_role` + Seed
+"Ohne Rolle" — siehe 16.7/16.15). **B-2 (Migration Tooling) ist ebenfalls implementiert und
+gegen synthetische Testfixtures CONFIRMED verifiziert**
+(`backend/scripts/migrate_to_planphase_hierarchy.py`, Dry-Run-Default, siehe 16.8/16.15) — **aber
+weiterhin nicht gegen echte Produktivdaten ausgeführt** (erfordert gesonderte Freigabe). **B-3
 (Phase Tree API), B-4 (Direct Assignment/Available Capacity Range) und B-5 (Derived Monthly &
-Portfolio Capacity) sind implementiert** (siehe 16.9/16.10/16.11). **B-6 (PlanPhase Tree UX)
-ist ebenfalls implementiert** (Baum-UI in Liste/Gantt/Workspace, Direct-Assignment-UX,
-BD-11-Blockier-Dialog — siehe 16.12): die PlanPhase-Hierarchie ist damit **erstmals für
-Nutzer:innen sichtbar und bedienbar**, nicht mehr nur über die API. **B-7 (Gantt/Milestone/
-Planstand Integration) ist ebenfalls implementiert** (`Milestone.plan_phase_id` operativ in
+Portfolio Capacity) sind implementiert und größtenteils CONFIRMED**, mit einer kleinen Zahl
+dokumentierter Einzel-Gaps ohne Architekturrelevanz (siehe 16.9/16.10/16.11/16.15). **B-6
+(PlanPhase Tree UX) ist ebenfalls implementiert und CONFIRMED** (Baum-UI in Liste/Gantt/
+Workspace, Direct-Assignment-UX, BD-11-Blockier-Dialog — siehe 16.12/16.15): die
+PlanPhase-Hierarchie ist damit **für Nutzer:innen sichtbar und bedienbar**, nicht mehr nur über
+die API. **B-7 (Gantt/Milestone/Planstand Integration) ist ebenfalls implementiert**, mit einem
+dokumentierten Gap bei der Planstand-Deviation-Erkennung (`Milestone.plan_phase_id` operativ in
 Router+UI, Planstand friert `parent_phase_id`/`reihenfolge`/`Milestone.plan_phase_id` mit ein,
-Planstand-Vergleich zeigt strukturelle Abweichungen mit Phasennamen statt roher IDs — siehe
-16.13). Weiterhin offen: keine Migration wurde gegen echte Produktivdaten ausgeführt (B-2 noch
-nicht angewendet, bestehende Subprojects/Grobplanung sind daher weiterhin die einzige Quelle
-für bereits existierende Projekte), und `ResourceDemandGrid`/Subproject-Verwaltung sind noch
-nicht entfernt (B-8, blockiert bis die B-2-Migration tatsächlich ausgeführt wurde).
+Planstand-Vergleich zeigt strukturelle Abweichungen mit Phasennamen statt roher IDs für die
+meisten Fälle — siehe 16.13/16.15). Weiterhin offen: keine Migration wurde gegen echte
+Produktivdaten ausgeführt (B-2 noch nicht angewendet, bestehende Subprojects/Grobplanung sind
+daher weiterhin die einzige Quelle für bereits existierende Projekte), und
+`ResourceDemandGrid`/Subproject-Verwaltung sind noch nicht entfernt (B-8, **BLOCKIERT** — siehe
+16.15 für die vollständige Blocker-Liste).
 
 ### 6b.1 Kernidee
 
@@ -1305,9 +1364,9 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 | Tags | `Tag`/`TagLink` | überall wo taggbar | — | aktuell |
 | Available Capacity | berechnet (`capacity_calc.compute_person_capacity`) | nicht editierbar | `WorkingTime`/`ResourceProfile` − `Holiday` − `Absence` − `InternalAllocation` | aktuell |
 | Gantt-Balken | — | nicht editierbar (read-only Visualisierung) | `PlanPhase.forecast_start/end` | aktuell |
-| Grobplanung (Monats-FTE) | `ResourceDemand` mit `plan_phase_id = NULL` | Planning-Tab → `ResourceDemandGrid` | — | aktuell (Abschnitt 6.1); **noch nicht** von Feinplanung abgegrenzt in Portfolio-Aggregationen (Abschnitt 6.3, Lücke) |
-| Grobplanstunden/Feinplanstunden/Konsumption/Konkretisierungsgrad | berechnet (P18 Pass 1-Vorschlag, **superseded**) | nicht editierbar | `ResourceDemand`(Grob)/`PlanPhase.plan_fte`(Fein) × Werktage-Monatsverteilung | **P18 Pass 1 — Design, superseded durch Pass 2** (Abschnitt 6a.3/6a.6/6a.10) |
-| Projektmonatskapazität (unter P18 Pass 2) | berechnet (P18-Pass-2, final gelockt) | nicht editierbar | `SUM` über `monthly_distribution` aller Leaf-`PlanPhase`s | **P18 Pass 2 — final gelockt, nicht implementiert** (Abschnitt 6b.6) |
+| Grobplanung (Monats-FTE, Alt-Projekte) | `ResourceDemand` mit `plan_phase_id = NULL` | Planning-Tab → `ResourceDemandGrid` | — | **Legacy, aktiv nur bis B-2-Migration** (Abschnitt 6.1); fließt in die fünf zentralen Portfolio-/Cockpit-/GAP-Endpunkte seit B-5 **nicht mehr** ein (Lücke Abschnitt 6.3 dort strukturell aufgelöst) — zwei sekundäre Auswertungen (Effort-Gap-Track, PPTX-Export) lesen sie weiterhin direkt |
+| Grobplanstunden/Feinplanstunden/Konsumption/Konkretisierungsgrad | berechnet (P18 Pass 1-Vorschlag, **superseded**) | nicht editierbar | `ResourceDemand`(Grob)/`PlanPhase.plan_fte`(Fein) × Werktage-Monatsverteilung | **P18 Pass 1 — Design, superseded durch Pass 2** (Abschnitt 6a.3/6a.6/6a.10), nie implementiert |
+| Projektmonatskapazität (unter P18 Pass 2) | berechnet (`capacity_calc.compute_project_monthly_capacity`) | nicht editierbar | `SUM` über `monthly_distribution` aller Leaf-`PlanPhase`s | **P18 Pass 2 — final gelockt, IMPLEMENTIERT, gegen Code CONFIRMED** (Abschnitt 6b.6/16.15) |
 
 ---
 
@@ -1377,11 +1436,12 @@ Werktage-Logik ableitbar, keine offene Frage.
 - **P18 Pass 1 (Grob-/Feinplanung-Reconciliation, Abschnitt 6a)** — fachlich fertig
   spezifiziert, aber **superseded durch P18 Pass 2** (Abschnitt 6b); BD-7/BD-8/BD-9 obsolet.
 - **P18 Pass 2 (PlanPhase-only/hierarchische Phasen, Abschnitt 6b)** — fachlich **final
-  gelockte** Zielarchitektur, BD-10/BD-11/BD-12/BD-13 **CLOSED** (Abschnitt 14). Wartet nicht
-  mehr auf eine Architekturentscheidung, sondern ausschließlich auf die Umsetzung der
-  Implementierungspakete B-1–B-8 (Pass-2-Dokument Abschnitt 30/35). Die in Abschnitt 6.3
-  dokumentierte Aggregationslücke (Doppelzählung Grob+Fein in Portfolio-/Cockpit-Endpoints)
-  besteht bis zur tatsächlichen Umsetzung unverändert fort.
+  gelockte** Zielarchitektur, BD-10/BD-11/BD-12/BD-13 **CLOSED** (Abschnitt 14). **B-1 bis B-7
+  sind implementiert und gegen Code CONFIRMED** (Abschnitt 16.15) — nicht mehr deferred. Die in
+  Abschnitt 6.3 dokumentierte Aggregationslücke ist für die fünf zentralen
+  Portfolio-/Cockpit-/GAP-Endpunkte **strukturell aufgelöst**. **Deferred bleibt ausschließlich
+  B-8 (Legacy Cutover)** — blockiert bis zur produktiven B-2-Migration und dem Schließen der in
+  Abschnitt 16.15 gelisteten Einzel-Defekte.
 
 ---
 
@@ -2080,12 +2140,185 @@ durchgeführt wurde):**
   teilweise Ist-Zustand"): folgt erst, wenn B-8 tatsächlich vollständig abgeschlossen werden
   kann.
 
-**Ergebnis dieses Durchgangs: B-1–B-7 vollständig implementiert und verifiziert (Backend
-durchgängig, Frontend seit B-6 bedienbar), B-8 vorbereitet, aber mit offenem
-Freigabe-/Ausführungsschritt (B-2-Migration gegen Produktivdaten) als einzigem verbleibenden
-Blocker für den vollständigen Legacy-Cutover.** Kein Code-technisches Risiko, keine neue
-Architekturfrage — reine Frage des Zeitpunkts/der Freigabe für einen produktionswirksamen
-Datenmigrationslauf.
+**Ergebnis dieses Durchgangs (vor Final-Audit, 16.14): B-1–B-7 laut Selbstauskunft vollständig
+implementiert und verifiziert, B-8 vorbereitet, aber mit offenem
+Freigabe-/Ausführungsschritt (B-2-Migration gegen Produktivdaten) als einzigem genannten
+Blocker.** Der nachfolgende Final-Audit-Durchgang (16.15) hat diese Selbstauskunft unabhängig
+gegen den realen Code geprüft und dabei zusätzliche, kleinere Blocker gefunden — siehe dort.
+
+---
+
+### 16.15 P18 Final Audit & B-8 Cutover Readiness (dieser Durchgang)
+
+**Unabhängiger Audit-Durchgang** — Ziel war, die in 16.7–16.14 dokumentierten
+Implementierungs-Claims **gegen den realen Code zu verifizieren** (nicht nur die Dokumentation
+zu glauben), die produktive Migration im Dry-Run-/Testkontext vollständig zu prüfen, alle
+Kapazitäts-Konsumenten zu inventarisieren, Legacy-UX/-Codepfade (`ResourceDemandGrid`,
+Subproject) zu inventarisieren und CONCEPT.md auf den tatsächlichen IST-Zustand zu bringen.
+**Keine produktive Migration ausgeführt, kein Legacy-Code gelöscht, keine irreversible
+Datenänderung vorgenommen** (siehe Aufgabenvorgabe, Abschnitt 30 des Auftrags).
+
+**Methode:** sechs unabhängige Code-Audits (B-1/B-3, B-4 + Available Capacity, B-5 +
+Kapazitäts-Konsumenten-Matrix, B-6-UX + Legacy-Inventar, B-7, Migrations-Dry-Run), jeweils mit
+Datei:Zeile-Beleg, plus Live-Ausführung der bestehenden Verifikationsskripte
+(`check_migrations.py`, `test_planning_phase_tree_api.py`,
+`test_direct_assignment_and_capacity_range.py`, `test_derived_monthly_capacity.py`,
+`test_migrate_to_planphase_hierarchy.py`, `test_milestone_and_baseline_tree.py`) gegen
+Wegwerf-SQLite-DBs — nie gegen die reale `kapazitaetsplaner.db`.
+
+**Ergebnis je Paket:**
+
+- **B-1 Hierarchy Foundation — CONFIRMED.** Migration `0005` und `models.py` stimmen 1:1
+  überein (FKs, Indexes, Nullability, Seeds, Upgrade/Downgrade-Roundtrip live verifiziert).
+  **Caveat (kein Blocker für Produktiv-Cutover, aber ein reales Risiko für lokale
+  SQLite-Umgebungen):** `ON DELETE SET NULL`/die self-referencing FK werden unter dem
+  Standard-lokalen-SQLite ohne `PRAGMA foreign_keys=ON` **nicht** durchgesetzt — Produktivziel
+  ist Postgres (`docker-compose.yml`), dort greifen die Constraints. `database.py` aktiviert
+  diese Pragma aktuell nicht.
+- **B-2 Migration Tooling — CONFIRMED.** Dry-Run-Default verifiziert (kein Schreibzugriff ohne
+  `--apply`), Migrationsreport enthält harte Diskrepanz-Prüfungen (Orphans, FTE-Summen,
+  Hierarchietiefe/Zyklen, Milestone-Zählungen — kein weiches "Warning", sondern Exit-Code 1 bei
+  Abweichung). **Migrationsstrategie für Alt-Grobplanung ist Variante A** (Parent "Grobplanung
+  (migriert)" + eine Monats-Leaf-Kindphase je migrierter Periode, `plan_fte` einmalig aus
+  `SUM(ResourceDemand.fte)` abgeleitet) — exakt wie in Abschnitt 6b.12 spezifiziert. Gegen eine
+  repräsentative synthetische Testfixture (1 Subproject + 2 Kindphasen + Milestone + Comment, 2
+  Grobplanungsperioden × 2 Rollen + 1 Assignment) lief Dry-Run/Apply/Re-Run fehlerfrei:
+  `fte_sum_before = 3.0` bleibt nach der Verteilung auf die Monats-Leafs erhalten, 0 verwaiste
+  `ResourceDemand`-Zeilen danach, Re-Run nach Apply idempotent. **Es existiert weiterhin keine
+  populierte Produktiv-/Realdaten-DB in dieser Umgebung** — der Dry-Run wurde daher gegen die
+  synthetische Fixture, nicht gegen einen echten Produktions-Snapshot gefahren. Das ist der in
+  Abschnitt 24/Step 2 des B-8-Plans explizit vorgesehene nächste Schritt, kein Fehler dieses
+  Audits.
+- **B-3 Tree Domain Logic — CONFIRMED für den Kern**, live end-to-end getestet (3-Ebenen-Baum,
+  Tiefe-4-Ablehnung, Zyklus-Ablehnung, projektfremder Parent, Leaf→Parent-Historisierung,
+  BD-11-409-Block, Reparent, Subtree-Impact/-Delete inkl. Collaboration-Erhalt). **Zwei
+  Einzel-Gaps:** (a) kein atomarer Bulk-Reorder-Endpoint für `reihenfolge` (existiert für
+  `Project`, fehlt für `PlanPhase`); (b) das einfache `DELETE /plan-phases/{id}` einer Leaf-Phase
+  nullt abhängige Zeilen (`Comment`/`Task`/`Blocker`/`Decision`/`Milestone`/`PlanHistory`) nicht
+  defensiv im Anwendungscode (anders als `delete-subtree`), sondern verlässt sich auf
+  DB-seitiges `ON DELETE SET NULL` — was gemäß B-1-Caveat unter lokalem SQLite wirkungslos ist.
+- **B-4 Resource Planning + Available Capacity — CONFIRMED für den Haupt-Flow.** Direktzuweisung
+  ohne Rollenzwang, Systemrolle korrekt im Picker/Reporting ausgeblendet, `plan_fte` nachweislich
+  nie von Assignments verändert (live getestet inkl. Überbesetzung: 0,40/0,20/0,20 →
+  0,40/0,50/−0,10, `plan_fte` blieb 0,40). Bereichsbasierte Available Capacity
+  (`compute_person_capacity_for_range`) korrekt implementiert und wiederverwendet
+  `WorkingTime`/`Holiday`/`Absence`/`InternalAllocation` ohne zweite Engine. **Drei
+  Einzel-Gaps:** (a) es existiert **kein** `DELETE`-Endpoint für `resource_roles` überhaupt —
+  die "nicht löschbar"-Regel für die Systemrolle ist damit faktisch, aber nicht durch einen
+  Backend-Guard erzwungen; (b) der **legacy** Endpoint `GET /resource-demands/{id}/candidates`
+  (erreichbar über den optionalen Rollen-Aufschlüsselungs-Pfad in `PlanPhaseCapacityTab.tsx`)
+  prüft weiterhin nur einen Monats-Bucket statt der vollen Phasen-Range — nur der neue
+  `GET /plan-phases/{id}/assignment-candidates`-Endpoint (Haupt-Flow) ist bereits
+  bereichsbasiert; (c) Testabdeckung für Absence/Holiday/InternalAllocation/fehlendes
+  Kapazitätsprofil/bereits überbuchte Person fehlt spezifisch für die Range-Funktion (nur
+  Werktage-Gewichtung und Grundfall sind automatisiert getestet).
+- **B-5 Capacity Source-of-Truth — CONFIRMED, KEIN BLOCKER.** Die vollständige
+  Kapazitäts-Konsumenten-Matrix (siehe unten) zeigt: alle fünf zentralen Portfolio-/Cockpit-/
+  GAP-Endpunkte lesen ausschließlich noch `compute_project_monthly_capacity`/
+  `compute_portfolio_planphase_demand_fte`, mit korrekt werktage-anteiliger
+  `monthly_distribution`-Formel und nachweislich erzwungenem Leaf-only-Verhalten
+  (`_maybe_historize_parent_fte` setzt `parent.plan_fte = None` auf jedem Parent-erzeugenden
+  Pfad — keine reine Query-Filterung, sondern ein Dateninvariante). Kein aktiver
+  `max(Grob, Fein)`-Codepfad mehr. **Zwei sekundäre, dokumentierte Tracks bleiben auf
+  `ResourceDemand.fte` stehen** (Effort-/Soll-Track in `gap_analysis.py` inkl.
+  `health_calc._effort_health` und der PPTX-Export "fte"-Feld) — beide addieren **nicht** zur
+  PlanPhase-Kapazität (kein Doppelzählungsrisiko), sind aber noch nicht auf die neue Quelle
+  umgestellt.
+- **B-6 UX — CONFIRMED.** Echte rekursive Baumdarstellung in Liste/Gantt, Leaf zeigt
+  Zeitraum/Plan-FTE/Direktzuweisung ohne Rollenzwang/Available Capacity über die Range/optionale
+  Rollen, Parent zeigt ausschließlich aggregierte, read-only Werte und blendet
+  Kapazitätseingabe/Assignments aus, keine rohen technischen Begriffe in sichtbaren UI-Texten,
+  alle acht geforderten deutschen UX-Begriffe vorhanden.
+- **B-7 Gantt/Milestone/Planstand — CONFIRMED mit einem Planstand-Gap.** Milestones/Gantt
+  vollständig auf den `PlanPhase`-Baum umgestellt (Gantt liest dieselbe Datenquelle wie die
+  Liste, Parent = Hüllkurve, Leaf = Balken, beide öffnen denselben Workspace, read-only).
+  **Planstand-Deviation-Erkennung ist unvollständig:** "Parent geändert"/"Zeitraum
+  geändert"/"Plan-FTE geändert" sind CONFIRMED (inkl. Regressionstest), "reihenfolge geändert"
+  ist bewusst nicht als Abweichung markiert (korrekt, wie spezifiziert) — aber **"Phase
+  hinzugefügt" wird gar nicht erkannt** (nur zum Snapshot-Zeitpunkt eingefrorene Zeilen werden
+  verglichen, eine später hinzugefügte Phase erscheint nie als Abweichung), und "Phase entfernt"
+  wird nur unvollständig erkannt (kein explizites "entfernt"-Flag; zusätzlich ein Detail-Gap: die
+  Gruppenkopfzeile einer entfernten Phase im Planstand-Vergleich fällt auf eine rohe `#<id>`
+  zurück, wenn `entity_summary` für die gelöschte Zeile `None` liefert — der einzige Ort im
+  gesamten Audit, an dem eine rohe ID tatsächlich sichtbar würde).
+
+**Kapazitäts-Konsumenten-Matrix (Abschnitt 8 der Auftragsvorgabe):**
+
+| Consumer | Quelle | Leaf-only? | Status |
+|---|---|---|---|
+| GAP Engine Capacity (`GET /gap-engine/capacity`) | `compute_capacity_gap` → `compute_portfolio_planphase_demand_fte` | Ja (Invariante) | CONFIRMED derived-only |
+| Capacity Heatmap (`GET /controlling/capacity-heatmap`) | dieselbe Funktion | Ja | CONFIRMED derived-only |
+| Cockpit Capacity (`_cockpit_capacity`) | `compute_project_monthly_capacity` (`demand_fte`); `assigned_fte` separat, nie addiert | Ja | CONFIRMED derived-only |
+| Project Monthly Capacity (`GET /projects/{id}/capacity/monthly`) | `compute_project_monthly_capacity` direkt | Ja | CONFIRMED derived-only |
+| Portfolio-Demand (`compute_portfolio_planphase_demand_fte`) | Summe über alle Projekte | Ja | CONFIRMED derived-only |
+| Allocation Gaps / Role Analysis (Controlling) | `ResourceDemand`/`ResourceAssignment`, Rollen-Ebene | N/A (Rollen-Layer per Design) | CONFIRMED, kein Beitrag zur Projektkapazität |
+| Utilization Gap (Personenebene) | `ResourceAssignment` vs. `compute_person_capacity` | N/A (Personen-Layer) | CONFIRMED, kein Beitrag zur Projektkapazität |
+| Project Health "Aufwand"-Dimension (`health_calc._effort_health`) | `gap_analysis._soll_je_monat` → `SUM(ResourceDemand.fte)` | Nein (nicht P18-migriert) | **PARTIAL** — eigener Soll-/Ist-Track, nicht doppelt gezählt, aber noch nicht auf PlanPhase-Quelle umgestellt |
+| PPTX-Export "fte"-Feld (`routers/export.py`) | dieselbe `_soll_je_monat`-Quelle | Nein | **PARTIAL** — Deck zeigt weiterhin ResourceDemand-basierte Balken, nicht die P18-Kapazität |
+
+**BLOCKER-Prüfung (Abschnitt 8 der Aufgabenstellung, "wird ResourceDemand.fte irgendwo weiter
+als Projektbedarf summiert?"): NEIN, für keinen der fünf zentralen Portfolio-/Cockpit-/
+GAP-Endpunkte.** Die beiden PARTIAL-Zeilen sind separate, seit jeher dokumentierte
+Soll-/Ist-Tracks (Tempo-Abgleich bzw. Export-Legende) und addieren an keiner Stelle zur
+PlanPhase-Kapazität — sie sind ein offener Migrationsrest, kein Doppelzählungs-Blocker.
+
+**Identifizierte Defekte/Gaps (Priorität für B-8):**
+
+1. Planstand erkennt "Phase hinzugefügt" gar nicht und "Phase entfernt" nur unvollständig
+   (inkl. Roh-ID-Leck in der Gruppenkopfzeile) — betrifft die im Auftrag explizit geforderte
+   Deviation-Erkennung (Abschnitt 14 der Aufgabenstellung).
+2. `GET /resource-demands/{id}/candidates` (Legacy-Rollen-Sub-Flow) prüft weiterhin nur einen
+   Monats-Bucket statt der vollen Phasen-Range — widerspricht der im Auftrag geforderten
+   Range-basierten Candidate-Preview (Abschnitt 6 der Aufgabenstellung), auch wenn der
+   Haupt-Direktzuweisungs-Flow bereits korrekt ist.
+3. Kein Backend-Guard verhindert das Löschen der Systemrolle "Ohne Rolle" — aktuell folgenlos,
+   weil überhaupt kein `DELETE /resource-roles/{id}`-Endpoint existiert, aber die im Konzept
+   dokumentierte Governance-Regel ist damit nicht durch Code erzwungen, sondern nur durch
+   Abwesenheit einer Löschmöglichkeit zufällig erfüllt.
+4. Kein atomarer Bulk-Reorder-Endpoint für `PlanPhase.reihenfolge`, keine Eindeutigkeitsprüfung
+   gegen doppelte Geschwister-Reihenfolge.
+5. Einfaches `DELETE /plan-phases/{id}` verlässt sich auf DB-seitiges `ON DELETE SET NULL`
+   statt abhängige Zeilen defensiv im Anwendungscode zu entkoppeln — unter lokalem SQLite ohne
+   `PRAGMA foreign_keys=ON` (Standard in diesem Repo) demonstrierbar wirkungslos; unter
+   Produktions-Postgres funktional, aber nicht durch Applikationscode abgesichert.
+6. Testabdeckung für `compute_person_capacity_for_range` deckt Absence/Holiday/
+   InternalAllocation/fehlendes Kapazitätsprofil/bereits überbuchte Person nicht ab.
+7. Migrations-Dry-Run wurde bisher ausschließlich gegen eine synthetische Testfixture gefahren,
+   nie gegen einen echten Produktions-Datenbestand (kein Blocker, aber Pflichtschritt vor
+   Apply, siehe B-8-Plan Step 2).
+
+**Durchgeführte Fixes in diesem Durchgang:** Keine Code-Änderungen — nur CONCEPT.md-Korrekturen
+(dieser Abschnitt sowie Abschnitte 0/3/4/5/6/6b/13/15). Die oben gelisteten Defekte sind
+**Findings, keine in diesem Audit-Durchgang behobenen Fixes** — sie erfordern Code-Änderungen,
+die außerhalb des reinen Audit-/Dokumentations-Scopes dieses Durchgangs liegen (Minimal-Change-
+Prinzip, AGENTS.md Abschnitt 16/17) und vor B-8 gezielt als eigene, kleine Tasks umgesetzt werden
+sollten.
+
+**GO/NO-GO (Abschnitt 27 der Aufgabenstellung):**
+
+| # | Kriterium | Status |
+|---|---|---|
+| 1 | B-1–B-7 Codeaudit vollständig CONFIRMED | **PARTIAL** — Kern CONFIRMED, 7 dokumentierte Einzel-Gaps offen |
+| 2 | Migration Dry-Run fehlerfrei | CONFIRMED (gegen synthetische Fixture; echter Produktiv-Dry-Run steht noch aus) |
+| 3 | Orphan-Count = 0 | CONFIRMED (in der Testfixture) |
+| 4 | Hierarchy-Violations = 0 | CONFIRMED |
+| 5 | Projektkapazität vorher/nachher fachlich erklärt/validiert | CONFIRMED (FTE-Summe 3,0 vorher = Summe der Monats-Leafs nachher) |
+| 6 | Keine zentrale Capacity View summiert weiter `ResourceDemand` als Projektbedarf | CONFIRMED für alle fünf zentralen Endpunkte, 2 sekundäre Tracks offen (kein Doppelzählungsrisiko) |
+| 7 | Direct Assignment funktioniert | CONFIRMED |
+| 8 | Available Capacity über Phase Range funktioniert | **PARTIAL** — Haupt-Flow ja, Legacy-Candidates-Endpoint nein |
+| 9 | Planstand Tree funktioniert | **PARTIAL** — Parent/Zeitraum/FTE-Änderung ja, "Phase hinzugefügt" nein |
+| 10 | Gantt Tree funktioniert | CONFIRMED |
+| 11 | ResourceDemandGrid Removal Dependencies vollständig bekannt | CONFIRMED (Removal-Checkliste erstellt) |
+| 12 | Subproject Removal Dependencies vollständig bekannt | CONFIRMED (erweitertes Inventar: `ProjectPlanningTab`/`ProjectHistoryTab`/`ProjectCommunicationTab`/`export.py`, nicht nur `ProjectPlanningTab`) |
+| 13 | CONCEPT auf echtem IST-Stand | CONFIRMED (dieser Durchgang) |
+
+**Drei rote Punkte (1, 8, 9) → gemäß der in der Aufgabenstellung festgelegten Regel ("Wenn ein
+Punkt rot: B-8 CUTOVER BLOCKED") ist dieser Durchgang mit `B-8 CUTOVER BLOCKED` abzuschließen.**
+Das ist **kein** Architektur-Blocker — die Zielarchitektur ist vollständig implementiert und der
+Kern (Baum, Direktzuweisung, abgeleitete Kapazität, Gantt) ist live end-to-end verifiziert. Es
+sind **konkrete, klein-skalierte Nacharbeiten** (Defekte 1–2 oben schließen genügt, um die drei
+roten Punkte grün zu bekommen), gefolgt von einem echten Produktiv-Dry-Run (Defekt 7), bevor der
+eigentliche Cutover (finaler Plan siehe unten) angestoßen werden sollte.
 
 ---
 

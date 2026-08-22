@@ -96,14 +96,20 @@ function ComparisonPanel({ baselineId, projectId }: { baselineId: number; projec
   if (error) return <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>;
   if (!deviations) return <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Lade Vergleich …</p>;
 
-  const relevant = deviations.filter((d) => FIELD_LABELS[d.field] && !valuesEqual(d.baseline_value, d.current_value));
+  // P18.1 Stabilization: strukturelle Phase hinzugefügt/entfernt-Zeilen sind kein Feld-Delta
+  // (kein Eintrag in FIELD_LABELS) und werden separat, nicht in der Feld-Gruppe je Phase,
+  // dargestellt - "Phase hinzugefügt" gehört zur Phase selbst, nicht zu einem ihrer Felder.
+  const structural = deviations.filter((d) => d.type === "added" || d.type === "removed");
+  const fieldChanges = deviations.filter(
+    (d) => d.type === "changed" && FIELD_LABELS[d.field] && !valuesEqual(d.baseline_value, d.current_value)
+  );
 
-  if (relevant.length === 0) {
+  if (structural.length === 0 && fieldChanges.length === 0) {
     return <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Keine Abweichungen zum aktuellen Plan.</p>;
   }
 
   const groups = new Map<string, { name: string; devs: BaselineDeviation[] }>();
-  for (const dev of relevant) {
+  for (const dev of fieldChanges) {
     const key = `${dev.entity_type}-${dev.entity_id}`;
     const group = groups.get(key) ?? { name: entityDisplayName(dev.label, `#${dev.entity_id}`), devs: [] };
     group.devs.push(dev);
@@ -112,6 +118,19 @@ function ComparisonPanel({ baselineId, projectId }: { baselineId: number; projec
 
   return (
     <div style={{ marginTop: "0.5rem", display: "grid", gap: "0.6rem" }}>
+      {structural.length > 0 && (
+        <div style={{ display: "grid", gap: "0.2rem" }}>
+          {structural.map((dev) => (
+            <div
+              key={`${dev.entity_type}-${dev.entity_id}-${dev.type}`}
+              style={{ fontSize: "0.85rem", color: dev.type === "added" ? "var(--gruen)" : "var(--rot)" }}
+            >
+              {dev.type === "added" ? "+ Phase hinzugefügt: " : "− Phase entfernt: "}
+              {entityDisplayName(dev.label, dev.type === "added" ? "Neue Phase" : "Entfernte Phase")}
+            </div>
+          ))}
+        </div>
+      )}
       {Array.from(groups.values()).map((group) => (
         <div key={group.name} style={{ fontSize: "0.85rem" }}>
           <strong>{group.name}</strong>

@@ -785,6 +785,9 @@ export interface BaselineDeviation {
   baseline_value: string | null;
   current_value: string | null;
   delta_days: number | null;
+  // P18.1 Stabilization: "changed" (Default) vs. "added"/"removed" für strukturelle
+  // PlanPhase-Baum-Änderungen seit dem Planstand (siehe backend/app/baseline_calc.py).
+  type: "changed" | "added" | "removed";
 }
 
 // Phase 26.3: ResourceDemand/ResourceAssignment (Phase 19 der Zielarchitektur,

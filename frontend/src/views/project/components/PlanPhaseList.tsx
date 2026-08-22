@@ -220,6 +220,7 @@ export default function PlanPhaseList({ projectId }: { projectId: number }) {
         allPhases={phases}
         onClose={() => setOpenPhaseId(null)}
         onChanged={refresh}
+        onNavigate={setOpenPhaseId}
       />
     </div>
   );

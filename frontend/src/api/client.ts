@@ -259,6 +259,7 @@ export const api = {
     projectId: number,
     payload: {
       subproject_id?: number | null;
+      plan_phase_id?: number | null;
       name: string;
       baseline_date?: string | null;
       forecast_date?: string | null;
@@ -273,6 +274,7 @@ export const api = {
     milestoneId: number,
     payload: Partial<{
       subproject_id: number | null;
+      plan_phase_id: number | null;
       name: string;
       baseline_date: string | null;
       forecast_date: string | null;

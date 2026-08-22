@@ -27,6 +27,11 @@ const FIELD_LABELS: Record<string, string> = {
   forecast_end: "Ende",
   forecast_date: "Datum",
   plan_fte: "Plan-Aufwand",
+  // P18/B-7 (CONCEPT.md Abschnitt 6b.14): eine Änderung der übergeordneten Phase ist genauso
+  // eine sichtbare Planstand-Abweichung wie eine Termin-/Aufwandsabweichung - reihenfolge
+  // (reine Sortierposition) bleibt bewusst außen vor (siehe backend baseline_calc.py).
+  parent_phase_id: "Übergeordnete Phase",
+  plan_phase_id: "Übergeordnete Phase",
 };
 
 // Entity-Label vom Backend kommt als `Planphase „Konfiguration“` (entity_links._resolve_entity_label)
@@ -46,7 +51,16 @@ function valuesEqual(a: string | null, b: string | null): boolean {
   return false;
 }
 
-function formatDeviation(dev: BaselineDeviation): string {
+function formatDeviation(dev: BaselineDeviation, phaseNameById: Map<number, string>): string {
+  if (dev.field === "parent_phase_id" || dev.field === "plan_phase_id") {
+    const nullLabel = dev.entity_type === "milestone" ? "Projektweit" : "Top-Level";
+    const label = (raw: string | null) => {
+      if (raw == null) return nullLabel;
+      const id = Number(raw);
+      return phaseNameById.get(id) ?? `Phase #${id}`;
+    };
+    return `${label(dev.baseline_value)} → ${label(dev.current_value)}`;
+  }
   if (dev.field === "plan_fte") {
     const from = dev.baseline_value == null ? "—" : Number(dev.baseline_value).toFixed(2);
     const to = dev.current_value == null ? "—" : Number(dev.current_value).toFixed(2);
@@ -63,13 +77,21 @@ function formatDeviation(dev: BaselineDeviation): string {
   return `${from} → ${to}${deltaText}`;
 }
 
-function ComparisonPanel({ baselineId }: { baselineId: number }) {
+function ComparisonPanel({ baselineId, projectId }: { baselineId: number; projectId: number }) {
   const [deviations, setDeviations] = useState<BaselineDeviation[] | null>(null);
+  const [phaseNameById, setPhaseNameById] = useState<Map<number, string>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.getBaselineDeviations(baselineId).then(setDeviations).catch((e) => setError(String(e)));
-  }, [baselineId]);
+    // Für die "Übergeordnete Phase"-Deviation (parent_phase_id/plan_phase_id) reichen rohe
+    // IDs nicht - Phasennamen aus dem AKTUELLEN Baum auflösen (eine gelöschte Phase zeigt
+    // dann "Phase #<id>", da entity_id bewusst kein FK ist, siehe models.BaselineEntry).
+    api
+      .listPlanPhases(projectId)
+      .then((phases) => setPhaseNameById(new Map(phases.map((p) => [p.id, p.phase_type]))))
+      .catch(() => setPhaseNameById(new Map()));
+  }, [baselineId, projectId]);
 
   if (error) return <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>;
   if (!deviations) return <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Lade Vergleich …</p>;
@@ -97,7 +119,7 @@ function ComparisonPanel({ baselineId }: { baselineId: number }) {
             {group.devs.map((dev) => (
               <div key={dev.field} style={{ display: "flex", gap: "0.5rem", color: "var(--text-muted)" }}>
                 <span style={{ minWidth: "5rem" }}>{FIELD_LABELS[dev.field]}</span>
-                <span>{formatDeviation(dev)}</span>
+                <span>{formatDeviation(dev, phaseNameById)}</span>
               </div>
             ))}
           </div>
@@ -251,7 +273,7 @@ export default function BaselineList({ projectId }: { projectId: number }) {
                 ))}
               </div>
             )}
-            {comparingId === b.id && <ComparisonPanel baselineId={b.id} />}
+            {comparingId === b.id && <ComparisonPanel baselineId={b.id} projectId={projectId} />}
           </div>
         ))
       )}

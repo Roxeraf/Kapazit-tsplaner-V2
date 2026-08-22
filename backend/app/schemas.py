@@ -556,6 +556,10 @@ class PlanPhaseOut(BaseModel):
 
 class MilestoneCreate(BaseModel):
     subproject_id: int | None = None
+    # P18/B-1/B-7 (CONCEPT.md Abschnitt 6b.8): ersetzt subproject_id fachlich - NULL bleibt
+    # "projektweiter Meilenstein", gesetzt kann auf eine Leaf- ODER Parent-Phase zeigen (ein
+    # Meilenstein schließt oft eine Sammelphase ab).
+    plan_phase_id: int | None = None
     name: str
     baseline_date: str | None = None
     forecast_date: str | None = None
@@ -568,6 +572,7 @@ class MilestoneCreate(BaseModel):
 
 class MilestoneUpdate(BaseModel):
     subproject_id: int | None = None
+    plan_phase_id: int | None = None
     name: str | None = None
     baseline_date: str | None = None
     forecast_date: str | None = None
@@ -582,6 +587,7 @@ class MilestoneOut(BaseModel):
     id: int
     project_id: int
     subproject_id: int | None
+    plan_phase_id: int | None
     name: str
     baseline_date: str | None
     forecast_date: str | None

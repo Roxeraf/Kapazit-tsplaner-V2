@@ -36,6 +36,19 @@ def _check_subproject(db: Session, project_id: int, subproject_id: int | None) -
         raise HTTPException(status_code=422, detail="subproject_id muss zum selben Projekt gehören")
 
 
+def _check_milestone_plan_phase(db: Session, project_id: int, plan_phase_id: int | None) -> None:
+    """P18/B-7 (CONCEPT.md Abschnitt 6b.8): ein Milestone kann sowohl auf eine Leaf- als auch
+    auf eine Parent-Phase zeigen (im Unterschied zur Kapazitätsplanung, die Leaf-only ist) -
+    hier genügt Existenz + Projekt-Grenze, keine Hierarchie-Validierung nötig."""
+    if plan_phase_id is None:
+        return
+    plan_phase = db.get(models.PlanPhase, plan_phase_id)
+    if plan_phase is None:
+        raise HTTPException(status_code=404, detail="Planphase nicht gefunden")
+    if plan_phase.project_id != project_id:
+        raise HTTPException(status_code=422, detail="plan_phase_id muss zum selben Projekt gehören")
+
+
 def _check_owner(db: Session, owner_person_id: int | None, owner_team_id: int | None) -> None:
     if owner_person_id is not None and db.get(models.Person, owner_person_id) is None:
         raise HTTPException(status_code=404, detail="Person (owner_person_id) nicht gefunden")
@@ -915,6 +928,7 @@ def _milestone_out(db: Session, m: models.Milestone) -> schemas.MilestoneOut:
         id=m.id,
         project_id=m.project_id,
         subproject_id=m.subproject_id,
+        plan_phase_id=m.plan_phase_id,
         name=m.name,
         baseline_date=m.baseline_date,
         forecast_date=m.forecast_date,
@@ -952,11 +966,13 @@ def list_milestones(project_id: int, db: Session = Depends(get_db)):
 def create_milestone(project_id: int, payload: schemas.MilestoneCreate, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
     _check_subproject(db, project_id, payload.subproject_id)
+    _check_milestone_plan_phase(db, project_id, payload.plan_phase_id)
     _check_owner(db, payload.owner_person_id, payload.owner_team_id)
     now = _now()
     milestone = models.Milestone(
         project_id=project_id,
         subproject_id=payload.subproject_id,
+        plan_phase_id=payload.plan_phase_id,
         name=payload.name,
         baseline_date=payload.baseline_date,
         forecast_date=payload.forecast_date,
@@ -982,6 +998,8 @@ def update_milestone(milestone_id: int, payload: schemas.MilestoneUpdate, db: Se
     changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
     if "subproject_id" in changes:
         _check_subproject(db, milestone.project_id, changes["subproject_id"])
+    if "plan_phase_id" in changes:
+        _check_milestone_plan_phase(db, milestone.project_id, changes["plan_phase_id"])
     _check_owner(db, changes.get("owner_person_id"), changes.get("owner_team_id"))
     if changes:
         for field, value in changes.items():

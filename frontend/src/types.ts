@@ -728,6 +728,9 @@ export interface Milestone {
   id: number;
   project_id: number;
   subproject_id: number | null;
+  // P18/B-1/B-7 (CONCEPT.md Abschnitt 6b.8): ersetzt subproject_id fachlich. null = projekt-
+  // weiter Meilenstein; gesetzt kann auf eine Leaf- oder Parent-Phase zeigen.
+  plan_phase_id: number | null;
   name: string;
   baseline_date: string | null;
   forecast_date: string | null;

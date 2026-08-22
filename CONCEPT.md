@@ -820,11 +820,14 @@ noch nicht gegen echte Produktivdaten ausgeführt** (erfordert gesonderte Freiga
 Portfolio Capacity) sind implementiert** (siehe 16.9/16.10/16.11). **B-6 (PlanPhase Tree UX)
 ist ebenfalls implementiert** (Baum-UI in Liste/Gantt/Workspace, Direct-Assignment-UX,
 BD-11-Blockier-Dialog — siehe 16.12): die PlanPhase-Hierarchie ist damit **erstmals für
-Nutzer:innen sichtbar und bedienbar**, nicht mehr nur über die API. Weiterhin offen: keine
-Migration wurde gegen echte Produktivdaten ausgeführt (B-2 noch nicht angewendet, bestehende
-Subprojects/Grobplanung sind daher weiterhin die einzige Quelle für bereits existierende
-Projekte), `Milestone` nutzt im Frontend weiterhin `subproject_id` statt `plan_phase_id`
-(B-7), und `ResourceDemandGrid`/Subproject-Verwaltung sind noch nicht entfernt (B-8).
+Nutzer:innen sichtbar und bedienbar**, nicht mehr nur über die API. **B-7 (Gantt/Milestone/
+Planstand Integration) ist ebenfalls implementiert** (`Milestone.plan_phase_id` operativ in
+Router+UI, Planstand friert `parent_phase_id`/`reihenfolge`/`Milestone.plan_phase_id` mit ein,
+Planstand-Vergleich zeigt strukturelle Abweichungen mit Phasennamen statt roher IDs — siehe
+16.13). Weiterhin offen: keine Migration wurde gegen echte Produktivdaten ausgeführt (B-2 noch
+nicht angewendet, bestehende Subprojects/Grobplanung sind daher weiterhin die einzige Quelle
+für bereits existierende Projekte), und `ResourceDemandGrid`/Subproject-Verwaltung sind noch
+nicht entfernt (B-8, blockiert bis die B-2-Migration tatsächlich ausgeführt wurde).
 
 ### 6b.1 Kernidee
 
@@ -1998,6 +2001,42 @@ Abschnitt 35.5 Paket B-6):
 - **Nächstes Paket:** B-7 (Gantt/Milestone/Planstand Integration: `Milestone.plan_phase_id`
   operativ in Router+UI, Baseline friert Baumstruktur ein) — siehe Pass-2-Dokument
   Abschnitt 35.5.
+
+### 16.13 P18 Implementierung — B-7 Gantt/Milestone/Planstand Integration (dieser Durchgang)
+
+**Siebtes Umsetzungspaket, Validation Gate bestanden** (CONCEPT.md Abschnitt 6b.8/6b.14,
+Pass-2-Dokument Abschnitt 35.5 Paket B-7):
+
+- **`Milestone.plan_phase_id` ist jetzt operativ** (Router + UI): `POST`/`PUT
+  /projects/{id}/milestones` nehmen `plan_phase_id` statt `subproject_id` als primäre
+  Verknüpfung entgegen (neuer Guard `_check_milestone_plan_phase` — Projekt-Grenze, aber
+  **keine** Hierarchie-Validierung, da ein Milestone bewusst sowohl an eine Leaf- als auch an
+  eine Parent-Phase gehängt werden darf, Abschnitt 6b.8). `subproject_id` bleibt
+  compat-only im Modell bestehen.
+- **`_SNAPSHOT_FIELDS`/`DEVIATION_FIELDS` erweitert** (`baseline_calc.py`/`routers/
+  baselines.py`): ein Planstand friert jetzt zusätzlich `PlanPhase.parent_phase_id`/
+  `reihenfolge` und `Milestone.plan_phase_id` ein — additiv, keine Schemaänderung nötig
+  (`BaselineEntry` ist generisch genug). `parent_phase_id`/`plan_phase_id` sind zusätzlich
+  als sichtbare Deviation registriert (`reihenfolge` bewusst nicht — reine Sortierposition
+  ist keine fachlich sichtbare Abweichung).
+- **`MilestoneList.tsx`:** "Übergeordnete Phase"-Select ersetzt das "Teilprojekt"-Select
+  (lädt `PlanPhase`s selbst über `listPlanPhases`, analog zu `PlanPhaseList.tsx`).
+- **`BaselineList.tsx`:** neue Feldbeschriftung "Übergeordnete Phase" für
+  `parent_phase_id`/`plan_phase_id`, mit Namensauflösung gegen den aktuellen `PlanPhase`-Baum
+  statt roher IDs (`"Wareneingang → Top-Level"` statt `"2 → null"`) — genau das in Abschnitt
+  6b.14/Pass-2-Dokument Abschnitt 16 geforderte Beispiel, jetzt verifiziert.
+- **Verifikation:** `backend/scripts/test_milestone_and_baseline_tree.py` (Milestone an
+  Leaf/Parent, Projekt-Grenze, Snapshot-Felder, Deviation nach Reparenting) plus manueller
+  Browser-Durchlauf (Milestone anlegen und mit Phasennamen statt ID anzeigen; Planstand vor
+  einem Reparenting festhalten, danach zeigt der Vergleich exakt
+  "Übergeordnete Phase: Wareneingang → Top-Level"). Alle Prüfungen grün, `check_migrations.py`/
+  B-2/B-3/B-4/B-5-Skripte weiterhin grün (keine Schema-Änderung in diesem Paket).
+- **Bewusst unverändert:** `PlanPhaseGantt.tsx` (Tree-Gantt kam bereits mit B-6);
+  `ResourceDemandGrid.tsx`/Subproject-Verwaltung bleiben bestehen (B-8).
+- **Nächstes Paket:** B-8 (Legacy Cutover: `ResourceDemandGrid.tsx` entfernen/deprecaten,
+  Subproject-UI als deprecated markieren, vollständige Regression, finales CONCEPT.md-Update
+  auf "implementiert") — abhängig von einer tatsächlich ausgeführten B-2-Migration, siehe
+  Pass-2-Dokument Abschnitt 35.5.
 
 ---
 

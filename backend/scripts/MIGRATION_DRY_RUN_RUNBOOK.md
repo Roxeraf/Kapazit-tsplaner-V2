@@ -1,19 +1,32 @@
-# Migration Realistic Dry-Run Runbook (P18.1 Stabilization)
+# Migration Realistic Dry-Run Runbook (P18 Finalization)
 
-Siehe CONCEPT.md Abschnitt 16.16 / Abschnitt 6b.12. Dieses Runbook beschreibt den sicheren
+Siehe CONCEPT.md Abschnitt 16.17 / Abschnitt 6.12. Dieses Runbook beschreibt den sicheren
 Ablauf für einen realitätsnahen Dry-Run von `migrate_to_planphase_hierarchy.py` gegen eine
 **Kopie** der Produktivdaten — **kein Schritt hiervon schreibt in die echte Produktion.**
 
-Bisheriger Stand (Abschnitt 16.15): der Dry-Run lief ausschließlich gegen eine synthetische
-SQLite-Testfixture (`test_migrate_to_planphase_hierarchy.py`). Diese deckt die Migrationslogik
-strukturell ab, aber nicht die Datenrealität (Volumen, echte Rollenverteilung, echte
-Sonderfälle in Alt-Daten).
+Bisheriger Stand (Abschnitt 16.15/16.16): der Dry-Run lief ausschließlich gegen eine
+synthetische SQLite-Testfixture (`test_migrate_to_planphase_hierarchy.py`). Diese deckt die
+Migrationslogik strukturell ab, aber nicht die Datenrealität (Volumen, echte
+Rollenverteilung, echte Sonderfälle in Alt-Daten).
 
-**In dieser aktuellen Arbeitsumgebung existiert keine Kopie/kein Zugriff auf die
-Produktivdatenbank** (kein Docker-Daemon, keine Postgres-Instanz, keine Zugangsdaten). Schritte
-1–2 unten sind daher ein **externer, außerhalb dieser Umgebung auszuführender Schritt** — hier
-wird bewusst nichts simuliert oder erfunden (Auftrag Abschnitt 6: "Wenn im aktuellen Umfeld
-keine Produktivdatenkopie verfügbar ist: keine Daten erfinden").
+**Erneut geprüft im P18-Finalization-Durchgang (Abschnitt 16.17):** Diese Arbeitsumgebung ist
+ein frischer, isolierter Remote-Container ohne Zugriff auf eine Kopie der Produktivdatenbank.
+Konkret geprüft und verifiziert:
+
+- `docker info` → kein laufender Docker-Daemon (Docker-CLI ist zwar installiert, der Daemon
+  läuft nicht).
+- `pg_lsclusters` → der lokal installierte Postgres-16-Cluster ist `down`, keine laufende
+  Instanz.
+- Keine `DATABASE_URL`-Umgebungsvariable oder sonstigen Zugangsdaten zu einer
+  Produktivinstanz gesetzt.
+- Keine `.dump`/`.pgdump`/`.sql.gz`-Datei oder sonstiger Produktivdaten-Snapshot irgendwo im
+  Repository oder auf dem Dateisystem vorhanden.
+
+**Damit bestätigt: es existiert weiterhin keine Kopie/kein Zugriff auf die
+Produktivdatenbank** in dieser Umgebung. Schritte 1–2 unten sind daher weiterhin ein
+**externer, außerhalb dieser Umgebung auszuführender Schritt** — hier wird bewusst nichts
+simuliert oder erfunden (Auftrag: "Wenn im aktuellen Umfeld keine Produktivdatenkopie
+verfügbar ist: keine Daten erfinden, Status bleibt B-8 BLOCKED").
 
 ## Ablauf
 
@@ -142,9 +155,15 @@ Nach Schritt 5 mindestens folgende Projekttypen manuell im Frontend gegen die St
 ## Status dieses Durchgangs
 
 **Schritt 1/2 sind ein externer, in dieser Arbeitsumgebung nicht ausführbarer Vorbedingungs-
-Schritt** (kein Docker-/Postgres-Zugriff, keine Produktions-Zugangsdaten). Schritte 3–10 sind
-werkzeugseitig vorbereitet (Migrationsskript inkl. `--report-file` und
-Assignment-Vorher/Nachher-Check, in diesem Durchgang ergänzt) und automatisiert gegen die
-synthetische Fixture verifiziert (`test_migrate_to_planphase_hierarchy.py`, weiterhin grün),
-aber **noch nicht gegen eine echte Produktivkopie ausgeführt worden**. Das bleibt der offene,
-extern zu beschaffende Schritt vor dem eigentlichen B-8-Cutover.
+Schritt** (kein laufender Docker-Daemon, kein laufender Postgres-Cluster, keine
+Produktions-Zugangsdaten, kein Snapshot im Repo — siehe Prüfung oben, Abschnitt "Erneut
+geprüft im P18-Finalization-Durchgang"). Schritte 3–10 sind werkzeugseitig vollständig
+vorbereitet (Migrationsskript inkl. `--report-file` und Assignment-Vorher/Nachher-Check) und
+im P18-Finalization-Durchgang erneut live gegen die synthetische Fixture verifiziert
+(`test_migrate_to_planphase_hierarchy.py`, weiterhin grün, ebenso `check_migrations.py`,
+`test_planning_phase_tree_api.py`, `test_direct_assignment_and_capacity_range.py`,
+`test_derived_monthly_capacity.py`, `test_milestone_and_baseline_tree.py`,
+`test_capacity_range_edge_cases.py` — alle grün, keine Regression), aber **weiterhin nicht
+gegen eine echte Produktivkopie ausgeführt worden**. Das bleibt der offene, extern zu
+beschaffende Schritt vor dem eigentlichen B-8-Cutover (unverändert gegenüber 16.15/16.16 —
+kein Code-Defekt, sondern eine externe Vorbedingung, siehe CONCEPT.md Abschnitt 16.17).

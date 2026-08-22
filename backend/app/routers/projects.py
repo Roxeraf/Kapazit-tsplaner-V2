@@ -285,7 +285,13 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
 @router.get("/subprojects/all", response_model=list[schemas.SubprojectListItem])
 def list_all_subprojects(db: Session = Depends(get_db)):
     """Flache Liste aller Teilprojekte — dient als Zuordnungshilfe, z.B. für
-    PlanPhase.subproject_id (siehe routers/planning.py)."""
+    PlanPhase.subproject_id (siehe routers/planning.py).
+
+    DEPRECATED (P18/B-7/B-8, CONCEPT.md Abschnitt 6b.7): Subproject wird fachlich durch eine
+    Parent-PlanPhase ersetzt. Bleibt compat-only bestehen, bis eine ausgeführte B-2-Migration
+    (backend/scripts/migrate_to_planphase_hierarchy.py) bestehende Subprojects auf
+    Parent-PlanPhases überführt hat (B-8, noch nicht erfolgt) - danach ist dieser Endpunkt
+    samt der zugehörigen Subproject-CRUD-Endpunkte unten vollständig obsolet."""
     rows = (
         db.query(models.Subproject)
         .join(models.Project)

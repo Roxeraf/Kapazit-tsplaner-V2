@@ -131,18 +131,26 @@ export const api = {
   deleteProject: (projectId: number) => request<void>(`/projects/${projectId}`, { method: "DELETE" }),
   reorderProjects: (projectIds: number[]) =>
     request<void>("/projects/reorder", { method: "PUT", body: JSON.stringify({ project_ids: projectIds }) }),
+  /** @deprecated P18/B-7/B-8 (CONCEPT.md Abschnitt 6b.7): Subproject wird fachlich durch eine
+   * Parent-PlanPhase ersetzt (CONCEPT.md Abschnitt 6b.7/19 der Aufgabenstellung: "keine neue
+   * Subproject-UX"). Bleibt compat-only bestehen, bis eine ausgeführte B-2-Migration
+   * bestehende Subprojects auf Parent-PlanPhases überführt hat (B-8, noch nicht erfolgt) -
+   * danach ist dieser Pfad vollständig obsolet. Keine neuen Aufrufstellen anlegen. */
   createSubproject: (projectId: number, name: string, reihenfolge: number) =>
     request(`/projects/${projectId}/subprojects`, {
       method: "POST",
       body: JSON.stringify({ name, reihenfolge }),
     }),
+  /** @deprecated siehe createSubproject. */
   deleteSubproject: (subprojectId: number) =>
     request<void>(`/projects/subprojects/${subprojectId}`, { method: "DELETE" }),
+  /** @deprecated siehe createSubproject. */
   updateSubproject: (subprojectId: number, payload: { name?: string; reihenfolge?: number }) =>
     request<SubprojectDetail>(`/projects/subprojects/${subprojectId}`, {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  /** @deprecated siehe createSubproject. */
   listAllSubprojects: () => request<SubprojectListItem[]>("/projects/subprojects/all"),
 
   // Planung (Phase 26.2): PlanPhase/Milestone/Baseline ersetzen ab jetzt Gantt/FTE als

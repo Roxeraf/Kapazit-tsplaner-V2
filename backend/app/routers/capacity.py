@@ -244,6 +244,13 @@ def list_resource_demands(project_id: int, db: Session = Depends(get_db)):
 
 @router.post("/projects/{project_id}/resource-demands", response_model=schemas.ResourceDemandOut, status_code=201)
 def create_resource_demand(project_id: int, payload: schemas.ResourceDemandCreate, db: Session = Depends(get_db)):
+    """P18/B-8 (CONCEPT.md Abschnitt 6b.12): plan_phase_id=None (projektweite "Grobplanung")
+    ist der dokumentierte LEGACY-Pfad von ResourceDemandGrid.tsx - fachlich durch eine
+    Monats-Leaf-PlanPhase ersetzt (Abschnitt 6b.6/6b.12), aber noch nicht durch
+    Payload-Validierung blockiert, solange die B-2-Migration nicht gegen Produktivdaten
+    ausgeführt wurde (kein Blocker für B-8, siehe Pass-2-Dokument Abschnitt 35.5 Paket B-8).
+    Ein plan_phase_id gesetzt entspricht weiterhin dem normalen, aktuellen Flow (optionale
+    Rollen-Aufschlüsselung/Direct-Assignment-Trägerschicht, Abschnitt 6b.4)."""
     _get_project_or_404(db, project_id)
     _check_plan_phase(db, project_id, payload.plan_phase_id)
     _check_resource_role(db, payload.resource_role_id)

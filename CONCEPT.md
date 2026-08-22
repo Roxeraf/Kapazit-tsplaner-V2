@@ -2038,6 +2038,55 @@ Pass-2-Dokument Abschnitt 35.5 Paket B-7):
   auf "implementiert") — abhängig von einer tatsächlich ausgeführten B-2-Migration, siehe
   Pass-2-Dokument Abschnitt 35.5.
 
+### 16.14 P18 Implementierung — B-8 Legacy Cutover (dieser Durchgang, TEILWEISE — bewusst
+nicht abgeschlossen)
+
+**Achtes und letztes Paket. Nur der nicht-destruktive, migrationsunabhängige Teil wurde in
+diesem Durchgang umgesetzt — der eigentliche Cutover (Entfernen von
+`ResourceDemandGrid.tsx`/Subproject-UI) bleibt bewusst BLOCKIERT**, exakt wie im
+Pass-2-Dokument Abschnitt 35.5 (Paket B-8) und CONCEPT.md Abschnitt 6b.12 spezifiziert:
+Dependency ist eine **tatsächlich gegen Produktivdaten ausgeführte B-2-Migration**, und diese
+Ausführung erfordert laut Auftragsvorgabe (Abschnitt 25/35.2) eine **gesonderte Freigabe** —
+kein automatischer Trigger durch einen Implementierungsdurchgang. Ohne diese Migration hätten
+real existierende Projekte mit produktiver Grobplanung (`ResourceDemand.plan_phase_id IS
+NULL`) nach einem Entfernen von `ResourceDemandGrid.tsx` keinen Bedienweg mehr für ihre
+bereits gepflegten Daten — das wäre ein Datenverlust-Risiko für die Nutzer:innen, keine reine
+Aufräumarbeit.
+
+**In diesem Durchgang umgesetzt (sicher, nicht-destruktiv, jederzeit rückgängig machbar):**
+
+- `ResourceDemandGrid.tsx`: `@deprecated`-Dokumentationskommentar ergänzt (P18/B-8,
+  Ablösung durch den PlanPhase-Baum erklärt, Bedingung für die tatsächliche Entfernung
+  benannt) — Komponente selbst **unverändert funktionsfähig**.
+- `client.ts`: `createSubproject`/`updateSubproject`/`deleteSubproject`/
+  `listAllSubprojects` mit `@deprecated`-JSDoc markiert (keine neuen Aufrufstellen anlegen) —
+  Funktionen selbst **unverändert funktionsfähig**.
+- `routers/projects.py::list_all_subprojects` und `routers/capacity.py::create_resource_demand`:
+  Docstrings ergänzt, die den Legacy-Status bzw. den dokumentierten Legacy-Pfad
+  (`plan_phase_id = None`) erklären — **keine Verhaltensänderung, keine Validierungssperre**
+  (bewusst kein Blocker in diesem Paket, siehe Pass-2-Dokument Abschnitt 30/B-8-Scope).
+- Vollständige Regression der bestehenden Verifikationsskripte (`check_migrations.py`,
+  B-2–B-7-Skripte) nach diesen Änderungen: alle weiterhin grün.
+
+**Bewusst NICHT umgesetzt (blockiert, bis eine Migrationsausführung freigegeben und
+durchgeführt wurde):**
+
+- `ResourceDemandGrid.tsx` **nicht gelöscht** — bleibt die einzige Bedienoberfläche für
+  bestehende Grobplanungsdaten realer Projekte.
+- Subproject-Verwaltungs-UI in `ProjectPlanningTab.tsx` **nicht entfernt**.
+- `subprojects`-Tabelle/`subproject_id`-Spalten: kein Schema-Drop (war ohnehin nie Teil von
+  B-8, siehe Abschnitt 6b.7 — bleibt dauerhaft compat-only, unabhängig vom UI-Cutover).
+- Finales CONCEPT.md-Update auf durchgängig "implementiert" (statt "Zielverhalten,
+  teilweise Ist-Zustand"): folgt erst, wenn B-8 tatsächlich vollständig abgeschlossen werden
+  kann.
+
+**Ergebnis dieses Durchgangs: B-1–B-7 vollständig implementiert und verifiziert (Backend
+durchgängig, Frontend seit B-6 bedienbar), B-8 vorbereitet, aber mit offenem
+Freigabe-/Ausführungsschritt (B-2-Migration gegen Produktivdaten) als einzigem verbleibenden
+Blocker für den vollständigen Legacy-Cutover.** Kein Code-technisches Risiko, keine neue
+Architekturfrage — reine Frage des Zeitpunkts/der Freigabe für einen produktionswirksamen
+Datenmigrationslauf.
+
 ---
 
 ## 17. Historie / Architecture Decision Log

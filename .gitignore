@@ -17,3 +17,6 @@ backend/data/
 # env
 .env
 .env.local
+
+# Claude Code agent worktree scratch state
+.claude/worktrees/

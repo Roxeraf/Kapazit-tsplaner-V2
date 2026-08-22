@@ -334,6 +334,13 @@ Planstand anlegen: Name, Grund (optional), Tags. Tags werden über die generisch
 `TagLink`-Infrastruktur verwaltet; Baselines sind seit P5 taggbar (Erstellzeit-only, kein
 Update-Endpoint — ein eingefrorener Stand ist unveränderlich).
 
+Seit P19 zeigt der `PlanPhaseWorkspace` (Übersicht-Tab) zusätzlich eine kompakte
+"Seit Planstand VX (Datum) geändert: …"-Zeile, clientseitig gegen denselben
+Deviation-Endpoint berechnet und auf `entity_id == aktuelle Phase` (bei Parent-Phasen
+zusätzlich ihre Nachfahren) gefiltert — keine neue Snapshot-Engine, kein
+Snapshot-vs-Snapshot-Vergleich, reine Kurzform des ohnehin projektweiten Vergleichs. Siehe
+Abschnitt 16.18.
+
 ### 5.4 Teilprojekte (Legacy/IST-Hinweis)
 
 **Fachlich durch die hierarchische `PlanPhase` (`parent_phase_id`) abgelöst** (Abschnitt 6.7,
@@ -363,6 +370,11 @@ aber in der UI (`MilestoneList.tsx`) nicht mehr angeboten — dort steht ausschl
 "Übergeordnete Phase"-Auswahl. Dieselbe UX-Regel wie bei PlanPhase gilt: das normale
 Datumsfeld heißt schlicht "Datum" (= `forecast_date`), `baseline_date` ist compat-only,
 `actual_date` sekundär mit expliziter Korrektur-Aktion ("Ist-Datum korrigieren").
+
+Seit P19 zeigt der `PlanPhaseWorkspace` zusätzlich eine kompakte "Meilensteine"-Karte im
+Aktivität-Tab (Leaf **und** Parent), gefiltert auf `plan_phase_id == aktuelle Phase`
+(nicht rekursiv) — Wiederverwendung von `MilestoneList.tsx`, kein zweites Milestone-Modell,
+kein neuer Tab. Siehe Abschnitt 16.18.
 
 ### 5.6 Gantt
 
@@ -559,6 +571,12 @@ Migration (Abschnitt 6.9) abgeschlossen ist — es gibt dann keine `plan_phase_i
 mehr, über die fälschlich mit-addiert werden könnte. Kein Filter-Bugfix an
 `compute_capacity_gap`/`get_allocation_gaps`/`get_role_analysis`/`_cockpit_capacity` nötig.
 
+`GET /projects/{id}/capacity/monthly` hatte vor P19 keinen Frontend-Konsumenten (Endpoint/Typ
+existierten, wurden aber nirgends gerendert). Seit P19 zeigt `ProjectMonthlyCapacityCard.tsx`
+im Planung-Tab diese Werte inkl. Monats-Drilldown (additives `by_phase`-Feld je Monatseintrag,
+serverseitig aus derselben `monthly_distribution()`-Berechnung abgeleitet, keine zweite
+Formel) — siehe Abschnitt 10/16.18.
+
 ### 6.7 Subproject wird durch Parent-PlanPhase ersetzt
 
 `Subproject` ist heute technisch nur `{id, name, reihenfolge, project_id}` — keine Zeiträume,
@@ -707,6 +725,11 @@ Nur zur Diagnose/Nachvollziehbarkeit — **keine Zielarchitektur**, volles Detai
 - Entfernung von `ResourceDemandGrid`/Subproject-UI/Compat-Schema ist **nicht** Teil dieses
   Abschnitts, sondern erfolgt erst nach erfolgreichem produktivem B-8-Cutover, in einem
   separaten, explizit freigegebenen Auftrag (Abschnitt 16.17, Cutover-Runbook).
+- Seit P19 ist dieser Legacy-Block im Planung-Tab (`ProjectPlanningTab.tsx`) visuell klar
+  als sekundär gekennzeichnet: standardmäßig eingeklappt, mit der Überschrift
+  "Legacy-Kapazitätsplanung — wird nach Migration ersetzt". Der `PlanPhase`-Baum ist
+  darüber die primäre, immer offene Ansicht. Reine Darstellungsänderung — keine Funktion
+  wurde entfernt oder verändert (siehe Abschnitt 16.18).
 
 ---
 
@@ -752,10 +775,18 @@ Alle vier (`Comment`, `Task`, `Blocker`, `Decision`) haben eine nullable `plan_p
 (`ON DELETE SET NULL`) und werden im PlanPhaseWorkspace-Tab "Aktivität" gemeinsam mit dem
 Activity Feed gezeigt — bestehende generische Infrastruktur, keine neue Activity-Tabelle.
 
+Comment-Threading (`parent_id`) ist seit P19 auch im Frontend umgesetzt (vorher nur
+Backend-Feld, siehe Abschnitt 16.18): `NotesSection.tsx` zeigt Antworten eingerückt unter
+ihrem jeweiligen Wurzelkommentar (eine Verschachtelungsebene, unabhängig von der
+tatsächlichen `parent_id`-Tiefe).
+
 **"Aus Objekt erstellen":** aus einem Kommentar (oder einer Decision/einem Blocker) kann
 über eine kontextuelle Aktion ein fachliches Folgeobjekt entstehen (z. B. `+ Aufgabe`), das
 per `EntityRelation(relation_type="resulted_in")` mit dem Ursprung verknüpft wird — keine
-neue Source-of-Truth-Spalte für "Origin", `EntityRelation` reicht.
+neue Source-of-Truth-Spalte für "Origin", `EntityRelation` reicht. Seit P19 ist diese Aktion
+direkt in der Kommentarliste (`NotesSection.tsx`) verfügbar, nicht mehr nur im Activity Feed,
+und die vorgeschlagenen Tags sind die Vereinigung aus Kommentar-Tags **und** den Tags der
+Phase selbst (weiterhin nur Vorschlag, keine harte Vererbung).
 
 **Dokumente:** zentrale Ablage (`documents`/`document_links`), ein Upload-Pfad (`POST
 /projects/{id}/documents`, optional `entity_type`+`entity_id` für atomare Verknüpfung). Jede
@@ -849,19 +880,31 @@ großes Inline-Formular. Pflicht: Name, Start, Ende. Optional: Status, Teilproje
 Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden nach dem Anlegen
 über den Dateien-Tab des Drawers verwaltet.
 
-**PlanPhase-Workspace (Drawer):** die primäre Detail-/Bearbeitungsoberfläche, vier Tabs:
+**PlanPhase-Workspace (Drawer):** die primäre Detail-/Bearbeitungsoberfläche, vier Tabs
+(unverändert seit P19 — P19 ergänzt Inhalte **innerhalb** der Tabs, baut keine neuen):
 
 - **Übersicht** — editierbar: Name, Start/Ende (= "Zeitraum"), Status, Owner, Teilprojekt,
   Tags, Plan-FTE, alles sofort speichernd (kein Batch-/Grund-Workflow, siehe unten).
   Read-only/berechnet: Planstunden, Zeitfortschritt, Ist-Aufwand (aktuell "noch nicht
   eindeutig zugeordnet", BD-1). Sekundär: "Tatsächlicher Verlauf" (Gestartet/Abgeschlossen),
-  mit Aktion "Ist-Daten korrigieren" für die seltene manuelle Nachpflege.
-- **Kapazität** — Plan-FTE/Planstunden-Kopfzeile, Rollen-Aufschlüsselung + Personenbesetzung
-  in Fachsprache (siehe Abschnitt 6).
-- **Aktivität** — Activity Feed + Kommentare (inkl. Threading/"aus Objekt erstellen"),
-  Aufgaben, Entscheidungen, Blocker im Phasenkontext.
-- **Dateien** — phasenbezogene Ansicht der zentralen Dokumentenablage (Upload, Liste,
-  Löschen).
+  mit Aktion "Ist-Daten korrigieren" für die seltene manuelle Nachpflege. Header zeigt seit
+  P19 den vollen Breadcrumb-Pfad von der Wurzel bis zur aktuellen Phase (klickbare Vorfahren,
+  wechselt die im Drawer offene Phase ohne den Drawer zu schließen). Zusätzlich seit P19: eine
+  kompakte "Verknüpfte Themen"-Karte (Tags + Entscheidungen-/Blocker-/Dokumente-Counts, aus dem
+  bereits geladenen Detail abgeleitet) und, falls ein Planstand existiert, die
+  "Seit Planstand VX geändert"-Zeile (Abschnitt 5.3).
+- **Kapazität** — Plan-FTE/Planstunden-Kopfzeile, Personenbesetzung (Primärpfad, visuell
+  hervorgehoben) + optionale Rollen-Aufschlüsselung (eingeklappt, sekundär) in Fachsprache
+  (siehe Abschnitt 6). Seit P19 liefert `PlanPhaseDetail` Assignment-Summary und die
+  Assignments je Rolle bereits eingebettet (Round-Trip-Reduktion, kein neuer Endpoint).
+- **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-/Planstand-Ereignisse) +
+  Kommentare (inkl. Threading über `parent_id` mit einer Einrückungsebene, "aus Objekt
+  erstellen" direkt in der Kommentarliste), Aufgaben, Entscheidungen, Blocker im
+  Phasenkontext (Tags dieser drei sind seit P19 nachbearbeitbar). Seit P19 zusätzlich eine
+  kompakte Meilensteine-Karte (Leaf und Parent, Abschnitt 5.5).
+- **Dateien** — seit P19 dieselbe volle Dokumentenkomponente wie der projektweite
+  Dokumente-Tab (Suche, Typ-/Tag-Filter, "Verwendet in"-Backlinks), phasengefiltert statt der
+  früheren schwächeren Eigenbau-Liste — ein System, eine Komponente, zwei Filteransichten.
 
 **Speichern-Paradigma:** Der Planung-Tab ist konsequent Sofort-Speichern (jede Änderung im
 Drawer/in der Liste wird direkt persistiert) — **kein** globales "Grund für diese
@@ -873,8 +916,16 @@ expliziter "Speichern"-Klick mit Begründung passt fachlich. Zwei konkurrierende
 Speicherparadigmen auf derselben Seite (Planung) wurden damit aufgelöst, ohne den
 Audit-Trail-Mechanismus selbst zu entfernen.
 
-**Milestones, Ressourcen (Portfolio-Achse), Planstände, Teilprojekt-Verwaltung** liegen als
-eigene Karten unterhalb der PlanPhase-Liste, jeweils mit Sofort-Speichern.
+**Milestones, Planstände** liegen als eigene, projektweite Karten unterhalb der
+PlanPhase-Liste (die seit P19 visuell die primäre, immer offene Karte ist), jeweils mit
+Sofort-Speichern. Seit P19 zeigt eine weitere Karte "Projektkapazität nach Monat" die
+derived monthly capacity read-only (Balken/Stunden/FTE-Äquivalent je Monat, Klick auf einen
+Monat schlüsselt ihn nach beitragender Leaf-PlanPhase auf) — Quelle ist unverändert
+`compute_project_monthly_capacity` (Abschnitt 6.6), keine neue Berechnung, keine
+Ampel-/Erfüllungsbewertung. Die Legacy-Karten (Teilprojekt-Verwaltung, `ResourceDemandGrid`)
+liegen seit P19 gebündelt in einem eingeklappten "Legacy-Kapazitätsplanung"-Block ganz unten
+(Abschnitt 6.15) — unverändert funktionsfähig, aber visuell klar sekundär zur
+`PlanPhase`-Struktur.
 
 ---
 
@@ -2176,6 +2227,74 @@ inkl. Cutover-Runbook und Rollback-Plan:
 Code-Änderungen**, keine Schema-Änderungen, keine produktive Migration, kein Legacy-Code
 entfernt — konsistent mit der ausdrücklichen Vorgabe dieses Durchgangs ("keine produktive
 Migration ohne separaten Auftrag").
+
+---
+
+### 16.18 P19 — PlanPhase Workspace UX Consolidation (dieser Durchgang)
+
+**Auftrag:** P18 ist fachlich abgeschlossen, Architektur bleibt unverändert. P19 sollte die
+vorhandenen Funktionen zu einem verständlichen, intuitiven Arbeitsbereich zusammenführen —
+kein Neubau. Erster Schritt war ein Audit des realen Codes gegen diese Spezifikation
+([`P19_PLANPHASE_WORKSPACE_UX_AUDIT.md`](P19_PLANPHASE_WORKSPACE_UX_AUDIT.md)): Ergebnis war,
+dass die in Abschnitt 10 dokumentierte Zielstruktur (ein `PlanPhaseWorkspace`-Drawer mit genau
+vier Tabs) bereits existierte und im Kern funktionierte — die real gefundenen 14 Lücken waren
+additiv/chirurgisch, keine davon erforderte ein neues Datenmodell, eine neue Capacity-Engine
+oder eine zweite Planungsquelle. Verdict des Audits: **READY FOR P19 IMPLEMENTATION.**
+
+**Umsetzung (P19.1–P19.7, parallel implementiert, danach gemeinsam gemerged und gegen die
+volle Backend-Testsuite + einen manuellen Browser-Durchlauf verifiziert):**
+
+- **P19.1 (Workspace IA):** voller Breadcrumb-Pfad im Drawer-Header statt nur der direkten
+  Elternphase, clientseitig aus der bereits geladenen Phasenliste abgeleitet, klickbare
+  Vorfahren wechseln die offene Phase ohne den Drawer zu schließen.
+- **P19.2 (Kapazität-Polish):** `PlanPhaseDetail` bettet seit P19 `assignment_summary` und je
+  `ResourceDemand` seine `assignments` ein (additive Felder, bestehende Einzel-Endpoints
+  bleiben für andere Aufrufer bestehen) — löst den Großteil des N+1-Musters bei
+  aufgeklappter Rollenaufschlüsselung auf. Visuelle Trennung Personenbesetzung
+  (Primärpfad, hervorgehoben) vs. Rollenaufschlüsselung (sekundär, eingeklappt) geschärft.
+- **P19.3 (Activity/Comments):** Comment-Threading (`parent_id`) im Frontend nachgebaut
+  (Backend-Feld existierte bereits), "aus Kommentar erstellen" zusätzlich direkt in der
+  Kommentarliste, Tag-Vorschlag bei Folgeobjekten um die Tags der Phase ergänzt, Activity-Feed
+  zeigt jetzt auch Milestone-/Planstand-Ereignisse (Backend lieferte sie bereits).
+- **P19.4 (Tags/Knowledge):** Tag-Nachbearbeitung nach Anlage bei Task/Blocker/Decision
+  (Muster von `MilestoneList.tsx` übernommen), Tag-Dossier-Einträge sind klickbar (Navigation
+  zur referenzierten Entität bzw. PlanPhase), neue "Verknüpfte Themen"-Karte im Übersicht-Tab.
+- **P19.5 (Documents/Milestones):** Dateien-Tab im Workspace nutzt jetzt dieselbe volle
+  Dokumentenkomponente wie der projektweite Dokumente-Tab (extrahiert, parametrisiert nach
+  Entity-Filter) statt einer schwächeren Eigenbau-Liste; neue kompakte Meilensteine-Karte im
+  Aktivität-Tab (Leaf und Parent), `PlanPhaseDetail` liefert dafür additiv `milestones`.
+- **P19.6 (Planstand-UX):** kompakte "Seit Planstand VX geändert"-Zeile im Übersicht-Tab,
+  clientseitig gegen den bestehenden Deviation-Endpoint gefiltert (Phase bzw. bei Parents
+  zusätzlich ihre Nachfahren) — kein neuer Endpoint, keine neue Diff-Engine.
+- **P19.7 (Planning-Tab-Cleanup):** `PlanPhase`-Baum ist jetzt die primäre, immer offene
+  Karte im Planung-Tab; Legacy-Block (Teilprojekt-CRUD + `ResourceDemandGrid`) in einen
+  eingeklappten, klar beschrifteten Abschnitt verschoben (reine Darstellungsänderung, keine
+  Funktion verändert). Zusätzlich neue `ProjectMonthlyCapacityCard.tsx`: die
+  derived-monthly-capacity-Werte (`GET /projects/{id}/capacity/monthly`) hatten vor P19
+  **keinen Frontend-Konsumenten** — jetzt sichtbar inkl. Monats-Drilldown nach beitragender
+  Leaf-Phase (additives `by_phase`-Feld, aus derselben bestehenden Berechnung abgeleitet).
+
+**Backend-Änderungen:** ausschließlich additive Felder auf bestehenden Pydantic-Schemas
+(`PlanPhaseDetail.milestones`/`.assignment_summary`, `ResourceDemandOut.assignments`,
+`ProjectMonthlyCapacityEntry.by_phase`, `CommentOut`/`CommentCreate.parent_id` — Feld
+existierte bereits im Modell, nur bisher nicht in Schema/API exponiert) — keine neue Tabelle,
+keine neue Migration, keine geänderte Berechnungsformel.
+
+**Verifikation:** alle sechs Backend-Testskripte (`backend/scripts/test_*.py`, je um
+gezielte Assertions für die neuen additiven Felder erweitert) grün; `npm run build`
+(`tsc -b && vite build`) und `npm run lint` sauber; zusätzlich ein manueller
+Playwright-Durchlauf gegen den laufenden Dev-Stack (Projekt anlegen → PlanPhase mit
+0,40 FTE → zwei Personen direkt zuweisen, ohne Rollenauswahl → Bedarf/Besetzt/Offen
+0,40/0,40/0,00 → Kommentar mit Thread-Antwort → Milestone sichtbar im Workspace →
+Monatskapazität automatisch berechnet und nur als Drilldown aufschlüsselbar, nicht editierbar
+→ Legacy-Block eingeklappt, aber unverändert funktionsfähig), keine Konsolenfehler.
+
+**Nicht Teil dieses Durchgangs** (unverändert wie im Auftrag begrenzt): kein
+Tempo→PlanPhase-Mapping, keine neue Capacity-Engine, keine neue Monatsplanung, kein
+Gantt-Drag&Drop, keine produktive B-8-Migration. Die zwei einzigen offenen
+UX-Platzierungsfragen des Audits (Planstände zentral vs. im Workspace; Milestones als Karte
+vs. eigener Tab) wurden mit begründeter Empfehlung umgesetzt (zentral/Karte) — reversibel,
+kein Business-Blocker.
 
 ---
 

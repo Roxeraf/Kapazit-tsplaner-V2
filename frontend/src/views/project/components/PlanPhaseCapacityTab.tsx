@@ -6,7 +6,6 @@ import type {
   CandidatePerson,
   PhaseMetricsOut,
   PlanPhaseAssignmentSummary,
-  ResourceAssignment,
   ResourceDemand,
 } from "../../../types";
 
@@ -40,7 +39,7 @@ function AssignPersonForm({
   planPhaseId: number;
   forecastStart: string | null;
   forecastEnd: string | null;
-  onAssigned: () => void;
+  onAssigned: (summary: PlanPhaseAssignmentSummary) => void;
   onCancel: () => void;
 }) {
   const [candidates, setCandidates] = useState<CandidatePerson[]>([]);
@@ -68,8 +67,8 @@ function AssignPersonForm({
     setSaving(true);
     setError(null);
     try {
-      await api.assignPersonToPlanPhase(planPhaseId, { person_id: personId, fte });
-      onAssigned();
+      const summary = await api.assignPersonToPlanPhase(planPhaseId, { person_id: personId, fte });
+      onAssigned(summary);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -116,26 +115,30 @@ function AssignPersonForm({
   );
 }
 
+// P19.2 (Kapazität-Tab N+1-Fix): die Zuordnungen kommen jetzt bereits gebündelt über
+// demand.assignments aus PlanPhaseDetail (siehe ResourceDemandOut.assignments) - kein eigener
+// listResourceAssignments-Call mehr beim Aufklappen einer Rolle nötig. Nur die Kandidatenliste
+// bleibt ein gezielter Call (dynamisch, hängt von aktueller Kapazität ab, wird nur beim
+// Aufklappen dieser einen Rolle abgerufen - kein N+1, da stets nur eine Rolle gleichzeitig
+// aufgeklappt ist).
 function DemandAssignments({ demand, onChanged }: { demand: ResourceDemand; onChanged: () => void }) {
-  const [assignments, setAssignments] = useState<ResourceAssignment[]>([]);
   const [candidates, setCandidates] = useState<CandidatePerson[]>([]);
   const [personId, setPersonId] = useState<number | null>(null);
   const [fte, setFte] = useState(0.2);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = () => {
-    api.listResourceAssignments(demand.id).then(setAssignments).catch(() => setAssignments([]));
+  const refreshCandidates = () => {
     api.getResourceDemandCandidates(demand.id).then(setCandidates).catch(() => setCandidates([]));
   };
 
-  useEffect(refresh, [demand.id]);
+  useEffect(refreshCandidates, [demand.id]);
 
   const handleAssign = async () => {
     if (personId == null) return;
     try {
       await api.createResourceAssignment(demand.id, { person_id: personId, fte });
       setPersonId(null);
-      refresh();
+      refreshCandidates();
       onChanged();
     } catch (e) {
       setError(String(e));
@@ -144,9 +147,11 @@ function DemandAssignments({ demand, onChanged }: { demand: ResourceDemand; onCh
 
   const handleRemove = async (assignmentId: number) => {
     await api.deleteResourceAssignment(assignmentId);
-    refresh();
+    refreshCandidates();
     onChanged();
   };
+
+  const assignments = demand.assignments;
 
   return (
     <div style={{ marginTop: "0.4rem", paddingLeft: "0.5rem", borderLeft: "2px solid var(--border)" }}>
@@ -200,6 +205,7 @@ export default function PlanPhaseCapacityTab({
   forecastEnd,
   demands,
   metrics,
+  assignmentSummary,
   onChanged,
 }: {
   projectId: number;
@@ -209,9 +215,14 @@ export default function PlanPhaseCapacityTab({
   forecastEnd: string | null;
   demands: ResourceDemand[];
   metrics: PhaseMetricsOut;
+  // P19.2 (Round-Trip-Reduktion, Gap 3): bereits in PlanPhaseDetail gebündelt (dieselbe
+  // Auswertung wie GET .../assignment-summary) - wird bevorzugt statt eines eigenen Fetches
+  // beim Öffnen des Tabs verwendet. Optional gehalten, falls ein künftiger Aufrufer diese Prop
+  // (noch) nicht mitgibt - dann fällt die Komponente auf den eigenständigen Endpoint zurück.
+  assignmentSummary?: PlanPhaseAssignmentSummary;
   onChanged: () => void;
 }) {
-  const [summary, setSummary] = useState<PlanPhaseAssignmentSummary | null>(null);
+  const [summary, setSummary] = useState<PlanPhaseAssignmentSummary | null>(assignmentSummary ?? null);
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [showRoleBreakdown, setShowRoleBreakdown] = useState(demands.length > 0);
   const [roles, setRoles] = useState<AdminResourceRole[]>([]);
@@ -220,24 +231,29 @@ export default function PlanPhaseCapacityTab({
   const [addFte, setAddFte] = useState(0.2);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshSummary = () => {
-    api.getPlanPhaseAssignmentSummary(planPhaseId).then(setSummary).catch(() => setSummary(null));
-  };
+  // P19.2: die gebündelte Zusammenfassung aus PlanPhaseDetail bevorzugen (kein Extra-Call) -
+  // nur ohne sie wird der eigenständige Endpoint separat abgerufen.
+  useEffect(() => {
+    if (assignmentSummary) {
+      setSummary(assignmentSummary);
+    } else {
+      api.getPlanPhaseAssignmentSummary(planPhaseId).then(setSummary).catch(() => setSummary(null));
+    }
+  }, [planPhaseId, assignmentSummary]);
 
-  useEffect(refreshSummary, [planPhaseId]);
   useEffect(() => {
     api.listResourceRoles().then(setRoles).catch(() => setRoles([]));
   }, []);
 
-  const handleAssigned = () => {
+  const handleAssigned = (newSummary: PlanPhaseAssignmentSummary) => {
     setShowAssignForm(false);
-    refreshSummary();
+    setSummary(newSummary);
     onChanged();
   };
 
   const handleUnassign = async (personId: number) => {
-    await api.unassignPersonFromPlanPhase(planPhaseId, personId);
-    refreshSummary();
+    const newSummary = await api.unassignPersonFromPlanPhase(planPhaseId, personId);
+    setSummary(newSummary);
     onChanged();
   };
 
@@ -287,7 +303,10 @@ export default function PlanPhaseCapacityTab({
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: "0.75rem" }}>
+      {/* P19.2 (visuelle Hierarchie Direct-Assignment vs. optionale Rollenaufschlüsselung,
+          Abschnitt 7/8): Primärpfad durch Akzent-Rahmen optisch als "die Ebene, die zuerst
+          zählt" hervorgehoben - rein Layout/Typografie, keine Funktionsänderung. */}
+      <div className="card" style={{ marginBottom: "0.75rem", borderLeft: "3px solid var(--blau)" }}>
         <div className="toolbar">
           <h4 style={{ color: "var(--navy)", margin: 0 }}>Personenbesetzung</h4>
           {!showAssignForm && (
@@ -356,15 +375,18 @@ export default function PlanPhaseCapacityTab({
         )}
       </div>
 
-      <div className="card">
+      {/* P19.2: bewusst zurückhaltendere Rahmung (gestrichelter Rand, gedämpfter Hintergrund,
+          kleinere Schrift) als der Primärpfad oben - signalisiert "optionale Zusatzebene", ohne
+          etwas an der Funktion zu ändern (weiterhin derselbe DemandAssignments-Flow). */}
+      <div className="card" style={{ marginTop: "1rem", background: "#f7f9fc", border: "1px dashed var(--border)" }}>
         <button
           type="button"
           onClick={() => setShowRoleBreakdown((v) => !v)}
-          style={{ border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: "0.88rem", fontWeight: 600, color: "var(--navy)" }}
+          style={{ border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-muted)" }}
         >
           {showRoleBreakdown ? "▾" : "▸"} Rollen aufschlüsseln (optional)
         </button>
-        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.3rem 0 0" }}>
+        <p style={{ fontSize: "0.76rem", color: "var(--text-muted)", margin: "0.3rem 0 0" }}>
           Nie Voraussetzung für eine direkte Personenzuweisung - nur zur optionalen
           Rollen-/Skill-Aufschlüsselung des Bedarfs.
         </p>

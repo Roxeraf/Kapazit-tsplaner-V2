@@ -48,18 +48,40 @@ function fmtDate(iso: string | null): string {
   return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+// P19.1 (Workspace Information Architecture, Abschnitt 6): volle Ahnenkette von der Wurzel bis
+// zur aktuellen Phase, rein clientseitig aus der bereits vorhandenen allPhases-Liste abgeleitet
+// (kein neuer Backend-Call) - z.B. "Wareneingang › Schnittstellen › WE-Anmeldung". Bricht bei
+// einem Zyklus defensiv ab (sollte durch das Backend nie erreichbar sein, siehe planPhaseDepth).
+function ancestorChain(phases: PlanPhase[], phaseId: number): PlanPhase[] {
+  const byId = new Map(phases.map((p) => [p.id, p]));
+  const chain: PlanPhase[] = [];
+  let current = byId.get(phaseId);
+  const seen = new Set<number>();
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    chain.unshift(current);
+    current = current.parent_phase_id != null ? byId.get(current.parent_phase_id) : undefined;
+  }
+  return chain;
+}
+
 export default function PlanPhaseWorkspace({
   planPhaseId,
   projectId,
   allPhases,
   onClose,
   onChanged,
+  onNavigate,
 }: {
   planPhaseId: number | null;
   projectId: number;
   allPhases: PlanPhase[];
   onClose: () => void;
   onChanged?: () => void;
+  // P19.1: wechselt die im Drawer offene Phase (z.B. per Klick auf eine Ahnenphase im
+  // Breadcrumb), ohne den Drawer zu schließen. Optional, damit bestehende Einbindungen ohne
+  // Anpassung weiterlaufen - ohne diese Prop ist der Breadcrumb nicht klickbar.
+  onNavigate?: (planPhaseId: number) => void;
 }) {
   const [detail, setDetail] = useState<PlanPhaseDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -150,6 +172,12 @@ export default function PlanPhaseWorkspace({
     ? [detail.status, ...PLAN_PHASE_STATUS_OPTIONS]
     : PLAN_PHASE_STATUS_OPTIONS;
 
+  // P19.1: volle Ahnenkette INKLUSIVE der aktuellen Phase (letztes Segment, nicht klickbar -
+  // entspricht dem Beispiel "Wareneingang › Schnittstellen › WE-Anmeldung" aus dem Auftrag).
+  // Nur gerendert, wenn tatsächlich mindestens ein Vorfahre existiert (sonst wäre der
+  // Breadcrumb identisch mit der bereits sichtbaren Überschrift).
+  const breadcrumbChain = detail ? ancestorChain(allPhases, detail.id) : [];
+
   return (
     <div
       style={{
@@ -179,9 +207,27 @@ export default function PlanPhaseWorkspace({
           </button>
         </div>
       </div>
-      {detail?.parent_phase_id != null && (
-        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "-0.3rem 0 0.6rem" }}>
-          Übergeordnete Phase: {allPhases.find((p) => p.id === detail.parent_phase_id)?.phase_type ?? "…"}
+      {breadcrumbChain.length > 1 && (
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "-0.3rem 0 0.6rem", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.25rem" }}>
+          {breadcrumbChain.map((phase, i) => {
+            const isCurrent = i === breadcrumbChain.length - 1;
+            return (
+              <span key={phase.id} style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                {!isCurrent && onNavigate ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(phase.id)}
+                    style={{ border: "none", background: "none", padding: 0, font: "inherit", color: "var(--blau)", cursor: "pointer", textDecoration: "underline" }}
+                  >
+                    {phase.phase_type}
+                  </button>
+                ) : (
+                  <span style={isCurrent ? { fontWeight: 600, color: "var(--navy)" } : undefined}>{phase.phase_type}</span>
+                )}
+                {!isCurrent && <span aria-hidden="true">›</span>}
+              </span>
+            );
+          })}
         </p>
       )}
 
@@ -407,6 +453,7 @@ export default function PlanPhaseWorkspace({
             forecastEnd={detail.forecast_end}
             demands={detail.resource_demands}
             metrics={detail.metrics}
+            assignmentSummary={detail.assignment_summary}
             onChanged={reload}
           />
         )

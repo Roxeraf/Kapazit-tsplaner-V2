@@ -734,6 +734,21 @@ class ResourceDemandUpdate(BaseModel):
     commitment_level: CommitmentLevel | None = None
 
 
+class ResourceAssignmentCreate(BaseModel):
+    person_id: int
+    fte: float = 0
+
+
+class ResourceAssignmentOut(BaseModel):
+    id: int
+    resource_demand_id: int
+    person_id: int
+    person_name: str
+    fte: float
+    erstellt_am: str
+    aktualisiert_am: str
+
+
 class ResourceDemandOut(BaseModel):
     id: int
     project_id: int
@@ -749,21 +764,11 @@ class ResourceDemandOut(BaseModel):
     # Allocation Gap (Phase 21, Master-MD Abschnitt 22): fte - assigned_fte. Negativ =
     # Unterdeckung (weniger zugeordnet als bedarf), positiv = Überdeckung.
     allocation_gap: float
-
-
-class ResourceAssignmentCreate(BaseModel):
-    person_id: int
-    fte: float = 0
-
-
-class ResourceAssignmentOut(BaseModel):
-    id: int
-    resource_demand_id: int
-    person_id: int
-    person_name: str
-    fte: float
-    erstellt_am: str
-    aktualisiert_am: str
+    # P19.2 (Kapazität-Tab N+1-Fix): die einzelnen ResourceAssignments dieses Demands additiv
+    # mitgeliefert - löst das N+1-Muster auf (vorher: pro aufgeklapptem Demand ein eigener
+    # GET .../assignments-Call). Der eigenständige Endpoint (GET .../assignments) bleibt
+    # bestehen (z.B. für Nach-Mutation-Refresh ohne vollen Detail-Reload).
+    assignments: list[ResourceAssignmentOut] = []
 
 
 class CandidatePersonOut(BaseModel):
@@ -1552,6 +1557,28 @@ class PhaseMetricsOut(BaseModel):
     reconciliation: ReconciliationOut
 
 
+class PlanPhaseAssignedPersonOut(BaseModel):
+    # Eine Zeile je Person (über alle ResourceDemands dieser Phase aggregiert - Abschnitt
+    # 6b.10), nicht je ResourceAssignment-Datensatz.
+    person_id: int
+    person_name: str
+    fte: float
+
+
+class PlanPhaseAssignmentSummaryOut(BaseModel):
+    """Bedarf/Besetzt/Offen einer Leaf-PlanPhase (P18/B-4, CONCEPT.md Abschnitt 6b.10) - UI-
+    Vokabular: "Geplanter Ressourcenbedarf"/"Besetzung"/"Offen", NICHT "ResourceDemand". Vor
+    P19.2 nur über einen eigenen Endpoint (GET .../assignment-summary) erreichbar - ab P19.2
+    zusätzlich additiv in PlanPhaseDetail eingebettet (siehe dort), der eigenständige Endpoint
+    bleibt unverändert bestehen (andere Aufrufer)."""
+
+    plan_phase_id: int
+    plan_fte: float | None
+    assigned_fte: float
+    open_fte: float | None
+    assignments: list[PlanPhaseAssignedPersonOut]
+
+
 class PlanPhaseDetail(PlanPhaseOut):
     # Aggregierte Detailansicht einer PlanPhase. Eingebettet werden nur Entitäten mit
     # plan_phase_id-FK (Comment/Task/Blocker/Decision/ResourceDemand). Milestone hat seit
@@ -1565,6 +1592,10 @@ class PlanPhaseDetail(PlanPhaseOut):
     metrics: PhaseMetricsOut
     # P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI (B-6). Leer bei einer Leaf.
     children: list[PlanPhaseOut] = []
+    # P19.2 (Kapazität-Tab Round-Trip-Reduktion): dieselbe Bedarf/Besetzt/Offen-Auswertung wie
+    # GET .../assignment-summary, additiv mitgeliefert, damit der Kapazität-Tab sie nicht mehr
+    # separat nachladen muss. Der eigenständige Endpoint bleibt bestehen (andere Aufrufer).
+    assignment_summary: PlanPhaseAssignmentSummaryOut
 
 
 class PlanPhaseReparentChildrenRequest(BaseModel):
@@ -1596,25 +1627,6 @@ class PlanPhaseDeleteSubtreeRequest(BaseModel):
     # Nachfahrenzahl aus GET .../subtree-impact übereinstimmen, sonst 422 (Abschnitt 6b.9).
     confirm_phase_type: str
     confirm_descendant_count: int
-
-
-class PlanPhaseAssignedPersonOut(BaseModel):
-    # Eine Zeile je Person (über alle ResourceDemands dieser Phase aggregiert - Abschnitt
-    # 6b.10), nicht je ResourceAssignment-Datensatz.
-    person_id: int
-    person_name: str
-    fte: float
-
-
-class PlanPhaseAssignmentSummaryOut(BaseModel):
-    """Bedarf/Besetzt/Offen einer Leaf-PlanPhase (P18/B-4, CONCEPT.md Abschnitt 6b.10) - UI-
-    Vokabular: "Geplanter Ressourcenbedarf"/"Besetzung"/"Offen", NICHT "ResourceDemand"."""
-
-    plan_phase_id: int
-    plan_fte: float | None
-    assigned_fte: float
-    open_fte: float | None
-    assignments: list[PlanPhaseAssignedPersonOut]
 
 
 class PlanPhaseAssignPersonRequest(BaseModel):

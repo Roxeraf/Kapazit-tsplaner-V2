@@ -245,12 +245,16 @@ def _decision_out(db: Session, d: models.Decision) -> schemas.DecisionOut:
 
 def _resource_demand_out(db: Session, demand: models.ResourceDemand) -> schemas.ResourceDemandOut:
     role = db.get(models.ResourceRole, demand.resource_role_id)
-    assignments = (
-        db.query(models.ResourceAssignment)
+    # P19.2 (Kapazität-Tab N+1-Fix): Assignments inkl. Personenname in einem Zug mit abholen und
+    # additiv in ResourceDemandOut.assignments einbetten (statt sie erst beim Aufklappen der
+    # Rollenaufschlüsselung über einen eigenen Call pro Demand nachzuladen).
+    rows = (
+        db.query(models.ResourceAssignment, models.Person.display_name)
+        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
         .filter(models.ResourceAssignment.resource_demand_id == demand.id)
         .all()
     )
-    assigned_fte = round(sum(a.fte for a in assignments), 2)
+    assigned_fte = round(sum(a.fte for a, _ in rows), 2)
     return schemas.ResourceDemandOut(
         id=demand.id,
         project_id=demand.project_id,
@@ -264,6 +268,18 @@ def _resource_demand_out(db: Session, demand: models.ResourceDemand) -> schemas.
         aktualisiert_am=demand.aktualisiert_am,
         assigned_fte=assigned_fte,
         allocation_gap=round(demand.fte - assigned_fte, 2),
+        assignments=[
+            schemas.ResourceAssignmentOut(
+                id=a.id,
+                resource_demand_id=a.resource_demand_id,
+                person_id=a.person_id,
+                person_name=name,
+                fte=a.fte,
+                erstellt_am=a.erstellt_am,
+                aktualisiert_am=a.aktualisiert_am,
+            )
+            for a, name in rows
+        ],
     )
 
 
@@ -367,6 +383,11 @@ def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDet
             )
         ],
         metrics=_plan_phase_metrics(db, p),
+        # P19.2 (Kapazität-Tab Round-Trip-Reduktion, Gap 3): dieselbe Bedarf/Besetzt/Offen-
+        # Auswertung wie GET .../assignment-summary additiv mitliefern, damit der Kapazität-Tab
+        # sie beim Öffnen nicht mehr separat nachladen muss. Der eigenständige Endpoint bleibt
+        # unverändert bestehen (andere Aufrufer könnten ihn weiterhin direkt nutzen).
+        assignment_summary=_plan_phase_assignment_summary(db, p),
     )
 
 

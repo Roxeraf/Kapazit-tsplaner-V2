@@ -661,6 +661,10 @@ export interface PlanPhaseDetail extends PlanPhase {
   metrics: PhaseMetricsOut;
   // P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI.
   children: PlanPhase[];
+  // P19.2 (Kapazität-Tab Round-Trip-Reduktion): dieselbe Bedarf/Besetzt/Offen-Auswertung wie
+  // GET .../assignment-summary, additiv eingebettet - der eigenständige Endpoint bleibt
+  // bestehen. Frontend bevorzugt diesen eingebetteten Wert, wenn vorhanden.
+  assignment_summary: PlanPhaseAssignmentSummary;
 }
 
 // P18/B-4 (CONCEPT.md Abschnitt 6b.10): Bedarf/Besetzt/Offen einer Leaf-PlanPhase - UI-
@@ -814,6 +818,10 @@ export interface ResourceDemand {
   aktualisiert_am: string;
   assigned_fte: number;
   allocation_gap: number;
+  // P19.2 (Kapazität-Tab N+1-Fix): die ResourceAssignments dieses Demands additiv eingebettet -
+  // löst das N+1-Muster auf (vorher: pro aufgeklapptem Demand ein eigener listResourceAssignments-
+  // Call). Der eigenständige Endpoint bleibt bestehen (z.B. für gezielten Refresh nach Mutation).
+  assignments: ResourceAssignment[];
 }
 
 export interface ResourceAssignment {

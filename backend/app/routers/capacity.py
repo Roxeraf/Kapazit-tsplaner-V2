@@ -181,12 +181,15 @@ def delete_person_skill(person_skill_id: int, db: Session = Depends(get_db)):
 
 def _resource_demand_out(db: Session, demand: models.ResourceDemand) -> schemas.ResourceDemandOut:
     role = db.get(models.ResourceRole, demand.resource_role_id)
-    assignments = (
-        db.query(models.ResourceAssignment)
+    # P19.2 (Kapazität-Tab N+1-Fix, siehe planning.py._resource_demand_out - identische
+    # Duplizierung, hier ebenfalls angepasst): Assignments inkl. Personenname additiv einbetten.
+    rows = (
+        db.query(models.ResourceAssignment, models.Person.display_name)
+        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
         .filter(models.ResourceAssignment.resource_demand_id == demand.id)
         .all()
     )
-    assigned_fte = round(sum(a.fte for a in assignments), 2)
+    assigned_fte = round(sum(a.fte for a, _ in rows), 2)
     return schemas.ResourceDemandOut(
         id=demand.id,
         project_id=demand.project_id,
@@ -200,6 +203,18 @@ def _resource_demand_out(db: Session, demand: models.ResourceDemand) -> schemas.
         aktualisiert_am=demand.aktualisiert_am,
         assigned_fte=assigned_fte,
         allocation_gap=round(demand.fte - assigned_fte, 2),
+        assignments=[
+            schemas.ResourceAssignmentOut(
+                id=a.id,
+                resource_demand_id=a.resource_demand_id,
+                person_id=a.person_id,
+                person_name=name,
+                fte=a.fte,
+                erstellt_am=a.erstellt_am,
+                aktualisiert_am=a.aktualisiert_am,
+            )
+            for a, name in rows
+        ],
     )
 
 

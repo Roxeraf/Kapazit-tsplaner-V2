@@ -6,6 +6,15 @@ import type { AdminResourceRole, CandidatePerson, ResourceAssignment, ResourceDe
 // Phase 26.3: Raster "Rolle × Periode" als Bedienoberfläche für ResourceDemand - ersetzt das
 // alte, in Phase 26.2 entfernte FTE-Raster. Zuordnung zu Personen (ResourceAssignment) über
 // ein Detail-Panel unterhalb des Rasters, das sich bei Klick auf eine belegte Zelle öffnet.
+//
+// @deprecated P18/B-8 (CONCEPT.md Abschnitt 6b.6/6b.12/16.4): fachlich durch den PlanPhase-
+// Baum abgelöst - "Projektkapazität(Monat)" wird seit B-5 ausschließlich aus
+// PlanPhase.plan_fte abgeleitet (GET /projects/{id}/capacity/monthly), diese Komponente
+// pflegt weiterhin die alte, projektweite ResourceDemand(plan_phase_id=NULL)-"Grobplanung"
+// als zweite, nicht mehr die führende Planungsebene. Bleibt bestehen, bis eine ausgeführte
+// B-2-Migration (backend/scripts/migrate_to_planphase_hierarchy.py) bestehende Zeilen auf
+// Monats-Leaf-PlanPhases überführt hat - erst danach darf diese Komponente entfernt werden
+// (B-8 Definition of Done, Pass-2-Dokument Abschnitt 35.5). Keine neuen Aufrufstellen anlegen.
 export default function ResourceDemandGrid({ projectId, periods }: { projectId: number; periods: string[] }) {
   const [demands, setDemands] = useState<ResourceDemand[]>([]);
   const [roles, setRoles] = useState<AdminResourceRole[]>([]);

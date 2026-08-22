@@ -480,6 +480,9 @@ class BlockerOut(BaseModel):
 
 class PlanPhaseCreate(BaseModel):
     subproject_id: int | None = None
+    # Self-referencing FK (P18/B-1/B-3, CONCEPT.md Abschnitt 6b.1) - None = Top-Level-Phase.
+    parent_phase_id: int | None = None
+    reihenfolge: int = 0
     phase_type: str
     baseline_start: str | None = None
     baseline_end: str | None = None
@@ -497,6 +500,10 @@ class PlanPhaseCreate(BaseModel):
 
 class PlanPhaseUpdate(BaseModel):
     subproject_id: int | None = None
+    # Unset (None-Default, exclude_unset) = unverändert; explizit auf null gesetzt = Phase
+    # wird Top-Level (P18/B-3, CONCEPT.md Abschnitt 6b.1).
+    parent_phase_id: int | None = None
+    reihenfolge: int | None = None
     phase_type: str | None = None
     baseline_start: str | None = None
     baseline_end: str | None = None
@@ -519,6 +526,8 @@ class PlanPhaseOut(BaseModel):
     id: int
     project_id: int
     subproject_id: int | None
+    parent_phase_id: int | None
+    reihenfolge: int
     phase_type: str
     baseline_start: str | None
     baseline_end: str | None
@@ -535,10 +544,22 @@ class PlanPhaseOut(BaseModel):
     aktualisiert_am: str
     tags: list[str] = []
     documents: list[DocumentOut] = []
+    # P18/B-3 (CONCEPT.md Abschnitt 6b.3): query-seitig berechnet, kein gespeichertes Feld.
+    has_children: bool = False
+    # Nur für Parent-Phasen (has_children=True) befüllt - abgeleitet aus den Leaf-Nachfahren
+    # (Abschnitt 6b.3/6b.6), NIE aus einem eigenen Feld der Parent-Phase selbst.
+    # forecast_start/forecast_end/plan_fte bleiben für Parent-Phasen None (Abschnitt 6b.1a).
+    derived_forecast_start: str | None = None
+    derived_forecast_end: str | None = None
+    derived_capacity: float | None = None
 
 
 class MilestoneCreate(BaseModel):
     subproject_id: int | None = None
+    # P18/B-1/B-7 (CONCEPT.md Abschnitt 6b.8): ersetzt subproject_id fachlich - NULL bleibt
+    # "projektweiter Meilenstein", gesetzt kann auf eine Leaf- ODER Parent-Phase zeigen (ein
+    # Meilenstein schließt oft eine Sammelphase ab).
+    plan_phase_id: int | None = None
     name: str
     baseline_date: str | None = None
     forecast_date: str | None = None
@@ -551,6 +572,7 @@ class MilestoneCreate(BaseModel):
 
 class MilestoneUpdate(BaseModel):
     subproject_id: int | None = None
+    plan_phase_id: int | None = None
     name: str | None = None
     baseline_date: str | None = None
     forecast_date: str | None = None
@@ -565,6 +587,7 @@ class MilestoneOut(BaseModel):
     id: int
     project_id: int
     subproject_id: int | None
+    plan_phase_id: int | None
     name: str
     baseline_date: str | None
     forecast_date: str | None
@@ -866,6 +889,35 @@ class PersonCapacityOut(BaseModel):
     absence_days: int
 
 
+class ProjectMonthlyCapacityEntry(BaseModel):
+    """Ein Monat der abgeleiteten Projektkapazität (P18/B-5, CONCEPT.md Abschnitt 6b.6) -
+    reine AUSWERTUNG, kein Eingabefeld: SUM(monthly_distribution(leaf.plan_fte, ...)) über
+    alle Leaf-PlanPhases des Projekts. Read-only, UI-Label "Projektkapazität" (nicht
+    "ResourceDemand")."""
+
+    period: str
+    hours: float
+    fte_equivalent: float
+
+
+class PersonCapacityRangeOut(BaseModel):
+    """Bereichsbasierte Variante von PersonCapacityOut (P18/B-4, CONCEPT.md Abschnitt
+    6b.5/6b.11) - für die Available-Capacity-Prüfung über einen ganzen PlanPhase-Zeitraum
+    statt nur einen einzelnen Monats-Bucket. Keine holiday_days/absence_days (Tageszahlen
+    wären über mehrere Monate hinweg nicht mehr eindeutig interpretierbar - die zugrunde
+    liegenden Werte fließen bereits werktage-gewichtet in die FTE-Felder ein)."""
+
+    person_id: int
+    range_start: str
+    range_end: str
+    nominal_fte: float
+    holiday_fte: float
+    absence_fte: float
+    internal_fte: float
+    available_fte: float
+    working_days: int
+
+
 # ---------------------------------------------------------------------------
 # Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
 # chronologische Aggregation bestehender Endpunkte, keine neue Tabelle.
@@ -941,6 +993,9 @@ class CommentOut(BaseModel):
 class PlanHistoryOut(BaseModel):
     id: int
     subproject_id: int | None
+    # P18/B-1/B-3 (CONCEPT.md Abschnitt 6b.1a) - gesetzt u.a. beim Leaf->Parent-Übergang
+    # (bereich="phase_struktur", historisiert den zuvor operativen plan_fte-Wert).
+    plan_phase_id: int | None = None
     bereich: str
     monat: str | None
     feld: str
@@ -1493,12 +1548,69 @@ class PhaseMetricsOut(BaseModel):
 
 class PlanPhaseDetail(PlanPhaseOut):
     # Aggregierte Detailansicht einer PlanPhase. Eingebettet werden nur Entitäten mit
-    # plan_phase_id-FK (Comment/Task/Blocker/Decision/ResourceDemand). Milestone und
-    # BaselineSnapshot haben keinen plan_phase_id-FK (nur project_id/subproject_id) und
-    # sind daher bewusst NICHT eingebettet - ein FK-Link wäre ein eigener Schema-Task.
+    # plan_phase_id-FK (Comment/Task/Blocker/Decision/ResourceDemand). Milestone hat seit
+    # P18/B-1 ebenfalls einen plan_phase_id-FK, wird hier aber (wie BaselineSnapshot) bewusst
+    # NICHT eingebettet - ein eigener Einbettungs-Task ist kein B-3-Scope.
     comments: list[CommentOut] = []
     tasks: list[TaskOut] = []
     blockers: list[BlockerOut] = []
     decisions: list[DecisionOut] = []
     resource_demands: list[ResourceDemandOut] = []
     metrics: PhaseMetricsOut
+    # P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI (B-6). Leer bei einer Leaf.
+    children: list[PlanPhaseOut] = []
+
+
+class PlanPhaseReparentChildrenRequest(BaseModel):
+    # None = Kinder werden auf Top-Level verschoben (Abschnitt 6b.9).
+    new_parent_phase_id: int | None = None
+
+
+class PlanPhaseReparentChildrenResult(BaseModel):
+    moved_count: int
+    children: list[PlanPhaseOut]
+
+
+class PlanPhaseSubtreeImpactOut(BaseModel):
+    plan_phase_id: int
+    phase_type: str
+    descendant_phase_count: int
+    comments_affected: int
+    tasks_affected: int
+    blockers_affected: int
+    decisions_affected: int
+    milestones_affected: int
+    documents_affected: int
+    resource_demands_affected: int
+    resource_assignments_affected: int
+
+
+class PlanPhaseDeleteSubtreeRequest(BaseModel):
+    # Starke Bestätigung (BD-11, CLOSED): beide Werte müssen mit der tatsächlichen Phase/
+    # Nachfahrenzahl aus GET .../subtree-impact übereinstimmen, sonst 422 (Abschnitt 6b.9).
+    confirm_phase_type: str
+    confirm_descendant_count: int
+
+
+class PlanPhaseAssignedPersonOut(BaseModel):
+    # Eine Zeile je Person (über alle ResourceDemands dieser Phase aggregiert - Abschnitt
+    # 6b.10), nicht je ResourceAssignment-Datensatz.
+    person_id: int
+    person_name: str
+    fte: float
+
+
+class PlanPhaseAssignmentSummaryOut(BaseModel):
+    """Bedarf/Besetzt/Offen einer Leaf-PlanPhase (P18/B-4, CONCEPT.md Abschnitt 6b.10) - UI-
+    Vokabular: "Geplanter Ressourcenbedarf"/"Besetzung"/"Offen", NICHT "ResourceDemand"."""
+
+    plan_phase_id: int
+    plan_fte: float | None
+    assigned_fte: float
+    open_fte: float | None
+    assignments: list[PlanPhaseAssignedPersonOut]
+
+
+class PlanPhaseAssignPersonRequest(BaseModel):
+    person_id: int
+    fte: float

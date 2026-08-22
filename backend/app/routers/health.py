@@ -8,7 +8,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import constants, entity_links, health_calc, models, schemas
+from .. import capacity_calc, constants, entity_links, health_calc, models, schemas
 from ..database import get_db
 
 router = APIRouter(tags=["health"])
@@ -108,14 +108,22 @@ def _forecast_end(db: Session, project_id: int) -> str | None:
 
 
 def _cockpit_capacity(db: Session, project_id: int) -> schemas.CockpitCapacity:
+    """P18/B-5 (CONCEPT.md Abschnitt 6b.6): demand_fte kommt jetzt ausschließlich aus
+    PlanPhase.plan_fte (compute_project_monthly_capacity), NICHT mehr aus einer
+    ResourceDemand-Summe - Projektkapazität(Monat) hat nur noch eine Berechnungsquelle.
+    assigned_fte bleibt unverändert die Summe der ResourceAssignment.fte über alle
+    ResourceDemands dieses Projekts/Monats (Personenauslastung ist ein eigenes, von
+    plan_fte unabhängiges Konzept, Abschnitt 6b.10) - inkl. Zuordnungen über die interne
+    Systemrolle "Ohne Rolle" (B-4), da diese ebenfalls echte Besetzung darstellen."""
     period = constants.current_period()
-    demands = (
-        db.query(models.ResourceDemand)
+    monthly_hours = capacity_calc.compute_project_monthly_capacity(db, project_id, periods=[period])
+    demand_fte = capacity_calc.hours_to_fte_equivalent(monthly_hours.get(period, 0.0), period)
+    demand_ids = [
+        row[0]
+        for row in db.query(models.ResourceDemand.id)
         .filter(models.ResourceDemand.project_id == project_id, models.ResourceDemand.period == period)
         .all()
-    )
-    demand_fte = round(sum(d.fte for d in demands), 2)
-    demand_ids = [d.id for d in demands]
+    ]
     assigned_fte = round(
         sum(
             a.fte

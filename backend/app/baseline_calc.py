@@ -19,7 +19,13 @@ DATE_FIELDS = {"baseline_start", "baseline_end", "forecast_start", "forecast_end
 # (_parse_date scheitert erwartungsgemäß an einem Float-String) - baseline_value/current_value
 # genügen dem Frontend, um die numerische Differenz selbst darzustellen; kein neues Feld auf
 # BaselineDeviationOut nötig.
-DEVIATION_FIELDS = DATE_FIELDS | {"plan_fte"}
+# P18/B-7 (CONCEPT.md Abschnitt 6b.14): parent_phase_id (PlanPhase) und plan_phase_id
+# (Milestone) zusätzlich zu den Datums-/FTE-Feldern als sichtbare Deviation - eine
+# strukturelle Änderung (Phase war Top-Level -> jetzt Unterphase, oder umgekehrt) ist für den
+# Planstand-Vergleich genauso relevant wie eine Termin-/Aufwandsabweichung. reihenfolge wird
+# zwar mit eingefroren (siehe routers/baselines.py._SNAPSHOT_FIELDS), aber bewusst NICHT hier
+# aufgenommen - reine Sortierposition ist keine fachlich sichtbare Abweichung.
+DEVIATION_FIELDS = DATE_FIELDS | {"plan_fte", "parent_phase_id", "plan_phase_id"}
 
 
 def _parse_date(value: object) -> date | None:

@@ -1,19 +1,18 @@
 import { useEffect, useState } from "react";
 import { api } from "../../../api/client";
-import ConfirmDialog from "../../../components/ConfirmDialog";
 import TagChip from "../../../components/TagChip";
 import usePeopleMap from "../../../hooks/usePeopleMap";
-import { PLAN_PHASE_STATUS_LABELS, type PlanPhase, type SubprojectDetail } from "../../../types";
+import { MAX_PLAN_PHASE_DEPTH, PLAN_PHASE_STATUS_LABELS, type PlanPhase } from "../../../types";
 import PlanPhaseCreateModal from "./PlanPhaseCreateModal";
+import PlanPhaseDeleteDialog from "./PlanPhaseDeleteDialog";
 import PlanPhaseGantt from "./PlanPhaseGantt";
 import PlanPhaseWorkspace from "./PlanPhaseWorkspace";
 
-// P11 (Planungs-/Kapazitätskonsolidierung): Liste ist ab jetzt eine kompakte Übersicht
-// (scannable Karten: Name, Zeitraum, Status, Plan-FTE, Owner, Tags, "Öffnen"). Bearbeitung
-// findet ausschließlich im PlanPhaseWorkspace-Drawer statt - der bisherige, parallel zum
-// Drawer bestehende Voll-Inline-Editor (sechs Datumsfelder + PersonPicker + TagInput direkt in
-// jeder Karte) ist entfernt. Das war das konkrete UX-Debt-Symptom aus dem Screenshot: der
-// Drawer war nur zusätzlich eingebaut worden, statt den alten Editor zu ersetzen.
+// P18/B-6 (CONCEPT.md Abschnitt 6b): Baum-UI statt Teilprojekt-Gruppierung - Phasen werden
+// rekursiv nach parent_phase_id gruppiert (max. 3 Ebenen, BD-10), nicht mehr nach
+// subproject_id (compat-only, keine neue Subproject-UX). Eine Parent-Phase (has_children)
+// zeigt ihre abgeleiteten Werte (derived_forecast_start/end/capacity) statt editierbarer
+// eigener Felder - Kapazitätsplanung bleibt ausschließlich im Leaf Workspace (Abschnitt 6b.3).
 function fmtRange(start: string | null, end: string | null): string {
   const fmt = (iso: string) => {
     const d = new Date(iso + "T00:00:00");
@@ -25,22 +24,15 @@ function fmtRange(start: string | null, end: string | null): string {
   return "Kein Termin";
 }
 
-export default function PlanPhaseList({
-  projectId,
-  subprojects,
-}: {
-  projectId: number;
-  subprojects: SubprojectDetail[];
-}) {
+export default function PlanPhaseList({ projectId }: { projectId: number }) {
   const [phases, setPhases] = useState<PlanPhase[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<PlanPhase | null>(null);
   const [openPhaseId, setOpenPhaseId] = useState<number | null>(null);
   const [view, setView] = useState<"list" | "gantt">("list");
   const [showCreate, setShowCreate] = useState(false);
-  // P15.4 (Collapse/Filter): rein frontendseitig, keine neue Backend-Logik.
-  const [subprojectFilter, setSubprojectFilter] = useState<number | null | "all">("all");
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<number | null>>(new Set());
+  const [createParentId, setCreateParentId] = useState<number | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set());
   const people = usePeopleMap();
 
   const refresh = () => {
@@ -49,17 +41,12 @@ export default function PlanPhaseList({
 
   useEffect(refresh, [projectId]);
 
-  const handleDelete = async () => {
-    if (!toDelete) return;
-    await api.deletePlanPhase(toDelete.id);
+  const handleDeleted = () => {
     setToDelete(null);
     refresh();
   };
 
-  const subprojectName = (id: number | null) =>
-    id === null ? "Projektweit" : subprojects.find((sp) => sp.id === id)?.name ?? "Unbekanntes Teilprojekt";
-
-  const toggleGroup = (id: number | null) => {
+  const toggleGroup = (id: number) => {
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -68,15 +55,115 @@ export default function PlanPhaseList({
     });
   };
 
-  const filteredPhases = subprojectFilter === "all" ? phases : phases.filter((p) => p.subproject_id === subprojectFilter);
-
-  const groups = new Map<number | null, PlanPhase[]>();
-  for (const phase of filteredPhases) {
-    const list = groups.get(phase.subproject_id) ?? [];
+  const childrenOf = new Map<number | null, PlanPhase[]>();
+  for (const phase of phases) {
+    const list = childrenOf.get(phase.parent_phase_id) ?? [];
     list.push(phase);
-    groups.set(phase.subproject_id, list);
+    childrenOf.set(phase.parent_phase_id, list);
   }
-  const groupOrder = [null, ...subprojects.map((sp) => sp.id)].filter((id) => groups.has(id));
+  for (const list of childrenOf.values()) list.sort((a, b) => a.reihenfolge - b.reihenfolge || a.id - b.id);
+  const topLevel = childrenOf.get(null) ?? [];
+
+  const openCreateModal = (parentId: number | null) => {
+    setCreateParentId(parentId);
+    setShowCreate(true);
+  };
+
+  const renderPhase = (phase: PlanPhase, depth: number) => {
+    const children = childrenOf.get(phase.id) ?? [];
+    const collapsed = collapsedGroups.has(phase.id);
+    const canHaveChildren = depth < MAX_PLAN_PHASE_DEPTH;
+    return (
+      <div key={phase.id} style={{ marginLeft: depth > 0 ? "1.4rem" : 0, marginBottom: "0.5rem" }}>
+        <div
+          className="card"
+          style={{ padding: "0.6rem 0.85rem", fontSize: "0.88rem", cursor: "pointer" }}
+          onClick={() => setOpenPhaseId(phase.id)}
+        >
+          <div className="toolbar">
+            <span style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+              {phase.has_children && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleGroup(phase.id);
+                  }}
+                  style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "var(--text-muted)" }}
+                >
+                  {collapsed ? "▸" : "▾"}
+                </button>
+              )}
+              <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{phase.phase_type}</span>
+              {phase.has_children && (
+                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                  (Sammelphase, {children.length} Unterphase{children.length === 1 ? "" : "n"})
+                </span>
+              )}
+            </span>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <span className="legend-chip" style={{ background: "#eef3fa", padding: "0.1rem 0.55rem", borderRadius: "999px", fontSize: "0.78rem" }}>
+                {PLAN_PHASE_STATUS_LABELS[phase.status]}
+              </span>
+              {canHaveChildren && (
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ fontSize: "0.72rem", padding: "0.05rem 0.4rem" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openCreateModal(phase.id);
+                  }}
+                >
+                  + Unterphase
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ fontSize: "0.72rem", padding: "0.05rem 0.4rem" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenPhaseId(phase.id);
+                }}
+              >
+                Öffnen →
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setToDelete(phase);
+                }}
+                style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap", color: "var(--text-muted)", fontSize: "0.82rem", marginTop: "0.2rem" }}>
+            <span>
+              {phase.has_children
+                ? `${fmtRange(phase.derived_forecast_start, phase.derived_forecast_end)} (abgeleitet)`
+                : fmtRange(phase.forecast_start, phase.forecast_end)}
+            </span>
+            {phase.has_children
+              ? phase.derived_capacity != null && <span>{phase.derived_capacity.toFixed(2)} FTE (aggregiert)</span>
+              : phase.plan_fte != null && <span>{phase.plan_fte.toFixed(2)} FTE</span>}
+            {phase.owner_person_id != null && <span>{people.get(phase.owner_person_id) ?? "…"}</span>}
+          </div>
+          {phase.tags.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.35rem" }}>
+              {phase.tags.map((t) => (
+                <TagChip key={t} name={t} />
+              ))}
+            </div>
+          )}
+        </div>
+        {!collapsed && children.map((child) => renderPhase(child, depth + 1))}
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -99,137 +186,38 @@ export default function PlanPhaseList({
           >
             Gantt-Ansicht
           </button>
-          <button type="button" className="btn" onClick={() => setShowCreate(true)}>
+          <button type="button" className="btn" onClick={() => openCreateModal(null)}>
             + Phase hinzufügen
           </button>
         </div>
       </div>
-      {subprojects.length > 0 && (
-        <div className="field-row" style={{ marginTop: 0, marginBottom: "0.6rem" }}>
-          <label>
-            Teilprojekt-Filter
-            <select
-              value={subprojectFilter === "all" ? "all" : subprojectFilter === null ? "none" : subprojectFilter}
-              onChange={(e) => {
-                const raw = e.target.value;
-                setSubprojectFilter(raw === "all" ? "all" : raw === "none" ? null : Number(raw));
-              }}
-            >
-              <option value="all">Alle</option>
-              <option value="none">Projektweit</option>
-              {subprojects.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {sp.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
       {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
 
       {view === "list" &&
-        (filteredPhases.length === 0 ? (
+        (topLevel.length === 0 ? (
           <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Phasen geplant.</p>
         ) : (
-          groupOrder.map((groupId) => (
-            <div key={groupId ?? "project"} style={{ marginBottom: "1rem" }}>
-              <button
-                type="button"
-                onClick={() => toggleGroup(groupId)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.3rem",
-                  border: "none",
-                  background: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  fontSize: "0.8rem",
-                  color: "var(--text-muted)",
-                  marginBottom: "0.3rem",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.03em",
-                }}
-              >
-                <span>{collapsedGroups.has(groupId) ? "▸" : "▾"}</span>
-                <span>
-                  {subprojectName(groupId)} ({groups.get(groupId)!.length})
-                </span>
-              </button>
-              {!collapsedGroups.has(groupId) &&
-                groups.get(groupId)!.map((phase) => (
-                <div
-                  key={phase.id}
-                  className="card"
-                  style={{ marginBottom: "0.5rem", padding: "0.6rem 0.85rem", fontSize: "0.88rem", cursor: "pointer" }}
-                  onClick={() => setOpenPhaseId(phase.id)}
-                >
-                  <div className="toolbar">
-                    <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{phase.phase_type}</span>
-                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                      <span className="legend-chip" style={{ background: "#eef3fa", padding: "0.1rem 0.55rem", borderRadius: "999px", fontSize: "0.78rem" }}>
-                        {PLAN_PHASE_STATUS_LABELS[phase.status]}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn secondary"
-                        style={{ fontSize: "0.72rem", padding: "0.05rem 0.4rem" }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenPhaseId(phase.id);
-                        }}
-                      >
-                        Öffnen →
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setToDelete(phase);
-                        }}
-                        style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap", color: "var(--text-muted)", fontSize: "0.82rem", marginTop: "0.2rem" }}>
-                    <span>{fmtRange(phase.forecast_start, phase.forecast_end)}</span>
-                    {phase.plan_fte != null && <span>{phase.plan_fte.toFixed(2)} FTE</span>}
-                    {phase.owner_person_id != null && <span>{people.get(phase.owner_person_id) ?? "…"}</span>}
-                  </div>
-                  {phase.tags.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.35rem" }}>
-                      {phase.tags.map((t) => (
-                        <TagChip key={t} name={t} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))
+          topLevel.map((phase) => renderPhase(phase, 0))
         ))}
 
-      {view === "gantt" && <PlanPhaseGantt phases={filteredPhases} subprojects={subprojects} onOpen={setOpenPhaseId} />}
+      {view === "gantt" && <PlanPhaseGantt phases={phases} onOpen={setOpenPhaseId} />}
 
       {showCreate && (
-        <PlanPhaseCreateModal projectId={projectId} subprojects={subprojects} onClose={() => setShowCreate(false)} onCreated={refresh} />
+        <PlanPhaseCreateModal
+          projectId={projectId}
+          allPhases={phases}
+          defaultParentPhaseId={createParentId}
+          onClose={() => setShowCreate(false)}
+          onCreated={refresh}
+        />
       )}
 
-      <ConfirmDialog
-        open={toDelete !== null}
-        title="Phase löschen"
-        message={`Phase "${toDelete?.phase_type}" wirklich löschen?`}
-        onConfirm={handleDelete}
-        onCancel={() => setToDelete(null)}
-      />
+      <PlanPhaseDeleteDialog phase={toDelete} onClose={() => setToDelete(null)} onDeleted={handleDeleted} />
 
       <PlanPhaseWorkspace
         planPhaseId={openPhaseId}
         projectId={projectId}
-        subprojects={subprojects}
+        allPhases={phases}
         onClose={() => setOpenPhaseId(null)}
         onChanged={refresh}
       />

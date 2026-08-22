@@ -104,6 +104,20 @@ def main() -> None:
             _fail("Seeds", f"permissions hat {permissions} Zeilen, erwartet 12")
         if thresholds != 5:
             _fail("Seeds", f"health_thresholds hat {thresholds} Zeilen, erwartet 5")
+        # P18/B-1 (CONCEPT.md Abschnitt 6b.4): interne Systemrolle "Ohne Rolle" muss nach
+        # jedem sauberen Rebuild genau einmal existieren (idempotent bei Re-Run, da die
+        # Migration nur beim Upgrade base->head einmal läuft).
+        system_roles = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM resource_roles WHERE name = 'Ohne Rolle' "
+                "AND is_system_role = 1"
+            )
+        ).scalar_one()
+        if system_roles != 1:
+            _fail(
+                "Seeds",
+                f"resource_roles enthält {system_roles}x die Systemrolle 'Ohne Rolle', erwartet 1",
+            )
 
     print("5/5  Downgrade/Upgrade-Roundtrip ...")
     try:

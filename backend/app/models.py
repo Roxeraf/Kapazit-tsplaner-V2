@@ -276,6 +276,14 @@ class PlanHistory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     subproject_id: Mapped[int | None] = mapped_column(ForeignKey("subprojects.id"), nullable=True)
+    # Ordnet einen Audit-Eintrag eindeutig einer PlanPhase zu (P18/B-1, CONCEPT.md Abschnitt
+    # 6b.1a/35.1) - wird u.a. beim Leaf→Parent-Übergang zur Historisierung des zuvor
+    # operativen plan_fte-Werts benötigt (bereich="phase_struktur"). ON DELETE SET NULL: der
+    # Audit-Eintrag bleibt als historischer Nachweis erhalten, auch wenn die Phase später
+    # gelöscht wird.
+    plan_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plan_phases.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     bereich: Mapped[str] = mapped_column(String(20))  # "phase" | "fte" | "stammdaten"
     monat: Mapped[str | None] = mapped_column(String(10), nullable=True)
     feld: Mapped[str] = mapped_column(String(50))  # z.B. Phasencode "p" oder "start_monat"
@@ -535,6 +543,16 @@ class PlanPhase(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     subproject_id: Mapped[int | None] = mapped_column(ForeignKey("subprojects.id"), nullable=True)
+    # Self-referencing FK (P18/B-1, CONCEPT.md Abschnitt 6b.1) - NULL = Top-Level-Phase des
+    # Projekts, gesetzt = Unterphase einer anderen PlanPhase. Maximale Tiefe 3 Ebenen (BD-10,
+    # CLOSED) wird nicht hier, sondern in den Router-Guards (B-3) validiert. Leaf/Parent wird
+    # NICHT gespeichert, sondern query-seitig berechnet (has_children, planning_calc.py, B-2/B-3).
+    parent_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plan_phases.id"), nullable=True, index=True
+    )
+    # Sortierposition unter Geschwisterphasen (analog Project.reihenfolge/Subproject.reihenfolge)
+    # - additiv, P18/B-1.
+    reihenfolge: Mapped[int] = mapped_column(default=0)
     # Freitext (nicht der 1-Zeichen-Phasencode aus GanttPhase) - z.B. "Pflichtenheft",
     # "Konfiguration", "Migrationstest". Bewusst offen statt Enum, siehe Master-MD Abschnitt 7.
     phase_type: Mapped[str] = mapped_column(String(100))
@@ -555,6 +573,11 @@ class PlanPhase(Base):
     progress: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0-100, deprecated (P6/P11)
     # Geplanter FTE-Bedarf dieser Phase (Phase 19, Master-MD Abschnitt 17) - additiv, noch
     # nicht über API exponiert (folgt in P3). Nullable, da bestehende Phasen keinen Wert haben.
+    # P18/B-1 (CONCEPT.md Abschnitt 6b.1a): operative Source of Truth nur für eine Leaf-Phase
+    # (has_children == false). Sobald eine Phase ihr erstes Kind erhält, setzt das Backend (B-3)
+    # diesen Wert serverseitig auf NULL und historisiert den vorigen Wert in PlanHistory
+    # (plan_phase_id, bereich="phase_struktur") - keine automatische Reaktivierung, falls die
+    # Phase später wieder zum Leaf wird (letztes Kind entfernt).
     plan_fte: Mapped[float | None] = mapped_column(Float, nullable=True)
     owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
@@ -572,6 +595,14 @@ class Milestone(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     subproject_id: Mapped[int | None] = mapped_column(ForeignKey("subprojects.id"), nullable=True)
+    # Ersetzt subproject_id fachlich (P18/B-1, CONCEPT.md Abschnitt 6b.8) - NULL bleibt
+    # "projektweiter Meilenstein", gesetzt kann sowohl auf eine Leaf- als auch auf eine
+    # Parent-Phase zeigen (ein Meilenstein schließt oft eine Sammelphase ab). ON DELETE SET
+    # NULL analog zu Comment/Task/Blocker/Decision.plan_phase_id: wird die Phase gelöscht,
+    # bleibt der Meilenstein erhalten. subproject_id bleibt zunächst compat-only bestehen.
+    plan_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plan_phases.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(200))
     baseline_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # ISO "YYYY-MM-DD"
     forecast_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -636,6 +667,12 @@ class ResourceRole(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(default=True)
+    # Interne Systemrolle "Ohne Rolle" (P18/B-1, CONCEPT.md Abschnitt 6b.4) - trägt die
+    # technische Trägerschicht für direkte Personenzuordnung ohne erzwungene Rollenauswahl.
+    # Nicht löschbar, im normalen Rollen-Picker ausgeblendet, kein Skill-Matching, keine
+    # eigenständige Rolle in Reporting/Controlling (Governance-Regeln: CONCEPT.md Abschnitt
+    # 6b.4). Per Migration genau einmal geseedet ("Ohne Rolle"), Backend-Guards folgen in B-3/B-4.
+    is_system_role: Mapped[bool] = mapped_column(default=False)
 
 
 class Skill(Base):

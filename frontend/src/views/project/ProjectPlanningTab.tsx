@@ -75,11 +75,11 @@ export default function ProjectPlanningTab() {
       )}
 
       <div className="card" style={{ marginBottom: "1.25rem" }}>
-        <PlanPhaseList projectId={projectId} subprojects={draft.subprojects} />
+        <PlanPhaseList projectId={projectId} />
       </div>
 
       <div className="card" style={{ marginBottom: "1.25rem" }}>
-        <MilestoneList projectId={projectId} subprojects={draft.subprojects} />
+        <MilestoneList projectId={projectId} />
       </div>
 
       <div className="card" style={{ marginBottom: "1.25rem" }}>

@@ -3,12 +3,12 @@
 konkreten Personen geplant, erst ResourceAssignment ordnet ihn Personen zu.
 Folgt demselben CRUD-Muster wie routers/people.py/planning.py."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import capacity_calc, models, schemas
+from .. import capacity_calc, constants, models, schemas
 from ..database import get_db
 
 router = APIRouter(tags=["capacity"])
@@ -38,8 +38,16 @@ def _get_person_or_404(db: Session, person_id: int) -> models.Person:
 
 
 @router.get("/resource-roles", response_model=list[schemas.ResourceRoleOut])
-def list_resource_roles(db: Session = Depends(get_db)):
-    return db.query(models.ResourceRole).order_by(models.ResourceRole.name).all()
+def list_resource_roles(include_system_roles: bool = False, db: Session = Depends(get_db)):
+    """P18/B-1/B-4 (CONCEPT.md Abschnitt 6b.4): die interne Systemrolle ("Ohne Rolle",
+    is_system_role=True) wird standardmäßig ausgeblendet - Projektleiter:innen wählen sie nie
+    aktiv aus einem normalen Rollen-Picker aus, sie entsteht ausschließlich transparent im
+    Hintergrund über POST /plan-phases/{id}/assign-person. include_system_roles=true ist ein
+    expliziter Opt-in für Admin-/Diagnosezwecke."""
+    query = db.query(models.ResourceRole)
+    if not include_system_roles:
+        query = query.filter(models.ResourceRole.is_system_role.is_(False))
+    return query.order_by(models.ResourceRole.name).all()
 
 
 @router.post("/resource-roles", response_model=schemas.ResourceRoleOut, status_code=201)
@@ -199,6 +207,29 @@ def _check_resource_role(db: Session, resource_role_id: int) -> None:
         raise HTTPException(status_code=404, detail="Ressourcenrolle nicht gefunden")
 
 
+@router.get("/projects/{project_id}/capacity/monthly", response_model=list[schemas.ProjectMonthlyCapacityEntry])
+def get_project_monthly_capacity(
+    project_id: int, periods: list[str] | None = Query(default=None), db: Session = Depends(get_db)
+):
+    """P18/B-5 (CONCEPT.md Abschnitt 6b.6/6b.13, Abschnitt 13 der Aufgabenstellung):
+    "Derived Monthly & Portfolio Capacity" - Projektkapazität(Monat) ausschließlich aus
+    PlanPhase.plan_fte abgeleitet, read-only. KEINE monatliche Projektplanung - dieser
+    Endpunkt liefert nur eine Auswertung, kein Eingabefeld existiert dafür.
+    periods im "Apr 26"-Format (z.B. ["Okt 26", "Nov 26"]); ohne Angabe wird der
+    Projekt-Default-Zeitraum (Project.start_monat/anzahl_monate) verwendet."""
+    project = _get_project_or_404(db, project_id)
+    resolved_periods = periods or constants.berechne_monate(project.start_monat, project.anzahl_monate)
+    monthly_hours = capacity_calc.compute_project_monthly_capacity(db, project_id, periods=resolved_periods)
+    return [
+        schemas.ProjectMonthlyCapacityEntry(
+            period=period,
+            hours=hours,
+            fte_equivalent=capacity_calc.hours_to_fte_equivalent(hours, period),
+        )
+        for period, hours in monthly_hours.items()
+    ]
+
+
 @router.get("/projects/{project_id}/resource-demands", response_model=list[schemas.ResourceDemandOut])
 def list_resource_demands(project_id: int, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
@@ -213,6 +244,13 @@ def list_resource_demands(project_id: int, db: Session = Depends(get_db)):
 
 @router.post("/projects/{project_id}/resource-demands", response_model=schemas.ResourceDemandOut, status_code=201)
 def create_resource_demand(project_id: int, payload: schemas.ResourceDemandCreate, db: Session = Depends(get_db)):
+    """P18/B-8 (CONCEPT.md Abschnitt 6b.12): plan_phase_id=None (projektweite "Grobplanung")
+    ist der dokumentierte LEGACY-Pfad von ResourceDemandGrid.tsx - fachlich durch eine
+    Monats-Leaf-PlanPhase ersetzt (Abschnitt 6b.6/6b.12), aber noch nicht durch
+    Payload-Validierung blockiert, solange die B-2-Migration nicht gegen Produktivdaten
+    ausgeführt wurde (kein Blocker für B-8, siehe Pass-2-Dokument Abschnitt 35.5 Paket B-8).
+    Ein plan_phase_id gesetzt entspricht weiterhin dem normalen, aktuellen Flow (optionale
+    Rollen-Aufschlüsselung/Direct-Assignment-Trägerschicht, Abschnitt 6b.4)."""
     _get_project_or_404(db, project_id)
     _check_plan_phase(db, project_id, payload.plan_phase_id)
     _check_resource_role(db, payload.resource_role_id)
@@ -325,6 +363,28 @@ def delete_resource_assignment(assignment_id: int, db: Session = Depends(get_db)
 # einzige echte neue Backend-Logik der Phase 26, sonst reine Wiederverwendung bestehender
 # CRUD-Endpunkte. Keine Rollen-/Skill-Filterung möglich (siehe CandidatePersonOut-Docstring).
 # ---------------------------------------------------------------------------
+
+
+@router.get("/people/{person_id}/capacity-range", response_model=schemas.PersonCapacityRangeOut)
+def get_person_capacity_range(person_id: int, start: str, end: str, db: Session = Depends(get_db)):
+    """P18/B-4 (CONCEPT.md Abschnitt 6b.5/6b.11): verfügbare Kapazität einer Person über
+    einen beliebigen Datumsbereich (z.B. den Zeitraum einer PlanPhase) statt nur einen
+    einzelnen Monats-`period`-Bucket. start/end im ISO-Format "YYYY-MM-DD"."""
+    _get_person_or_404(db, person_id)
+    try:
+        range_start = date.fromisoformat(start)
+        range_end = date.fromisoformat(end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="start/end müssen im Format YYYY-MM-DD vorliegen") from exc
+    if range_end < range_start:
+        raise HTTPException(status_code=422, detail="end darf nicht vor start liegen")
+    capacity = capacity_calc.compute_person_capacity_for_range(db, person_id, range_start, range_end)
+    if capacity is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Keine Kapazitätsdaten (WorkingTime/ResourceProfile) für diesen Zeitraum gefunden",
+        )
+    return capacity
 
 
 @router.get("/resource-demands/{demand_id}/candidates", response_model=list[schemas.CandidatePersonOut])

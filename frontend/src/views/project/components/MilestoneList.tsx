@@ -7,9 +7,9 @@ import PersonPicker from "../../../components/PersonPicker";
 import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
 import usePeopleMap from "../../../hooks/usePeopleMap";
-import { MILESTONE_STATUS_LABELS, type Milestone, type MilestoneStatus, type SubprojectDetail } from "../../../types";
+import { MILESTONE_STATUS_LABELS, type Milestone, type MilestoneStatus, type PlanPhase } from "../../../types";
 
-const NO_SUBPROJECT = "__none__";
+const NO_PLAN_PHASE = "__none__";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -27,14 +27,9 @@ function fmtDate(iso: string | null): string {
 // Bearbeitung erfolgt über "Bearbeiten", nicht über sechs dauerhaft offene Eingabefelder pro
 // Karte. Kein neues Drawer-Bauteil (Milestone ist einfach genug für Inline-Expand statt eines
 // eigenen Workspace, siehe CONCEPT.md Abschnitt 0 "keine neue Grob-/Feinplanungsarchitektur").
-export default function MilestoneList({
-  projectId,
-  subprojects,
-}: {
-  projectId: number;
-  subprojects: SubprojectDetail[];
-}) {
+export default function MilestoneList({ projectId }: { projectId: number }) {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [phases, setPhases] = useState<PlanPhase[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Milestone | null>(null);
   const [correctingId, setCorrectingId] = useState<number | null>(null);
@@ -43,7 +38,7 @@ export default function MilestoneList({
   const people = usePeopleMap();
 
   const [name, setName] = useState("");
-  const [subprojectId, setSubprojectId] = useState("");
+  const [planPhaseId, setPlanPhaseId] = useState("");
   const [ownerPersonId, setOwnerPersonId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
@@ -51,6 +46,7 @@ export default function MilestoneList({
 
   const refresh = () => {
     api.listMilestones(projectId).then(setMilestones).catch((e) => setError(String(e)));
+    api.listPlanPhases(projectId).then(setPhases).catch(() => setPhases([]));
   };
 
   useEffect(refresh, [projectId]);
@@ -62,7 +58,7 @@ export default function MilestoneList({
     try {
       const milestone = await api.createMilestone(projectId, {
         name: name.trim(),
-        subproject_id: subprojectId ? Number(subprojectId) : null,
+        plan_phase_id: planPhaseId ? Number(planPhaseId) : null,
         owner_person_id: ownerPersonId,
         tags,
       });
@@ -70,7 +66,7 @@ export default function MilestoneList({
         await api.uploadDocument(projectId, file, { entityType: "milestone", entityId: milestone.id });
       }
       setName("");
-      setSubprojectId("");
+      setPlanPhaseId("");
       setOwnerPersonId(null);
       setTags([]);
       setFiles([]);
@@ -99,8 +95,8 @@ export default function MilestoneList({
     refresh();
   };
 
-  const subprojectName = (id: number | null) =>
-    id === null ? null : subprojects.find((sp) => sp.id === id)?.name ?? "Unbekanntes Teilprojekt";
+  const planPhaseName = (id: number | null) =>
+    id === null ? null : phases.find((p) => p.id === id)?.phase_type ?? "Unbekannte Phase";
 
   return (
     <div>
@@ -150,7 +146,7 @@ export default function MilestoneList({
             </div>
             <div style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap", color: "var(--text-muted)", fontSize: "0.82rem", marginTop: "0.2rem" }}>
               <span>{fmtDate(m.forecast_date)}</span>
-              <span>{subprojectName(m.subproject_id) ?? "Projektweit"}</span>
+              <span>{planPhaseName(m.plan_phase_id) ?? "Projektweit"}</span>
               {m.owner_person_id != null && <span>{people.get(m.owner_person_id) ?? "…"}</span>}
             </div>
             {m.tags.length > 0 && (
@@ -197,17 +193,17 @@ export default function MilestoneList({
                 </div>
                 <div className="field-row" style={{ marginTop: 0 }}>
                   <label>
-                    Teilprojekt
+                    Übergeordnete Phase
                     <select
-                      value={m.subproject_id ?? NO_SUBPROJECT}
+                      value={m.plan_phase_id ?? NO_PLAN_PHASE}
                       onChange={(e) =>
-                        update(m, { subproject_id: e.target.value === NO_SUBPROJECT ? null : Number(e.target.value) })
+                        update(m, { plan_phase_id: e.target.value === NO_PLAN_PHASE ? null : Number(e.target.value) })
                       }
                     >
-                      <option value={NO_SUBPROJECT}>Projektweit</option>
-                      {subprojects.map((sp) => (
-                        <option key={sp.id} value={sp.id}>
-                          {sp.name}
+                      <option value={NO_PLAN_PHASE}>Projektweit</option>
+                      {phases.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.phase_type}
                         </option>
                       ))}
                     </select>
@@ -261,12 +257,12 @@ export default function MilestoneList({
             </label>
             <div className="field-row" style={{ marginTop: 0 }}>
               <label>
-                Teilprojekt
-                <select value={subprojectId} onChange={(e) => setSubprojectId(e.target.value)}>
+                Übergeordnete Phase
+                <select value={planPhaseId} onChange={(e) => setPlanPhaseId(e.target.value)}>
                   <option value="">Projektweit</option>
-                  {subprojects.map((sp) => (
-                    <option key={sp.id} value={sp.id}>
-                      {sp.name}
+                  {phases.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.phase_type}
                     </option>
                   ))}
                 </select>

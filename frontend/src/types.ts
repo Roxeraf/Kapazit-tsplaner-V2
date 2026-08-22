@@ -157,6 +157,10 @@ export interface Comment {
   phase_code: PhaseCode | null;
   text: string;
   erstellt_am: string;
+  // Gesetzt = Antwort auf einen anderen Kommentar (Discussion Threading, siehe CONCEPT.md
+  // Abschnitt 8). Backend erlaubt beliebige Tiefe, die UI begrenzt die Darstellung auf eine
+  // Verschachtelungsebene (siehe NotesSection.tsx).
+  parent_id: number | null;
   plan_phase_id: number | null;
   tags: string[];
   documents: Document[];

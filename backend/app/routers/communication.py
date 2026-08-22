@@ -529,8 +529,10 @@ def get_project_activity(project_id: int, limit: int = 50, db: Session = Depends
 @router.get("/plan-phases/{plan_phase_id}/activity", response_model=list[schemas.ActivityItemOut])
 def get_plan_phase_activity(plan_phase_id: int, limit: int = 50, db: Session = Depends(get_db)):
     """Phasenbezogener Activity Feed - wie get_project_activity, aber eingeschränkt auf
-    Entitäten mit plan_phase_id == plan_phase_id. Entitätstypen ohne plan_phase_id-Spalte
-    (plan_phase/milestone/risk/meeting_minutes) liefern hier nichts (siehe
+    Entitäten mit plan_phase_id == plan_phase_id. milestone hat seit P18/B-7 ebenfalls eine
+    plan_phase_id-Spalte und wird hier daher korrekt mitgeliefert. Entitätstypen ohne
+    plan_phase_id-Spalte (plan_phase/risk/meeting_minutes/baseline_snapshot - Planstände sind
+    projektweit, nicht phasenscoped, siehe P19.6) liefern hier nichts (siehe
     list_entity_summaries)."""
     plan_phase = db.get(models.PlanPhase, plan_phase_id)
     if plan_phase is None:

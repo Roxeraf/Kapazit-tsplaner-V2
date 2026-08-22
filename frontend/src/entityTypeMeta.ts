@@ -14,3 +14,16 @@ export const ENTITY_TYPE_META: Record<EntityType, { icon: string; label: string 
   document: { icon: "📄", label: "Dokument" },
   baseline_snapshot: { icon: "📸", label: "Planstand" },
 };
+
+// P19.4 (Tag-Dossier-Drilldown): bildet ActivityItem.entity_type auf die Sub-Ansicht im
+// Kommunikation-Tab ab - ursprünglich lokal in ProjectCommunicationTab.tsx (Phase 26.4),
+// hierher verschoben, damit TagDossierPanel.tsx dieselbe Zuordnung für die Navigation aus
+// dem Dossier heraus nutzen kann, ohne sie zu duplizieren.
+export const ENTITY_TYPE_TO_COMMUNICATION_SECTION: Partial<Record<EntityType, string>> = {
+  comment: "diskussionen",
+  decision: "entscheidungen",
+  risk: "risiken",
+  meeting_minutes: "meetingprotokolle",
+  task: "aufgaben",
+  blocker: "blocker",
+};

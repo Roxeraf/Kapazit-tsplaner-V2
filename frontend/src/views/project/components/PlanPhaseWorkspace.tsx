@@ -9,6 +9,7 @@ import NotesSection from "../../../components/NotesSection";
 import PersonPicker from "../../../components/PersonPicker";
 import PlanPhaseCapacityTab from "./PlanPhaseCapacityTab";
 import PlanPhaseCreateModal from "./PlanPhaseCreateModal";
+import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
 import TaskList from "./TaskList";
 import usePeopleMap from "../../../hooks/usePeopleMap";
@@ -41,7 +42,14 @@ import {
 // actual_start/actual_end sind sekundär und nur über eine explizite Korrektur-Aktion editierbar.
 // Seit P19.6 zeigt der Übersicht-Tab zusätzlich eine kompakte "Seit Planstand VX geändert"-Zeile
 // (clientseitig gegen den bestehenden Deviation-Endpoint gefiltert, kein neuer Endpoint).
-const PHASE_ACTIVITY_TYPES: EntityType[] = ["comment", "decision", "task", "blocker"];
+//
+// P19.3: Backend (_get_plan_phase_activity/list_entity_summaries, siehe communication.py/
+// entity_links.py) liefert für Modelle mit eigener plan_phase_id-Spalte bereits "milestone"
+// mit (seit P18/B-7) - hier bisher nicht mitgerendert. "baseline_snapshot" ist bewusst mit
+// aufgeführt (Auftrag P19.3), liefert aber serverseitig aktuell nie einen phasenscoped
+// Treffer zurück (BaselineSnapshot ist projektweit, keine plan_phase_id-Spalte, siehe P19.6
+// "phasenscoped Planstand-Vergleich") - additiv/harmlos, kein falsches Signal.
+const PHASE_ACTIVITY_TYPES: EntityType[] = ["comment", "decision", "task", "blocker", "milestone", "baseline_snapshot"];
 
 type Tab = "uebersicht" | "kapazitaet" | "aktivitaet" | "dateien";
 
@@ -184,10 +192,11 @@ export default function PlanPhaseWorkspace({
     }
   };
 
-  const handleAddNote = async (input: { text: string; tags: string[]; files: File[] }) => {
+  const handleAddNote = async (input: { text: string; tags: string[]; files: File[]; parentId?: number | null }) => {
     const comment = await api.createComment(projectId, {
       text: input.text,
       tags: input.tags,
+      parent_id: input.parentId ?? null,
       plan_phase_id: planPhaseId,
     });
     for (const file of input.files) {
@@ -412,6 +421,29 @@ export default function PlanPhaseWorkspace({
             </div>
           </div>
 
+          {/* P19.4: "Verknüpfte Themen" - Tags der Phase + Counts, rein clientseitig aus dem
+              bereits geladenen PlanPhaseDetail abgeleitet (tags/decisions/blockers/documents
+              sind schon Teil des Detail-Aufrufs oben) - kein zusätzlicher Aufruf des
+              projektweiten knowledge/context-Endpoints nötig, da der phasenscoped Stand hier
+              bereits vollständig vorliegt. */}
+          <div className="card" style={{ marginBottom: "0.75rem" }}>
+            <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Verknüpfte Themen</h4>
+            {detail.tags.length === 0 ? (
+              <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", margin: 0 }}>Noch keine Tags an dieser Phase.</p>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "0.5rem" }}>
+                {detail.tags.map((t) => (
+                  <TagChip key={t} name={t} />
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.82rem", color: "var(--text-muted)" }}>
+              <span>{detail.decisions.length} Entscheidung{detail.decisions.length === 1 ? "" : "en"}</span>
+              <span>{detail.blockers.length} Blocker</span>
+              <span>{detail.documents.length} Dokument{detail.documents.length === 1 ? "" : "e"}</span>
+            </div>
+          </div>
+
           <div className="card" style={{ marginBottom: "0.75rem" }}>
             <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Kennzahlen</h4>
             <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem" }}>
@@ -507,6 +539,7 @@ export default function PlanPhaseWorkspace({
               projectId={projectId}
               planPhaseId={planPhaseId}
               filterTypes={PHASE_ACTIVITY_TYPES}
+              phaseTags={detail.tags}
               onOpenSection={() => setTab("aktivitaet")}
               onChanged={reload}
               refreshToken={activityVersion}
@@ -515,7 +548,15 @@ export default function PlanPhaseWorkspace({
 
           <div className="card" style={{ marginBottom: "0.75rem" }}>
             <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Kommentare</h4>
-            <NotesSection notes={detail.comments} onAdd={handleAddNote} onDelete={handleDeleteNote} />
+            <NotesSection
+              notes={detail.comments}
+              onAdd={handleAddNote}
+              onDelete={handleDeleteNote}
+              projectId={projectId}
+              planPhaseId={planPhaseId}
+              phaseTags={detail.tags}
+              onChanged={reload}
+            />
           </div>
 
           <div className="card" style={{ marginBottom: "0.75rem" }}>

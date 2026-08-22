@@ -321,8 +321,9 @@ def list_entity_summaries(
 ) -> list[dict]:
     """Alle Entitäten eines Typs (optional auf ein Projekt und/oder eine PlanPhase
     eingeschränkt), inkl. Tags. plan_phase_id wird nur für Modelle angewendet, die eine
-    solche Spalte haben (comment/task/blocker/decision); Modelle ohne plan_phase_id
-    (plan_phase/milestone/risk/meeting_minutes/baseline_snapshot) liefern bei gesetztem
+    solche Spalte haben (comment/task/blocker/decision/milestone - milestone seit P18/B-7,
+    siehe CONCEPT.md Abschnitt 6b.8); Modelle ohne plan_phase_id
+    (plan_phase/risk/meeting_minutes/baseline_snapshot) liefern bei gesetztem
     plan_phase_id eine leere Liste, da sie nicht phasenbezogen sind."""
     model, text_field = _ENTITY_REGISTRY.get(entity_type, (None, None))
     if model is None:

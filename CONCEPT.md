@@ -816,13 +816,15 @@ Schema-Grundlage: `PlanPhase.parent_phase_id`/`reihenfolge`, `Milestone.plan_pha
 **B-2 (Migration Tooling) ist ebenfalls implementiert und verifiziert**
 (`backend/scripts/migrate_to_planphase_hierarchy.py`, Dry-Run-Default, siehe 16.8) — **aber
 noch nicht gegen echte Produktivdaten ausgeführt** (erfordert gesonderte Freigabe). **B-3
-(Phase Tree API) ist implementiert** (CRUD-Guards, Leaf→Parent-Historisierung, Löschguard
-BD-11, reparent-children/subtree-impact/delete-subtree — siehe 16.9): `parent_phase_id`
-ist damit erstmals operativ wirksam, allerdings **nur über die API** — kein Frontend nutzt
-diese Endpunkte, es gibt noch keine direkte Personenzuordnung ohne Rollenzwang (B-4) und
-keine Migration wurde gegen echte Daten ausgeführt (B-2 noch nicht angewendet). Bis B-4/B-5
-(ausgeführt)/B-6 umgesetzt sind, bleibt Abschnitt 6 (Subprojects/Grobplanung) für alle
-Nutzer:innen die tatsächlich sichtbare/bediente Planungsebene.
+(Phase Tree API), B-4 (Direct Assignment/Available Capacity Range) und B-5 (Derived Monthly &
+Portfolio Capacity) sind implementiert** (siehe 16.9/16.10/16.11). **B-6 (PlanPhase Tree UX)
+ist ebenfalls implementiert** (Baum-UI in Liste/Gantt/Workspace, Direct-Assignment-UX,
+BD-11-Blockier-Dialog — siehe 16.12): die PlanPhase-Hierarchie ist damit **erstmals für
+Nutzer:innen sichtbar und bedienbar**, nicht mehr nur über die API. Weiterhin offen: keine
+Migration wurde gegen echte Produktivdaten ausgeführt (B-2 noch nicht angewendet, bestehende
+Subprojects/Grobplanung sind daher weiterhin die einzige Quelle für bereits existierende
+Projekte), `Milestone` nutzt im Frontend weiterhin `subproject_id` statt `plan_phase_id`
+(B-7), und `ResourceDemandGrid`/Subproject-Verwaltung sind noch nicht entfernt (B-8).
 
 ### 6b.1 Kernidee
 
@@ -1941,6 +1943,60 @@ keine Berücksichtigung mehr — Grund, warum B-2 zuerst ausgeführt werden muss
   diesem Paket).
 - **Nächstes Paket:** B-6 (PlanPhase Tree UX: Baum-UI in Liste/Gantt/Workspace, Löschverhalten
   gemäß BD-11 in der UI) — größtes verbleibendes Frontend-Einzelpaket, siehe Pass-2-Dokument
+  Abschnitt 35.5.
+
+### 16.12 P18 Implementierung — B-6 PlanPhase Tree UX (dieser Durchgang)
+
+**Sechstes Umsetzungspaket, Validation Gate bestanden.** Erstes Frontend-Paket — verdrahtet
+B-1–B-5 erstmals sichtbar in die Bedienoberfläche (CONCEPT.md Abschnitt 6b, Pass-2-Dokument
+Abschnitt 35.5 Paket B-6):
+
+- **`PlanPhaseList.tsx`/`PlanPhaseGantt.tsx`:** von Teilprojekt-Gruppierung auf echte
+  Baum-Darstellung nach `parent_phase_id` umgestellt (rekursiv, max. 3 Ebenen, BD-10) —
+  Collapse/Expand pro Sammelphase, "+ Unterphase hinzufügen" pro Zeile (ausgeblendet auf
+  Ebene 3). Eine Sammelphase (`has_children`) zeigt `derived_forecast_start/end`/
+  `derived_capacity` ("abgeleitet"/"aggregiert") statt editierbarer eigener Werte; im Gantt
+  ein umrandeter Summary-Balken statt eines gefüllten Leaf-Balkens.
+- **`PlanPhaseCreateModal.tsx`:** "Übergeordnete Phase"-Select ersetzt das bisherige
+  "Teilprojekt"-Select als primären Strukturierungs-Mechanismus (`subproject_id` bleibt im
+  Modell compat-only bestehen, aber keine neue Bedienoberfläche dafür) — Ebene-3-Phasen
+  werden aus der Auswahl gefiltert (Frontend-Vorfilterung, Backend validiert unabhängig
+  davon verbindlich).
+- **`PlanPhaseWorkspace.tsx`:** zeigt "Übergeordnete Phase"-Breadcrumb, "+ Unterphase"-Aktion
+  (tiefenbegrenzt), verzweigt Zeitraum/Kapazität-Anzeige und den Kapazität-Tab auf
+  Leaf-vs-Parent (Parent: read-only aggregierte Ansicht, keine Assignments — Abschnitt 6b.3).
+- **`PlanPhaseCapacityTab.tsx`:** komplett neu strukturiert nach Abschnitt 5 — **primär**
+  Direct-Assignment-UX ("Personenbesetzung", `[+ Mitarbeiter zuweisen]` ohne Rollenzwang,
+  zeigt Available Capacity über den Phasenzeitraum vor dem Zuweisen sowie
+  Bedarf/Besetzt/Offen danach), die bestehende Rollen-Aufschlüsselung bleibt als
+  eingeklappter, explizit optionaler Zusatzabschnitt "Rollen aufschlüsseln (optional)"
+  bestehen — nie Voraussetzung für eine normale Personenzuweisung.
+- **`PlanPhaseDeleteDialog.tsx`** (neu): setzt BD-11 in der UI um — Standard-Löschen zeigt bei
+  `409` einen Blockier-Dialog mit "Unterphasen auf Top-Level verschieben, dann löschen" und
+  "Gesamten Zweig löschen …" (mit Impact-Anzeige aus `subtree-impact` und
+  Namens-Bestätigung), nie eine stille Kaskade.
+- **`api/client.ts`/`types.ts`:** neue Typen/Endpunkte für alle B-3/B-4/B-5-Schnittstellen
+  (`reparentPlanPhaseChildren`, `getPlanPhaseSubtreeImpact`, `deletePlanPhaseSubtree`,
+  `getPlanPhaseAssignmentSummary`, `assignPersonToPlanPhase`,
+  `unassignPersonFromPlanPhase`, `getPlanPhaseAssignmentCandidates`,
+  `getPersonCapacityRange`, `getProjectMonthlyCapacity`); `tryDeletePlanPhase` gibt den
+  409-Fall als typisiertes Ergebnis statt als geworfene Exception zurück, damit der
+  Blockier-Dialog sauber angezeigt werden kann.
+- **Verifikation:** manueller Browser-Durchlauf (Backend + Vite-Dev-Server lokal gestartet,
+  Chromium-Smoke-Test) — Baum anlegen (Top-Level + Unterphase, Sammelphase zeigt
+  abgeleitete Werte korrekt), Direct Assignment inkl. Available-Capacity-Vorschau und
+  Bedarf/Besetzt/Offen (auch Überbesetzung), BD-11-Blockier-Dialog bei Löschversuch einer
+  Sammelphase — alles wie spezifiziert. `npx tsc -b` und `npx oxlint` clean. Kein
+  automatisierter Playwright-Testlauf in diesem Paket (im Repo bislang keine
+  Playwright-Infrastruktur vorhanden) — das Aufsetzen eines dauerhaften E2E-Test-Setups ist
+  ein eigenständiges Vorhaben, hier bewusst nicht mit-erledigt; die B-3/B-4/B-5
+  Backend-Skripte und dieser manuelle Durchlauf sind der aktuelle Verifikationsstand.
+- **Bewusst unverändert in diesem Paket:** `ResourceDemandGrid.tsx` (Grobplanungs-UI) und die
+  Subproject-Verwaltung in `ProjectPlanningTab.tsx` bleiben bestehen (Legacy-Cutover ist
+  B-8); `MilestoneList.tsx` nutzt weiterhin `subproject_id` (Migration auf `plan_phase_id`
+  ist B-7).
+- **Nächstes Paket:** B-7 (Gantt/Milestone/Planstand Integration: `Milestone.plan_phase_id`
+  operativ in Router+UI, Baseline friert Baumstruktur ein) — siehe Pass-2-Dokument
   Abschnitt 35.5.
 
 ---

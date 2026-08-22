@@ -11,11 +11,24 @@ Prüft:
 4. Nach einem Reparenting zeigt GET .../deviations die strukturelle Abweichung
    (parent_phase_id alt != neu) - Testfall J aus dem Pass-2-Dokument.
 
+P18.1 Stabilization (CONCEPT.md Abschnitt 16.16, ehem. Audit-Defekt #1, Abschnitt 16.15)
+zusätzlich:
+
+5. Nach Snapshot neu angelegte PlanPhase erscheint als type="added"-Deviation mit
+   Phasennamen (kein Roh-Feld-Delta).
+6. Nach Snapshot gelöschte PlanPhase erscheint als type="removed"-Deviation, Name aus den
+   eingefrorenen Snapshot-Daten rekonstruiert (kein "#<id>"-Fallback), keine zusätzlichen
+   Feld-Deltas für dieselbe entfernte Phase.
+7. plan_fte-Änderung und Forecast-Datumsänderung bleiben unverändert als type="changed"
+   erkennbar (Regression).
+8. Unveränderter Baum liefert keine strukturellen Deviations.
+
 Aufruf: python backend/scripts/test_milestone_and_baseline_tree.py
 Exit-Code 0 bei Erfolg, sonst 1.
 """
 
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -134,6 +147,75 @@ def main() -> None:
     print("OK — Milestone.plan_phase_id funktioniert für Leaf und Parent, Projekt-Grenze "
           "validiert, Planstand friert parent_phase_id/reihenfolge/Milestone.plan_phase_id "
           "ein, Reparenting zeigt korrekt als strukturelle Abweichung im Planstand-Vergleich.")
+
+    # -----------------------------------------------------------------------
+    # P18.1 Stabilization: Planstand erkennt strukturelle Tree-Änderungen
+    # (CONCEPT.md Abschnitt 16.16, ehem. Audit-Defekt #1, Abschnitt 16.15).
+    # -----------------------------------------------------------------------
+    print("5/8  Planstand V2 als sauberer Ausgangspunkt ...")
+    stable_leaf = _create_phase(project_id, phase_type="Feinkonzept", plan_fte=0.4, forecast_start="2026-11-01", forecast_end="2026-11-30")
+    v2_resp = client.post(f"/projects/{project_id}/baselines", json={"name": "V2"})
+    if v2_resp.status_code != 201:
+        _fail("Baseline V2 anlegen", f"{v2_resp.status_code}: {v2_resp.text}")
+    v2_id = v2_resp.json()["id"]
+
+    print("6/8  Unveränderter Baum liefert keine strukturellen Deviations ...")
+    v2_devs = client.get(f"/projects/baselines/{v2_id}/deviations").json()
+    if any(d["type"] in ("added", "removed") for d in v2_devs):
+        _fail("Deviation V2 baseline", f"unerwartete strukturelle Deviation direkt nach Snapshot: {v2_devs}")
+
+    print("7/8  Neu angelegte Phase erscheint als 'added', gelöschte als 'removed' ...")
+    new_phase = _create_phase(project_id, phase_type="Neue Migrationsphase")
+    del_resp = client.delete(f"/projects/plan-phases/{stable_leaf['id']}")
+    if del_resp.status_code != 204:
+        _fail("Phase löschen", f"{del_resp.status_code}: {del_resp.text}")
+
+    v2_devs = client.get(f"/projects/baselines/{v2_id}/deviations").json()
+
+    added = next((d for d in v2_devs if d["type"] == "added" and d["entity_id"] == new_phase["id"]), None)
+    if added is None:
+        _fail("Deviation added", f"keine 'added'-Deviation für neue Phase gefunden: {v2_devs}")
+    if added["label"] != "Neue Migrationsphase" or added["entity_type"] != "plan_phase":
+        _fail("Deviation added label", f"unerwarteter Wert: {added}")
+
+    removed = next((d for d in v2_devs if d["type"] == "removed" and d["entity_id"] == stable_leaf["id"]), None)
+    if removed is None:
+        _fail("Deviation removed", f"keine 'removed'-Deviation für gelöschte Phase gefunden: {v2_devs}")
+    if removed["label"] != "Feinkonzept":
+        _fail("Deviation removed label", f"Name der gelöschten Phase nicht rekonstruierbar: {removed}")
+    for d in v2_devs:
+        label = d.get("label")
+        if label is not None and re.fullmatch(r"#\d+", label):
+            _fail("Roh-ID im Deviation-Label", f"unerwartete rohe ID: {d}")
+    # keine zusätzlichen Feld-Deltas mehr für dieselbe entfernte Phase (kein Doppel-Reporting)
+    stray_field_devs = [
+        d for d in v2_devs if d["entity_id"] == stable_leaf["id"] and d["type"] == "changed"
+    ]
+    if stray_field_devs:
+        _fail("Doppeltes Removed-Reporting", f"unerwartete Feld-Deltas für entfernte Phase: {stray_field_devs}")
+
+    print("8/8  plan_fte-/Forecast-Änderung bleibt als 'changed' erkennbar (Regression) ...")
+    fte_leaf = _create_phase(project_id, phase_type="Umsetzung", plan_fte=0.5, forecast_start="2026-12-01", forecast_end="2026-12-31")
+    v3_resp = client.post(f"/projects/{project_id}/baselines", json={"name": "V3"})
+    v3_id = v3_resp.json()["id"]
+    upd = client.put(
+        f"/projects/plan-phases/{fte_leaf['id']}",
+        json={"plan_fte": 0.8, "forecast_start": "2026-12-08", "forecast_end": "2027-01-05"},
+    )
+    if upd.status_code != 200:
+        _fail("plan_fte/Forecast Update", f"{upd.status_code}: {upd.text}")
+
+    v3_devs = client.get(f"/projects/baselines/{v3_id}/deviations").json()
+    fte_dev = next((d for d in v3_devs if d["entity_id"] == fte_leaf["id"] and d["field"] == "plan_fte"), None)
+    if fte_dev is None or fte_dev["type"] != "changed" or fte_dev["baseline_value"] != "0.5" or fte_dev["current_value"] != "0.8":
+        _fail("plan_fte Deviation", f"unerwartet: {fte_dev}")
+    start_dev = next((d for d in v3_devs if d["entity_id"] == fte_leaf["id"] and d["field"] == "forecast_start"), None)
+    if start_dev is None or start_dev["type"] != "changed" or start_dev["delta_days"] != 7:
+        _fail("forecast_start Deviation", f"unerwartet: {start_dev}")
+
+    print("OK — Planstand erkennt Phase hinzugefügt/entfernt strukturell mit sprechendem "
+          "Namen (kein Roh-ID-Leck), unveränderter Baum bleibt deviation-frei, plan_fte-/"
+          "Forecast-Änderungen bleiben unverändert als 'changed' erkennbar.")
 
 
 if __name__ == "__main__":

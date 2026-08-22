@@ -17,6 +17,19 @@ echte FastAPI-App. Prüft:
 6. assignment-candidates nutzt die Range-Capacity und schließt bereits zugeordnete Personen
    aus.
 
+P18.1 Stabilization (CONCEPT.md Abschnitt 16.16, ehem. Audit-Defekt #2, Abschnitt 16.15)
+zusätzlich:
+
+7. GET /resource-demands/{id}/candidates prüft für einen Demand MIT plan_phase_id die volle
+   Phasen-Range (auch über eine Monatsgrenze hinweg), nicht nur einen einzelnen
+   Monats-Bucket - liefert dasselbe Ergebnis wie der Haupt-Flow
+   (GET /plan-phases/{id}/assignment-candidates) für dieselbe Phase.
+8. GET /resource-demands/{id}/candidates für einen Legacy-Demand OHNE plan_phase_id bleibt
+   unverändert periodenbasiert (kein Regressionsbruch für unmigrierte Alt-Grobplanung).
+9. Kein DELETE-Endpoint für resource_roles (405), und der zentrale Domain-Guard
+   ensure_role_deletable() (routers/capacity.py, ehem. Audit-Defekt #3) blockiert die
+   Systemrolle "Ohne Rolle" (409), lässt eine normale Rolle aber unangetastet.
+
 Aufruf: python backend/scripts/test_direct_assignment_and_capacity_range.py
 Exit-Code 0 bei Erfolg, sonst 1.
 """
@@ -35,11 +48,13 @@ if str(BACKEND_DIR) not in sys.path:
 _tmp = tempfile.TemporaryDirectory(prefix="kapa_direct_assignment_check_")
 os.environ["DATABASE_URL"] = "sqlite:///" + str(Path(_tmp.name) / "check.db").replace("\\", "/")
 
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402 - Import triggert db_bootstrap.run_migrations()
 from app.database import SessionLocal, engine  # noqa: E402
 from app import capacity_calc, models  # noqa: E402
+from app.routers.capacity import ensure_role_deletable  # noqa: E402
 
 client = TestClient(app)
 
@@ -83,6 +98,32 @@ def main() -> None:
     resp_all = client.get("/resource-roles", params={"include_system_roles": True})
     if not any(r["name"] == "Ohne Rolle" for r in resp_all.json()):
         _fail("Rollen-Picker", "Systemrolle fehlt trotz include_system_roles=true")
+
+    print("2b/6  Kein DELETE-Endpoint für resource_roles, Domain-Guard schützt Systemrolle ...")
+    # P18.1 Stabilization (CONCEPT.md Abschnitt 16.16, ehem. Audit-Defekt #3, Abschnitt 16.15):
+    # es existiert bewusst kein DELETE /resource-roles/{id} (Minimal-Change-Prinzip, kein
+    # realer Löschbedarf) - stattdessen verankert routers/capacity.py.ensure_role_deletable()
+    # die Invariante zentral, damit ein künftiger Lösch-Pfad sie nicht erneut vergisst.
+    system_role_id = next(r["id"] for r in resp_all.json() if r["name"] == "Ohne Rolle")
+    delete_probe = client.delete(f"/resource-roles/{system_role_id}")
+    if delete_probe.status_code != 405:
+        _fail(
+            "Kein DELETE-Endpoint",
+            f"erwartet 405 Method Not Allowed (kein Endpoint registriert), bekam {delete_probe.status_code}",
+        )
+    db = SessionLocal()
+    system_role = db.query(models.ResourceRole).filter(models.ResourceRole.id == system_role_id).one()
+    try:
+        ensure_role_deletable(system_role)
+        _fail("Domain-Guard", "ensure_role_deletable() hätte für die Systemrolle werfen müssen")
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            _fail("Domain-Guard", f"erwartet 409, bekam {exc.status_code}")
+    normal_role = models.ResourceRole(name="2b-Testrolle")
+    db.add(normal_role)
+    db.commit()
+    ensure_role_deletable(normal_role)  # darf NICHT werfen
+    db.close()
 
     print("3/6  Direkte Zuordnung ohne Rollenauswahl ...")
     project_resp = client.post("/projects", json={"name": "B-4 Testprojekt", "start_monat": "10.2026"})
@@ -174,9 +215,80 @@ def main() -> None:
     if unassign_resp.status_code != 200 or unassign_resp.json()["assigned_fte"] != 0.3:
         _fail("unassign", f"{unassign_resp.status_code}: {unassign_resp.text}")
 
+    print("7/8  Legacy Candidates-Endpoint nutzt volle Phasen-Range bei gesetzter plan_phase_id ...")
+    role_resp = client.post("/resource-roles", json={"name": "B-8 Testrolle"})
+    if role_resp.status_code != 201:
+        _fail("Rolle anlegen", f"{role_resp.status_code}: {role_resp.text}")
+    role_id = role_resp.json()["id"]
+
+    range_phase_resp = client.post(
+        f"/projects/{project_id}/plan-phases",
+        json={
+            "phase_type": "Range-Kandidaten-Phase",
+            "status": "geplant",
+            "forecast_start": "2026-10-20",
+            "forecast_end": "2026-11-20",
+        },
+    )
+    range_phase_id = range_phase_resp.json()["id"]
+
+    # Person, die im Oktober vollständig abwesend ist (Absence deckt den ganzen Monat ab -
+    # available_fte für den Monats-Bucket "Okt 26" ist 0), im November aber verfügbar - der
+    # klassische Fall, den eine reine period-Prüfung (nur Oktober) übersehen würde, eine
+    # Range-Prüfung über 20.10.-20.11. aber korrekt findet.
+    only_november = client.post("/people", json={"display_name": "Nur-November"}).json()
+    db = SessionLocal()
+    db.add(models.ResourceProfile(person_id=only_november["id"], weekly_hours=40, capacity_relevant=True))
+    db.add(models.Absence(person_id=only_november["id"], start_date="2026-10-01", end_date="2026-10-31"))
+    db.commit()
+    db.close()
+
+    demand_resp = client.post(
+        f"/projects/{project_id}/resource-demands",
+        json={"plan_phase_id": range_phase_id, "resource_role_id": role_id, "period": "Okt 26", "fte": 0.2},
+    )
+    if demand_resp.status_code != 201:
+        _fail("Demand mit plan_phase_id anlegen", f"{demand_resp.status_code}: {demand_resp.text}")
+    demand_id = demand_resp.json()["id"]
+
+    legacy_candidates = client.get(f"/resource-demands/{demand_id}/candidates").json()
+    legacy_by_id = {c["person_id"]: round(c["available_fte"], 4) for c in legacy_candidates}
+    if only_november["id"] not in legacy_by_id:
+        _fail(
+            "Legacy Candidates Range",
+            f"Person mit Kapazität nur im November fehlt trotz Phasen-Range bis 20.11.: {legacy_candidates}",
+        )
+
+    range_flow_candidates = client.get(f"/projects/plan-phases/{range_phase_id}/assignment-candidates").json()
+    range_flow_by_id = {c["person_id"]: round(c["available_fte"], 4) for c in range_flow_candidates}
+    if legacy_by_id != range_flow_by_id:
+        _fail(
+            "Legacy Candidates == assignment-candidates",
+            f"unterschiedliche Ergebnisse: legacy={legacy_by_id} vs range-flow={range_flow_by_id}",
+        )
+
+    print("8/8  Legacy-Demand ohne plan_phase_id bleibt periodenbasiert (kein Regressionsbruch) ...")
+    legacy_only_demand_resp = client.post(
+        f"/projects/{project_id}/resource-demands",
+        json={"resource_role_id": role_id, "period": "Okt 26", "fte": 0.1},
+    )
+    if legacy_only_demand_resp.status_code != 201:
+        _fail("Legacy-Demand ohne plan_phase_id anlegen", f"{legacy_only_demand_resp.status_code}: {legacy_only_demand_resp.text}")
+    legacy_only_demand_id = legacy_only_demand_resp.json()["id"]
+    legacy_only_candidates = client.get(f"/resource-demands/{legacy_only_demand_id}/candidates").json()
+    if any(c["person_id"] == only_november["id"] for c in legacy_only_candidates):
+        _fail(
+            "Legacy Period-Fallback",
+            f"Person ohne Oktober-Kapazität taucht trotz reiner Perioden-Prüfung (kein "
+            f"plan_phase_id) auf: {legacy_only_candidates}",
+        )
+
     print("OK — Range-Capacity werktage-gewichtet korrekt, Rollen-Picker blendet Systemrolle "
           "aus, Direct Assignment ohne Rollenauswahl funktioniert (idempotente Carrier-Demand, "
-          "plan_fte unverändert auch bei Überbesetzung), Parent-Block und Candidates korrekt.")
+          "plan_fte unverändert auch bei Überbesetzung), Parent-Block und Candidates korrekt, "
+          "Legacy-Candidates-Endpoint nutzt die volle Phasen-Range bei gesetzter plan_phase_id "
+          "(deckungsgleich mit assignment-candidates) und bleibt für unmigrierte Alt-Demands "
+          "ohne plan_phase_id periodenbasiert.")
 
 
 if __name__ == "__main__":

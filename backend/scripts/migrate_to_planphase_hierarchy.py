@@ -81,6 +81,16 @@ class ProjectMigrationEntry:
     milestones_before: int = 0
     milestones_after: int = 0
     comments_relinked_total_before: int = 0
+    # P18.1 Stabilization (CONCEPT.md Abschnitt 16.16, Migration Realistic Dry-Run
+    # Preparation, Auftrag Abschnitt 6/7): ResourceAssignment hängt nur an resource_demand_id
+    # (siehe Klassendoku oben, Punkt c) und wird durch die Migration nie direkt verändert -
+    # Anzahl UND FTE-Summe müssen vor/nach der Migration exakt identisch sein. Ergänzt die
+    # bisherige "resource_assignments_on_reassigned_demands"-Zählung (nur die migrierten
+    # Demands) um eine vollständige Vorher/Nachher-Prüfung über ALLE Assignments des Projekts.
+    assignments_count_before: int = 0
+    assignments_count_after: int = 0
+    assignments_fte_sum_before: float = 0.0
+    assignments_fte_sum_after: float = 0.0
 
 
 @dataclass
@@ -97,6 +107,10 @@ class MigrationReport:
             if p.orphan_resource_demands_after != 0:
                 return True
             if round(p.fte_sum_before, 4) != round(p.fte_sum_after, 4):
+                return True
+            if p.assignments_count_before != p.assignments_count_after:
+                return True
+            if round(p.assignments_fte_sum_before, 4) != round(p.assignments_fte_sum_after, 4):
                 return True
             if p.milestones_before != p.milestones_after:
                 return True
@@ -303,6 +317,21 @@ def _compute_hierarchy_depth_violations(db) -> list[str]:
     return violations
 
 
+def _project_assignment_stats(db, project_id: int) -> tuple[int, float]:
+    """Anzahl und FTE-Summe aller ResourceAssignments eines Projekts (über den Join auf
+    ResourceDemand, da ResourceAssignment keinen eigenen project_id-FK trägt) - für den
+    Vorher/Nachher-Vergleich in migrate() (Auftrag Abschnitt 7: "Assignments preserved")."""
+    from app import models
+
+    rows = (
+        db.query(models.ResourceAssignment.fte)
+        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+        .filter(models.ResourceDemand.project_id == project_id)
+        .all()
+    )
+    return len(rows), round(sum(row[0] for row in rows), 4)
+
+
 def migrate(db, apply: bool) -> MigrationReport:
     from app import models
 
@@ -325,6 +354,7 @@ def migrate(db, apply: bool) -> MigrationReport:
             .all()
         ]
         entry.fte_sum_before = round(sum(grobplanung_fte_before), 4)
+        entry.assignments_count_before, entry.assignments_fte_sum_before = _project_assignment_stats(db, project.id)
 
         has_subprojects = (
             db.query(models.Subproject).filter(models.Subproject.project_id == project.id).count() > 0
@@ -357,6 +387,7 @@ def migrate(db, apply: bool) -> MigrationReport:
         entry.milestones_after = (
             db.query(models.Milestone).filter(models.Milestone.project_id == project.id).count()
         )
+        entry.assignments_count_after, entry.assignments_fte_sum_after = _project_assignment_stats(db, project.id)
         if entry.subprojects_migrated == 0 and not entry.grobplanung_phase_created:
             continue  # has_subprojects/has_grobplanung war True, aber bereits vollständig
             # migriert (idempotent Re-Run) - kein Report-Eintrag, da keine Aktion stattfand.
@@ -396,11 +427,28 @@ def _print_report(report: MigrationReport) -> None:
         print(f"  FTE-Summe (Grobplanung) vorher/nachher: {p.fte_sum_before} / {p.fte_sum_after}")
         print(f"  Milestones vorher/nachher: {p.milestones_before} / {p.milestones_after}")
         print(f"  Verwaiste ResourceDemands (plan_phase_id IS NULL) danach: {p.orphan_resource_demands_after}")
+        print(
+            f"  ResourceAssignments vorher/nachher: {p.assignments_count_before}/{p.assignments_count_after} "
+            f"Zeilen, {p.assignments_fte_sum_before}/{p.assignments_fte_sum_after} FTE-Summe"
+        )
     if report.hierarchy_depth_violations:
         print("\nHierarchietiefe-/Zyklus-Verstöße:")
         for v in report.hierarchy_depth_violations:
             print(f"  - {v}")
     print(f"\nDiskrepanzen gefunden: {report.has_discrepancies}")
+
+
+def _write_report_file(report: MigrationReport, path: Path) -> None:
+    """P18.1 Stabilization (CONCEPT.md Abschnitt 16.16, Auftrag Abschnitt 6 Step 4: "Report
+    speichern") - JSON-Serialisierung des vollständigen Reports (dataclasses.asdict), damit
+    ein realistischer Dry-Run-Lauf gegen eine Produktivkopie ein archivierbares Artefakt
+    hinterlässt statt nur Stdout-Text."""
+    import dataclasses
+    import json
+
+    payload = dataclasses.asdict(report)
+    payload["generated_at"] = _now()
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def main() -> None:
@@ -416,6 +464,12 @@ def main() -> None:
         help="SQLAlchemy-Connection-String. Default: DATABASE_URL-Umgebungsvariable bzw. "
         "app.database-Default (kapazitaetsplaner.db).",
     )
+    parser.add_argument(
+        "--report-file",
+        default=None,
+        help="Pfad, unter dem der vollständige Report zusätzlich als JSON gespeichert wird "
+        "(P18.1 Stabilization, Migration Realistic Dry-Run Preparation Step 4).",
+    )
     args = parser.parse_args()
 
     if args.database_url:
@@ -430,6 +484,9 @@ def main() -> None:
         db.close()
 
     _print_report(report)
+    if args.report_file:
+        _write_report_file(report, Path(args.report_file))
+        print(f"\nReport gespeichert unter: {args.report_file}")
     sys.exit(1 if report.has_discrepancies else 0)
 
 

@@ -13,6 +13,9 @@ prüft gegen die tatsächlichen Endpunkte:
 7. subtree-impact zeigt korrekte Zählungen; delete-subtree verlangt exakte Bestätigung (422
    bei falschem Wert) und löscht bei korrekter Bestätigung rekursiv, ohne Collaboration-
    Inhalte (Comment/Milestone) zu löschen - nur die Verknüpfung wird entfernt.
+8. Comment-Threading (P19.3, CONCEPT.md Abschnitt 8): parent_id wird beim Anlegen angenommen,
+   im GET korrekt zurückgegeben, und beim Löschen des Eltern-Kommentars auf NULL gesetzt statt
+   die Antwort mitzulöschen.
 
 Aufruf: python backend/scripts/test_planning_phase_tree_api.py
 Exit-Code 0 bei Erfolg, sonst 1.
@@ -194,9 +197,45 @@ def main() -> None:
     if matching_comment["plan_phase_id"] is not None:
         _fail("delete-subtree", f"Comment.plan_phase_id hätte NULL sein müssen: {matching_comment}")
 
+    print("8/8  Comment-Threading: parent_id wird angenommen, korrekt zurückgegeben und beim "
+          "Löschen des Elternteils genullt (P19.3) ...")
+    thread_project_id = _create_project("Testprojekt Comment-Threading")
+    root_resp = client.post(f"/projects/{thread_project_id}/comments", json={"text": "Wurzel-Kommentar"})
+    if root_resp.status_code != 201:
+        _fail("Comment-Threading", f"Root-Kommentar fehlgeschlagen: {root_resp.status_code}: {root_resp.text}")
+    root_comment = root_resp.json()
+    if root_comment.get("parent_id") is not None:
+        _fail("Comment-Threading", f"Root-Kommentar sollte parent_id=None haben: {root_comment}")
+
+    reply_resp = client.post(
+        f"/projects/{thread_project_id}/comments",
+        json={"text": "Antwort auf die Wurzel", "parent_id": root_comment["id"]},
+    )
+    if reply_resp.status_code != 201:
+        _fail("Comment-Threading", f"Reply fehlgeschlagen: {reply_resp.status_code}: {reply_resp.text}")
+    reply_comment = reply_resp.json()
+    if reply_comment["parent_id"] != root_comment["id"]:
+        _fail("Comment-Threading", f"parent_id nicht korrekt übernommen: {reply_comment}")
+
+    listed = client.get(f"/projects/{thread_project_id}/comments").json()
+    listed_reply = next((c for c in listed if c["id"] == reply_comment["id"]), None)
+    if listed_reply is None or listed_reply["parent_id"] != root_comment["id"]:
+        _fail("Comment-Threading", f"GET /comments liefert parent_id nicht korrekt zurück: {listed_reply}")
+
+    resp = client.delete(f"/projects/comments/{root_comment['id']}")
+    if resp.status_code != 204:
+        _fail("Comment-Threading", f"Löschen des Wurzel-Kommentars fehlgeschlagen: {resp.status_code}: {resp.text}")
+    listed_after = client.get(f"/projects/{thread_project_id}/comments").json()
+    orphan = next((c for c in listed_after if c["id"] == reply_comment["id"]), None)
+    if orphan is None:
+        _fail("Comment-Threading", "Reply wurde fälschlich mitgelöscht (sollte nur entkoppelt werden)")
+    if orphan["parent_id"] is not None:
+        _fail("Comment-Threading", f"Reply.parent_id hätte nach Löschen des Elternteils NULL sein müssen: {orphan}")
+
     print("OK — Phase-Tree-API: Tiefe/Zyklus/Projekt-Grenze validiert, Leaf->Parent-"
           "Historisierung korrekt, BD-11-Block/reparent-children/delete-subtree funktionieren "
-          "wie spezifiziert, Collaboration-Inhalte bleiben bei delete-subtree erhalten.")
+          "wie spezifiziert, Collaboration-Inhalte bleiben bei delete-subtree erhalten, "
+          "Comment-Threading (parent_id) funktioniert wie spezifiziert.")
 
 
 if __name__ == "__main__":

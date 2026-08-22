@@ -1553,15 +1553,21 @@ class PhaseMetricsOut(BaseModel):
 
 
 class PlanPhaseDetail(PlanPhaseOut):
-    # Aggregierte Detailansicht einer PlanPhase. Eingebettet werden nur Entitäten mit
-    # plan_phase_id-FK (Comment/Task/Blocker/Decision/ResourceDemand). Milestone hat seit
-    # P18/B-1 ebenfalls einen plan_phase_id-FK, wird hier aber (wie BaselineSnapshot) bewusst
-    # NICHT eingebettet - ein eigener Einbettungs-Task ist kein B-3-Scope.
+    # Aggregierte Detailansicht einer PlanPhase. Eingebettet werden Entitäten mit
+    # plan_phase_id-FK (Comment/Task/Blocker/Decision/ResourceDemand/Milestone).
+    # BaselineSnapshot wird weiterhin bewusst NICHT eingebettet (kein Snapshot-vs-Snapshot-
+    # Vergleich hier, siehe P19.6 - der Planstand-Vergleich läuft client-seitig gegen den
+    # bestehenden /baselines/{id}/deviations-Endpoint).
     comments: list[CommentOut] = []
     tasks: list[TaskOut] = []
     blockers: list[BlockerOut] = []
     decisions: list[DecisionOut] = []
     resource_demands: list[ResourceDemandOut] = []
+    # P19.5 (additiv): Milestones dieser Phase (plan_phase_id-FK, seit P18/B-7), damit der
+    # PlanPhase-Workspace sie ohne einen zusätzlichen Round-Trip anzeigen kann (Gap 2 aus
+    # P19_PLANPHASE_WORKSPACE_UX_AUDIT.md). Bewusst nicht rekursiv (nur diese Phase selbst,
+    # keine Nachfahren-Milestones).
+    milestones: list[MilestoneOut] = []
     metrics: PhaseMetricsOut
     # P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI (B-6). Leer bei einer Leaf.
     children: list[PlanPhaseOut] = []

@@ -366,6 +366,18 @@ def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDet
                 .all()
             )
         ],
+        # P19.5 (additiv, siehe schemas.PlanPhaseDetail.milestones): gleiche Sortierung wie
+        # list_milestones (Datum, dann id) - kein neuer Endpoint nötig, _milestone_out ist
+        # bereits weiter unten in dieser Datei definiert.
+        milestones=[
+            _milestone_out(db, m)
+            for m in (
+                db.query(models.Milestone)
+                .filter(models.Milestone.plan_phase_id == p.id)
+                .order_by(models.Milestone.baseline_date, models.Milestone.id)
+                .all()
+            )
+        ],
         metrics=_plan_phase_metrics(db, p),
     )
 

@@ -602,6 +602,31 @@ export function planPhaseDepth(phases: PlanPhase[], phaseId: number): number {
   return depth;
 }
 
+// P19.6 (Planstand-UX): alle Nachfahren-IDs einer Phase (rekursiv über parent_phase_id) - für
+// den phasenscoped Planstand-Vergleich bei Parent-Phasen (Deviations der ganzen Unterphasen-
+// Gruppe zählen als "seit Planstand geändert" für die Parent-Phase). Enthält NICHT die Phase
+// selbst. Bricht bei einem Zyklus defensiv ab (sollte durch das Backend nie erreichbar sein).
+export function planPhaseDescendantIds(phases: PlanPhase[], phaseId: number): Set<number> {
+  const childrenByParent = new Map<number, PlanPhase[]>();
+  for (const p of phases) {
+    if (p.parent_phase_id == null) continue;
+    const list = childrenByParent.get(p.parent_phase_id) ?? [];
+    list.push(p);
+    childrenByParent.set(p.parent_phase_id, list);
+  }
+  const result = new Set<number>();
+  const stack = [phaseId];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (const child of childrenByParent.get(current) ?? []) {
+      if (result.has(child.id)) continue;
+      result.add(child.id);
+      stack.push(child.id);
+    }
+  }
+  return result;
+}
+
 export interface PlanPhase {
   id: number;
   project_id: number;
@@ -658,6 +683,9 @@ export interface PlanPhaseDetail extends PlanPhase {
   blockers: Blocker[];
   decisions: Decision[];
   resource_demands: ResourceDemand[];
+  // P19.5 (additiv): Milestones dieser Phase (plan_phase_id-FK), damit der PlanPhase-Workspace
+  // sie ohne zusätzlichen Round-Trip anzeigen kann. Nicht rekursiv (nur diese Phase selbst).
+  milestones: Milestone[];
   metrics: PhaseMetricsOut;
   // P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI.
   children: PlanPhase[];

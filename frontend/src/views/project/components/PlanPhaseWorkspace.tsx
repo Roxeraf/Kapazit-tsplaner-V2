@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../api/client";
 import ActivityFeed from "./ActivityFeed";
 import BlockerList from "./BlockerList";
 import DecisionList from "./DecisionList";
+import DocumentListPanel from "./DocumentListPanel";
+import MilestoneList from "./MilestoneList";
 import NotesSection from "../../../components/NotesSection";
 import PersonPicker from "../../../components/PersonPicker";
 import PlanPhaseCapacityTab from "./PlanPhaseCapacityTab";
@@ -10,13 +12,16 @@ import PlanPhaseCreateModal from "./PlanPhaseCreateModal";
 import TagInput from "../../../components/TagInput";
 import TaskList from "./TaskList";
 import usePeopleMap from "../../../hooks/usePeopleMap";
-import { categorize, CATEGORY_ICONS } from "../../../documentIcons";
+import { formatBaselineDate, summarizeBaselineDeviations } from "../baselineDeviationFormat";
 import {
   MAX_PLAN_PHASE_DEPTH,
   PLAN_PHASE_STATUS_LABELS,
   PLAN_PHASE_STATUS_OPTIONS,
   PLAN_PHASE_TYPE_SUGGESTIONS,
   planPhaseDepth,
+  planPhaseDescendantIds,
+  type BaselineDeviation,
+  type BaselineSnapshotSummary,
   type EntityType,
   type PlanPhase,
   type PlanPhaseDetail,
@@ -28,11 +33,14 @@ import {
 // dem PlanPhaseList.tsx parallel ein vollständiges Inline-Formular zeigte). Vier Tabs:
 // Übersicht (editierbar, Sofort-Speichern wie der Rest der Planung - kein Batch-/Grund-
 // Workflow), Kapazität (Rollen-/Personenaufschlüsselung), Aktivität (bestehende generische
-// Kommentar-/Task-/Blocker-/Decision-/ActivityFeed-Infrastruktur, unverändert wiederverwendet),
-// Dateien (bestehendes Document/DocumentLink-System). forecast_start/forecast_end erscheinen
-// hier nur als "Start"/"Ende" (= "aktueller Plan") - baseline_*/progress erscheinen im
-// Normalflow gar nicht mehr (Planstand siehe BaselineList, Progress deprecatet seit P6);
+// Kommentar-/Task-/Blocker-/Decision-/ActivityFeed-Infrastruktur, unverändert wiederverwendet,
+// + kompakte Meilensteine-Karte seit P19.5), Dateien (bestehendes Document/DocumentLink-System,
+// seit P19.5 über die geteilte DocumentListPanel-Komponente). forecast_start/forecast_end
+// erscheinen hier nur als "Start"/"Ende" (= "aktueller Plan") - baseline_*/progress erscheinen
+// im Normalflow gar nicht mehr (Planstand siehe BaselineList, Progress deprecatet seit P6);
 // actual_start/actual_end sind sekundär und nur über eine explizite Korrektur-Aktion editierbar.
+// Seit P19.6 zeigt der Übersicht-Tab zusätzlich eine kompakte "Seit Planstand VX geändert"-Zeile
+// (clientseitig gegen den bestehenden Deviation-Endpoint gefiltert, kein neuer Endpoint).
 const PHASE_ACTIVITY_TYPES: EntityType[] = ["comment", "decision", "task", "blocker"];
 
 type Tab = "uebersicht" | "kapazitaet" | "aktivitaet" | "dateien";
@@ -65,12 +73,17 @@ export default function PlanPhaseWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("uebersicht");
   const [correctingActual, setCorrectingActual] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [showCreateChild, setShowCreateChild] = useState(false);
   // ActivityFeed lädt selbst nach, bekommt Mutationen von NotesSection/TaskList/DecisionList/
   // BlockerList (Geschwisterkomponenten im selben Tab) aber nicht automatisch mit - dieser
   // Zähler wird bei jedem reload() hochgezählt und an ActivityFeed durchgereicht (P16.1).
   const [activityVersion, setActivityVersion] = useState(0);
+  // P19.6: alle Planstände (created_at-desc, wie BaselineList.tsx) + die Abweichungen des
+  // neuesten, clientseitig auf diese Phase (bzw. bei Parent-Phasen zusätzlich ihre Nachfahren)
+  // gefiltert - kein neuer Endpoint, siehe baselineDeviationFormat.ts (dieselbe Rendering-Logik
+  // wie BaselineList.tsx).
+  const [baselines, setBaselines] = useState<BaselineSnapshotSummary[] | null>(null);
+  const [baselineDeviations, setBaselineDeviations] = useState<BaselineDeviation[] | null>(null);
   const people = usePeopleMap();
 
   const load = () => {
@@ -89,11 +102,54 @@ export default function PlanPhaseWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planPhaseId]);
 
+  // P19.6: Planstände des Projekts laden (unabhängig von der konkreten Phase, da Planstände
+  // projektweit sind) und die Abweichungen des neuesten nachladen. Wie `load()` oben: kein
+  // Fetch, solange der Drawer geschlossen ist (planPhaseId == null) - die Komponente ist
+  // dauerhaft gemountet (siehe PlanPhaseList.tsx), nicht nur bei geöffnetem Drawer.
+  useEffect(() => {
+    if (planPhaseId == null) return;
+    api
+      .listBaselines(projectId)
+      .then(setBaselines)
+      .catch(() => setBaselines([]));
+  }, [projectId, planPhaseId]);
+
+  const latestBaseline = baselines && baselines.length > 0 ? baselines[0] : null;
+  const latestBaselineId = latestBaseline?.id;
+
+  useEffect(() => {
+    if (latestBaselineId == null) {
+      setBaselineDeviations(null);
+      return;
+    }
+    api
+      .getBaselineDeviations(latestBaselineId)
+      .then(setBaselineDeviations)
+      .catch(() => setBaselineDeviations(null));
+  }, [latestBaselineId]);
+
   const reload = () => {
     load();
     setActivityVersion((v) => v + 1);
     onChanged?.();
   };
+
+  // P19.6: "Seit Planstand VX (Datum) geändert: ..."-Zeile - clientseitig aus dem bestehenden
+  // Deviation-Endpoint gefiltert (entity_type=plan_phase, entity_id = diese Phase bzw. bei
+  // einer Parent-Phase zusätzlich ihre Nachfahren-IDs aus dem bereits geladenen `allPhases`).
+  // Reine Kurzform, kein Snapshot-vs-Snapshot-Vergleich, keine neue Diff-Engine. Muss vor dem
+  // frühen `return null` unten stehen (Rules of Hooks: useMemo darf nicht bedingt aufgerufen
+  // werden).
+  const phaseNameById = useMemo(() => new Map(allPhases.map((p) => [p.id, p.phase_type])), [allPhases]);
+  const planstandSummary = useMemo(() => {
+    if (!detail || !latestBaseline || !baselineDeviations) return null;
+    const relevantIds = new Set<number>([detail.id]);
+    if (detail.has_children) {
+      for (const id of planPhaseDescendantIds(allPhases, detail.id)) relevantIds.add(id);
+    }
+    const relevant = baselineDeviations.filter((d) => d.entity_type === "plan_phase" && relevantIds.has(d.entity_id));
+    return summarizeBaselineDeviations(relevant, phaseNameById);
+  }, [detail, latestBaseline, baselineDeviations, allPhases, phaseNameById]);
 
   if (planPhaseId == null) return null;
 
@@ -120,26 +176,6 @@ export default function PlanPhaseWorkspace({
 
   const handleDeleteNote = async (commentId: number) => {
     await api.deleteComment(commentId);
-    reload();
-  };
-
-  const handleUploadFiles = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
-    setUploading(true);
-    try {
-      for (const file of Array.from(fileList)) {
-        await api.uploadDocument(projectId, file, { entityType: "plan_phase", entityId: planPhaseId });
-      }
-      reload();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleDeleteDocument = async (documentId: number) => {
-    await api.deleteDocument(documentId);
     reload();
   };
 
@@ -204,6 +240,12 @@ export default function PlanPhaseWorkspace({
         <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Lade Phase …</p>
       ) : tab === "uebersicht" ? (
         <>
+          {latestBaseline && baselines && (
+            <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: "0 0 0.75rem" }}>
+              Seit Planstand V{baselines.length} ({formatBaselineDate(latestBaseline.created_at)}){" "}
+              {planstandSummary ? `geändert: ${planstandSummary}` : "— keine Abweichung."}
+            </p>
+          )}
           <div className="card" style={{ marginBottom: "0.75rem" }}>
             <div className="field-row" style={{ marginTop: 0, flexDirection: "column", alignItems: "stretch" }}>
               <label>
@@ -443,41 +485,35 @@ export default function PlanPhaseWorkspace({
             <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Blocker</h4>
             <BlockerList projectId={projectId} blockers={detail.blockers} onChanged={reload} planPhaseId={planPhaseId} />
           </div>
+
+          {/* P19.5: kompakte Meilensteine-Karte, für Leaf- UND Parent-Phasen (CONCEPT.md
+              Abschnitt 5.5 - Milestones können auf beide zeigen). Wiederverwendung von
+              MilestoneList.tsx, gefiltert auf diese Phase; Daten kommen bereits aus
+              PlanPhaseDetail.milestones (kein zusätzlicher Round-Trip), Phasenliste aus der
+              schon vorhandenen `allPhases`-Prop. */}
+          <div className="card" style={{ marginTop: "0.75rem" }}>
+            <MilestoneList
+              projectId={projectId}
+              planPhaseId={detail.id}
+              milestones={detail.milestones}
+              allPhases={allPhases}
+              onChanged={reload}
+              title="Meilensteine"
+              addLabel="+ Meilenstein"
+              emptyText="Noch keine Meilensteine für diese Phase."
+            />
+          </div>
         </>
       ) : (
         <div className="card">
           <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Dateien</h4>
-          {detail.documents.length === 0 ? (
-            <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Dateien.</p>
-          ) : (
-            <ul style={{ listStyle: "none", padding: 0, margin: "0 0 0.75rem" }}>
-              {detail.documents.map((doc) => (
-                <li key={doc.id} className="toolbar" style={{ fontSize: "0.85rem", padding: "0.25rem 0" }}>
-                  <a href={api.downloadDocumentUrl(doc.id)} target="_blank" rel="noreferrer">
-                    {CATEGORY_ICONS[categorize(doc.mimetype, doc.dateiname)]} {doc.dateiname}
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteDocument(doc.id)}
-                    style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <input
-            type="file"
-            multiple
-            disabled={uploading}
-            onChange={(e) => {
-              handleUploadFiles(e.target.files);
-              e.target.value = "";
-            }}
-            style={{ fontSize: "0.85rem" }}
+          <DocumentListPanel
+            projectId={projectId}
+            documents={detail.documents}
+            onRefresh={reload}
+            entityFilter={{ entityType: "plan_phase", entityId: planPhaseId }}
+            emptyText="Noch keine Dateien."
           />
-          {uploading && <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Lädt hoch …</p>}
         </div>
       )}
 

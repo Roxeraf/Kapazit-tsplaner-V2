@@ -694,11 +694,20 @@ export interface PlanPhaseSubtreeImpact {
   resource_assignments_affected: number;
 }
 
+// P19.7: Beitrag einer einzelnen Leaf-PlanPhase zu Projektkapazität(Monat) - für die
+// Monats-Drilldown-Darstellung ("Oktober: Pflichtenheft 48h, Konfiguration 67h, Gesamt 115h").
+export interface ProjectMonthlyCapacityPhaseContribution {
+  plan_phase_id: number;
+  phase_type: string;
+  hours: number;
+}
+
 // P18/B-5 (CONCEPT.md Abschnitt 6b.6): read-only Auswertung, kein Eingabefeld.
 export interface ProjectMonthlyCapacityEntry {
   period: string;
   hours: number;
   fte_equivalent: number;
+  by_phase: ProjectMonthlyCapacityPhaseContribution[];
 }
 
 // P18/B-4 (CONCEPT.md Abschnitt 6b.5/6b.11): Available Capacity über einen Datumsbereich statt

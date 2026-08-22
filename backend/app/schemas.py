@@ -900,15 +900,29 @@ class PersonCapacityOut(BaseModel):
     absence_days: int
 
 
+class ProjectMonthlyCapacityPhaseContribution(BaseModel):
+    """Ein Beitrag einer einzelnen Leaf-PlanPhase zu Projektkapazität(Monat) (P19.7,
+    CONCEPT.md Abschnitt 6b.6/Auftrag Abschnitt 20) - für die Monats-Drilldown-Darstellung
+    im Planning-Tab. Reine Aufschlüsselung derselben Summe aus ProjectMonthlyCapacityEntry.hours,
+    kein zusätzlicher Berechnungsweg."""
+
+    plan_phase_id: int
+    phase_type: str
+    hours: float
+
+
 class ProjectMonthlyCapacityEntry(BaseModel):
     """Ein Monat der abgeleiteten Projektkapazität (P18/B-5, CONCEPT.md Abschnitt 6b.6) -
     reine AUSWERTUNG, kein Eingabefeld: SUM(monthly_distribution(leaf.plan_fte, ...)) über
     alle Leaf-PlanPhases des Projekts. Read-only, UI-Label "Projektkapazität" (nicht
-    "ResourceDemand")."""
+    "ResourceDemand"). by_phase (P19.7) schlüsselt dieselbe Summe additiv nach beitragender
+    Phase auf - rein darstellend, keine Bewertung/Ampel (das ist explizit nicht Teil dieser
+    Auswertung)."""
 
     period: str
     hours: float
     fte_equivalent: float
+    by_phase: list[ProjectMonthlyCapacityPhaseContribution] = []
 
 
 class PersonCapacityRangeOut(BaseModel):

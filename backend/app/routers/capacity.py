@@ -253,11 +253,18 @@ def get_project_monthly_capacity(
     project = _get_project_or_404(db, project_id)
     resolved_periods = periods or constants.berechne_monate(project.start_monat, project.anzahl_monate)
     monthly_hours = capacity_calc.compute_project_monthly_capacity(db, project_id, periods=resolved_periods)
+    # P19.7 (Auftrag Abschnitt 20): Monats-Drilldown je beitragender Phase additiv zur
+    # bestehenden Summe - dieselbe Quelle (monthly_distribution), kein zweiter Endpoint nötig.
+    breakdown = capacity_calc.compute_project_monthly_capacity_breakdown(db, project_id, periods=resolved_periods)
     return [
         schemas.ProjectMonthlyCapacityEntry(
             period=period,
             hours=hours,
             fte_equivalent=capacity_calc.hours_to_fte_equivalent(hours, period),
+            by_phase=[
+                schemas.ProjectMonthlyCapacityPhaseContribution(plan_phase_id=pid, phase_type=name, hours=h)
+                for pid, name, h in breakdown.get(period, [])
+            ],
         )
         for period, hours in monthly_hours.items()
     ]

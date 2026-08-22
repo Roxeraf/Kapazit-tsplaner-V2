@@ -3,25 +3,36 @@ import { api } from "../../../api/client";
 import PersonPicker from "../../../components/PersonPicker";
 import TagInput from "../../../components/TagInput";
 import {
+  MAX_PLAN_PHASE_DEPTH,
   PLAN_PHASE_STATUS_LABELS,
   PLAN_PHASE_STATUS_OPTIONS,
   PLAN_PHASE_TYPE_SUGGESTIONS,
+  planPhaseDepth,
+  type PlanPhase,
   type PlanPhaseStatus,
-  type SubprojectDetail,
 } from "../../../types";
 
 // P11 (Planungs-/Kapazitätskonsolidierung): kleiner Create-Flow als Modal statt des früheren
 // großen Inline-Formulars in PlanPhaseList.tsx. Minimal: Name/Start/Ende (Pflicht). Optional:
-// Status/Teilprojekt/Owner/Plan-FTE/Tags. Dateien gehören bewusst NICHT hierher - die werden
-// nach dem Anlegen im Dateien-Tab des Workspace verwaltet.
+// Status/Owner/Plan-FTE/Tags. Dateien gehören bewusst NICHT hierher - die werden nach dem
+// Anlegen im Dateien-Tab des Workspace verwaltet.
+//
+// P18/B-6 (CONCEPT.md Abschnitt 6b.1/6b.2): "Übergeordnete Phase" ersetzt den früheren
+// "Teilprojekt"-Select als primären Strukturierungs-Mechanismus (subproject_id bleibt nur
+// noch compat-only im Modell bestehen, keine neue Subproject-UX). Phasen auf Ebene 3
+// (MAX_PLAN_PHASE_DEPTH) werden aus der Auswahl ausgeblendet, da sie keine weitere Unterphase
+// mehr aufnehmen dürfen (BD-10) - reine Frontend-Vorfilterung, das Backend validiert
+// unabhängig davon noch einmal verbindlich.
 export default function PlanPhaseCreateModal({
   projectId,
-  subprojects,
+  allPhases,
+  defaultParentPhaseId = null,
   onClose,
   onCreated,
 }: {
   projectId: number;
-  subprojects: SubprojectDetail[];
+  allPhases: PlanPhase[];
+  defaultParentPhaseId?: number | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -29,7 +40,7 @@ export default function PlanPhaseCreateModal({
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [status, setStatus] = useState<PlanPhaseStatus>("geplant");
-  const [subprojectId, setSubprojectId] = useState("");
+  const [parentPhaseId, setParentPhaseId] = useState(defaultParentPhaseId != null ? String(defaultParentPhaseId) : "");
   const [ownerPersonId, setOwnerPersonId] = useState<number | null>(null);
   const [planFte, setPlanFte] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -37,6 +48,7 @@ export default function PlanPhaseCreateModal({
   const [error, setError] = useState<string | null>(null);
 
   const canSave = phaseType.trim() && start && end;
+  const eligibleParents = allPhases.filter((p) => planPhaseDepth(allPhases, p.id) < MAX_PLAN_PHASE_DEPTH);
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -48,7 +60,7 @@ export default function PlanPhaseCreateModal({
         forecast_start: start,
         forecast_end: end,
         status,
-        subproject_id: subprojectId ? Number(subprojectId) : null,
+        parent_phase_id: parentPhaseId ? Number(parentPhaseId) : null,
         owner_person_id: ownerPersonId,
         plan_fte: planFte.trim() === "" ? null : Number(planFte),
         tags,
@@ -74,7 +86,7 @@ export default function PlanPhaseCreateModal({
         className="card"
         style={{ maxWidth: "28rem", width: "90%", maxHeight: "90vh", overflowY: "auto" }}
       >
-        <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Phase hinzufügen</h3>
+        <h3 style={{ color: "var(--navy)", marginTop: 0 }}>{defaultParentPhaseId != null ? "Unterphase hinzufügen" : "Phase hinzufügen"}</h3>
         {error && <p style={{ color: "var(--rot)", fontSize: "0.85rem" }}>{error}</p>}
 
         <div className="field-row" style={{ marginTop: 0, flexDirection: "column", alignItems: "stretch" }}>
@@ -117,12 +129,12 @@ export default function PlanPhaseCreateModal({
               </select>
             </label>
             <label>
-              Teilprojekt
-              <select value={subprojectId} onChange={(e) => setSubprojectId(e.target.value)}>
-                <option value="">Projektweit</option>
-                {subprojects.map((sp) => (
-                  <option key={sp.id} value={sp.id}>
-                    {sp.name}
+              Übergeordnete Phase
+              <select value={parentPhaseId} onChange={(e) => setParentPhaseId(e.target.value)}>
+                <option value="">— Top-Level —</option>
+                {eligibleParents.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.phase_type}
                   </option>
                 ))}
               </select>
@@ -135,7 +147,7 @@ export default function PlanPhaseCreateModal({
               <PersonPicker value={ownerPersonId} onChange={setOwnerPersonId} />
             </label>
             <label>
-              Plan-FTE
+              Geplanter Ressourcenbedarf (FTE)
               <input type="number" min={0} step={0.05} value={planFte} onChange={(e) => setPlanFte(e.target.value)} placeholder="optional" />
             </label>
           </div>

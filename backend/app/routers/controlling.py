@@ -51,7 +51,15 @@ def get_capacity_heatmap(
 
 @router.get("/allocation-gaps", response_model=list[schemas.PortfolioAllocationGapEntry])
 def get_allocation_gaps(period: str, db: Session = Depends(get_db)):
-    demands = db.query(models.ResourceDemand).filter(models.ResourceDemand.period == period).all()
+    # P18/B-4/B-5 (CONCEPT.md Abschnitt 6b.4): die interne Systemrolle "Ohne Rolle" ist keine
+    # eigenständige, fachliche Rolle - sie wird aus dieser Rollen-Auswertung ausgeblendet statt
+    # als gleichwertige Zeile neben echten Rollen (z.B. "Senior Consultant") zu erscheinen.
+    demands = (
+        db.query(models.ResourceDemand)
+        .join(models.ResourceRole, models.ResourceRole.id == models.ResourceDemand.resource_role_id)
+        .filter(models.ResourceDemand.period == period, models.ResourceRole.is_system_role.is_(False))
+        .all()
+    )
     entries = []
     for demand in demands:
         role = db.get(models.ResourceRole, demand.resource_role_id)
@@ -206,7 +214,14 @@ def get_milestone_portfolio(status: str | None = None, db: Session = Depends(get
 
 @router.get("/roles", response_model=list[schemas.RoleAnalysisEntry])
 def get_role_analysis(period: str, db: Session = Depends(get_db)):
-    roles = db.query(models.ResourceRole).order_by(models.ResourceRole.name).all()
+    # P18/B-4/B-5 (Abschnitt 6b.4): Systemrolle nie als eigenständige Rolle neben echten
+    # Rollen reporten - dieselbe Governance-Regel wie bei get_allocation_gaps oben.
+    roles = (
+        db.query(models.ResourceRole)
+        .filter(models.ResourceRole.is_system_role.is_(False))
+        .order_by(models.ResourceRole.name)
+        .all()
+    )
     entries = []
     for role in roles:
         demands = (

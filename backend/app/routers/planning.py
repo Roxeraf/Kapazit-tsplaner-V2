@@ -3,13 +3,13 @@ Master-MD Abschnitt 8/9/10). Seit dem Legacy Cutover (Phase 26.9) die alleinige
 Planungswahrheit - das ehemals parallele Gantt-Grid (GanttPhase/ProjectGanttPhase) ist
 entfallen. Folgt demselben CRUD-Muster wie routers/communication.py."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import entity_links, models, phase_metrics_calc, schemas
+from .. import capacity_calc, constants, entity_links, models, phase_metrics_calc, planning_calc, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["planning"])
@@ -36,11 +36,92 @@ def _check_subproject(db: Session, project_id: int, subproject_id: int | None) -
         raise HTTPException(status_code=422, detail="subproject_id muss zum selben Projekt gehören")
 
 
+def _check_milestone_plan_phase(db: Session, project_id: int, plan_phase_id: int | None) -> None:
+    """P18/B-7 (CONCEPT.md Abschnitt 6b.8): ein Milestone kann sowohl auf eine Leaf- als auch
+    auf eine Parent-Phase zeigen (im Unterschied zur Kapazitätsplanung, die Leaf-only ist) -
+    hier genügt Existenz + Projekt-Grenze, keine Hierarchie-Validierung nötig."""
+    if plan_phase_id is None:
+        return
+    plan_phase = db.get(models.PlanPhase, plan_phase_id)
+    if plan_phase is None:
+        raise HTTPException(status_code=404, detail="Planphase nicht gefunden")
+    if plan_phase.project_id != project_id:
+        raise HTTPException(status_code=422, detail="plan_phase_id muss zum selben Projekt gehören")
+
+
 def _check_owner(db: Session, owner_person_id: int | None, owner_team_id: int | None) -> None:
     if owner_person_id is not None and db.get(models.Person, owner_person_id) is None:
         raise HTTPException(status_code=404, detail="Person (owner_person_id) nicht gefunden")
     if owner_team_id is not None and db.get(models.Team, owner_team_id) is None:
         raise HTTPException(status_code=404, detail="Team (owner_team_id) nicht gefunden")
+
+
+def _check_parent_phase(
+    db: Session, project_id: int, plan_phase_id: int | None, parent_phase_id: int | None
+) -> None:
+    """Validiert parent_phase_id beim Anlegen/Verschieben einer PlanPhase (P18/B-3, BD-10,
+    CLOSED): Projekt-Grenze, kein Selbst-Parent, kein Zyklus, maximale Hierarchietiefe 3
+    Ebenen. plan_phase_id ist None beim Anlegen (die Phase existiert noch nicht, ein Zyklus
+    ist dann unmöglich)."""
+    if parent_phase_id is None:
+        return
+    parent = db.get(models.PlanPhase, parent_phase_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail="Übergeordnete Phase nicht gefunden")
+    if parent.project_id != project_id:
+        raise HTTPException(status_code=422, detail="parent_phase_id muss zum selben Projekt gehören")
+    if plan_phase_id is not None:
+        if parent_phase_id == plan_phase_id:
+            raise HTTPException(
+                status_code=422, detail="Eine Phase kann nicht ihre eigene übergeordnete Phase sein"
+            )
+        descendant_ids = {d.id for d in planning_calc.all_descendants(db, plan_phase_id)}
+        if parent_phase_id in descendant_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="Zyklus: die gewählte übergeordnete Phase ist eine Unterphase dieser Phase",
+            )
+    # Tiefen-Check berücksichtigt bewusst nicht nur die neue Tiefe von plan_phase_id selbst,
+    # sondern auch die Höhe ihres eigenen Teilbaums (falls sie bereits Kinder hat, z.B. beim
+    # Reparenting einer ganzen Parent-Phase mitsamt Enkeln) - sonst könnten Nachfahren
+    # unbemerkt über die maximale Hierarchietiefe hinausrutschen.
+    new_own_depth = planning_calc.depth_of(db, parent_phase_id) + 1
+    subtree_extra_levels = 0
+    if plan_phase_id is not None:
+        subtree_extra_levels = planning_calc.subtree_max_depth(db, plan_phase_id) - planning_calc.depth_of(
+            db, plan_phase_id
+        )
+    if new_own_depth + subtree_extra_levels > planning_calc.MAX_HIERARCHY_DEPTH:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Maximale Hierarchietiefe ({planning_calc.MAX_HIERARCHY_DEPTH} Ebenen) erreicht - "
+                "diese Phase (bzw. ihre Unterphasen) kann/können hier nicht eingehängt werden"
+            ),
+        )
+
+
+def _maybe_historize_parent_fte(db: Session, parent: models.PlanPhase) -> None:
+    """P18/B-3 (CONCEPT.md Abschnitt 6b.1a): sobald eine Phase ihr erstes Kind erhält, wird
+    ihr plan_fte serverseitig auf NULL gesetzt und der alte Wert in PlanHistory historisiert -
+    keine automatische Reaktivierung, falls sie später wieder zum Leaf wird (letztes Kind
+    entfernt/reparented: keine Sonderbehandlung, plan_fte bleibt NULL, Korrektur 35.1). Ein
+    bereits kinderloser Aufruf mit plan_fte=None ist ein No-Op (idempotent bei weiteren
+    Kindern derselben Phase)."""
+    if parent.plan_fte is None:
+        return
+    db.add(
+        models.PlanHistory(
+            project_id=parent.project_id,
+            plan_phase_id=parent.id,
+            bereich="phase_struktur",
+            feld="plan_fte",
+            alter_wert=str(parent.plan_fte),
+            neuer_wert=None,
+            geaendert_am=_now(),
+        )
+    )
+    parent.plan_fte = None
 
 
 # ---------------------------------------------------------------------------
@@ -49,10 +130,16 @@ def _check_owner(db: Session, owner_person_id: int | None, owner_team_id: int | 
 
 
 def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
+    has_children = planning_calc.has_children(db, p.id)
+    derived_start, derived_end = (
+        planning_calc.derive_parent_bounds(db, p.id) if has_children else (None, None)
+    )
     return schemas.PlanPhaseOut(
         id=p.id,
         project_id=p.project_id,
         subproject_id=p.subproject_id,
+        parent_phase_id=p.parent_phase_id,
+        reihenfolge=p.reihenfolge,
         phase_type=p.phase_type,
         baseline_start=p.baseline_start,
         baseline_end=p.baseline_end,
@@ -69,6 +156,10 @@ def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
         aktualisiert_am=p.aktualisiert_am,
         tags=entity_links.tags_for(db, "plan_phase", p.id),
         documents=entity_links.documents_for(db, "plan_phase", p.id),
+        has_children=has_children,
+        derived_forecast_start=derived_start,
+        derived_forecast_end=derived_end,
+        derived_capacity=planning_calc.derive_parent_capacity(db, p.id) if has_children else None,
     )
 
 
@@ -199,10 +290,16 @@ def _plan_phase_metrics(db: Session, p: models.PlanPhase) -> schemas.PhaseMetric
 
 
 def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDetail:
+    has_children = planning_calc.has_children(db, p.id)
+    derived_start, derived_end = (
+        planning_calc.derive_parent_bounds(db, p.id) if has_children else (None, None)
+    )
     return schemas.PlanPhaseDetail(
         id=p.id,
         project_id=p.project_id,
         subproject_id=p.subproject_id,
+        parent_phase_id=p.parent_phase_id,
+        reihenfolge=p.reihenfolge,
         phase_type=p.phase_type,
         baseline_start=p.baseline_start,
         baseline_end=p.baseline_end,
@@ -219,6 +316,11 @@ def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDet
         aktualisiert_am=p.aktualisiert_am,
         tags=entity_links.tags_for(db, "plan_phase", p.id),
         documents=entity_links.documents_for(db, "plan_phase", p.id),
+        has_children=has_children,
+        derived_forecast_start=derived_start,
+        derived_forecast_end=derived_end,
+        derived_capacity=planning_calc.derive_parent_capacity(db, p.id) if has_children else None,
+        children=[_plan_phase_out(db, child) for child in planning_calc.direct_children(db, p.id)],
         comments=[
             _comment_out(db, c)
             for c in (
@@ -285,10 +387,13 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
     _get_project_or_404(db, project_id)
     _check_subproject(db, project_id, payload.subproject_id)
     _check_owner(db, payload.owner_person_id, payload.owner_team_id)
+    _check_parent_phase(db, project_id, plan_phase_id=None, parent_phase_id=payload.parent_phase_id)
     now = _now()
     plan_phase = models.PlanPhase(
         project_id=project_id,
         subproject_id=payload.subproject_id,
+        parent_phase_id=payload.parent_phase_id,
+        reihenfolge=payload.reihenfolge,
         phase_type=payload.phase_type,
         baseline_start=payload.baseline_start,
         baseline_end=payload.baseline_end,
@@ -306,6 +411,12 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
     )
     db.add(plan_phase)
     db.flush()
+    if payload.parent_phase_id is not None:
+        # P18/B-3 (Abschnitt 6b.1a): das ist das erste Kind der übergeordneten Phase (oder
+        # eines von mehreren) - _maybe_historize_parent_fte ist idempotent (No-Op, sobald
+        # plan_fte bereits None ist), daher unabhängig von "erstes Kind ja/nein" sicher.
+        parent = db.get(models.PlanPhase, payload.parent_phase_id)
+        _maybe_historize_parent_fte(db, parent)
     if payload.tags:
         entity_links.sync_tags(db, "plan_phase", plan_phase.id, payload.tags)
     db.commit()
@@ -323,10 +434,16 @@ def update_plan_phase(plan_phase_id: int, payload: schemas.PlanPhaseUpdate, db: 
     if "subproject_id" in changes:
         _check_subproject(db, plan_phase.project_id, changes["subproject_id"])
     _check_owner(db, changes.get("owner_person_id"), changes.get("owner_team_id"))
+    new_parent_id = changes.get("parent_phase_id")
+    if "parent_phase_id" in changes and new_parent_id != plan_phase.parent_phase_id:
+        _check_parent_phase(db, plan_phase.project_id, plan_phase_id=plan_phase.id, parent_phase_id=new_parent_id)
     if changes:
         for field, value in changes.items():
             setattr(plan_phase, field, value)
         plan_phase.aktualisiert_am = _now()
+    if "parent_phase_id" in changes and new_parent_id is not None:
+        parent = db.get(models.PlanPhase, new_parent_id)
+        _maybe_historize_parent_fte(db, parent)
     if payload.tags is not None:
         entity_links.sync_tags(db, "plan_phase", plan_phase.id, payload.tags)
     db.commit()
@@ -337,8 +454,206 @@ def update_plan_phase(plan_phase_id: int, payload: schemas.PlanPhaseUpdate, db: 
 @router.delete("/plan-phases/{plan_phase_id}", status_code=204)
 def delete_plan_phase(plan_phase_id: int, db: Session = Depends(get_db)):
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    child_count = len(planning_calc.direct_children(db, plan_phase_id))
+    if child_count > 0:
+        # BD-11, CLOSED (Abschnitt 6b.9): Standard-DELETE einer Parent-Phase mit Kindern wird
+        # blockiert, NICHT kaskadiert. Angebotene Wege: reparent-children (danach ist die
+        # Phase leaf und normal löschbar) oder die separate, stark bestätigte
+        # delete-subtree-Aktion.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    f"Diese Phase enthält {child_count} Unterphase(n) und kann nicht direkt "
+                    "gelöscht werden. Unterphasen verschieben oder den gesamten Zweig löschen."
+                ),
+                "child_count": child_count,
+            },
+        )
     entity_links.delete_links_for_entity(db, "plan_phase", plan_phase_id)
     entity_links.delete_relations_for_entity(db, "plan_phase", plan_phase_id)
+    db.delete(plan_phase)
+    db.commit()
+
+
+@router.post(
+    "/plan-phases/{plan_phase_id}/reparent-children",
+    response_model=schemas.PlanPhaseReparentChildrenResult,
+)
+def reparent_children(
+    plan_phase_id: int, payload: schemas.PlanPhaseReparentChildrenRequest, db: Session = Depends(get_db)
+):
+    """P18/B-3 (CONCEPT.md Abschnitt 6b.9): verschiebt alle direkten Kinder dieser Phase auf
+    eine andere übergeordnete Phase (oder auf Top-Level, new_parent_phase_id=None). Danach ist
+    diese Phase leaf und normal per DELETE löschbar - plan_fte bleibt dabei unverändert NULL
+    (keine automatische Reaktivierung, Abschnitt 6b.1a)."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    children = planning_calc.direct_children(db, plan_phase_id)
+    for child in children:
+        _check_parent_phase(
+            db, plan_phase.project_id, plan_phase_id=child.id, parent_phase_id=payload.new_parent_phase_id
+        )
+    now = _now()
+    for child in children:
+        child.parent_phase_id = payload.new_parent_phase_id
+        child.aktualisiert_am = now
+    if payload.new_parent_phase_id is not None:
+        new_parent = db.get(models.PlanPhase, payload.new_parent_phase_id)
+        _maybe_historize_parent_fte(db, new_parent)
+    db.commit()
+    return schemas.PlanPhaseReparentChildrenResult(
+        moved_count=len(children),
+        children=[_plan_phase_out(db, child) for child in children],
+    )
+
+
+def _collect_subtree_impact(db: Session, plan_phase: models.PlanPhase) -> dict:
+    descendants = planning_calc.all_descendants(db, plan_phase.id)
+    all_ids = [plan_phase.id] + [d.id for d in descendants]
+
+    def _count(model, column) -> int:
+        return db.query(model).filter(column.in_(all_ids)).count()
+
+    demand_ids = [
+        row[0]
+        for row in db.query(models.ResourceDemand.id)
+        .filter(models.ResourceDemand.plan_phase_id.in_(all_ids))
+        .all()
+    ]
+    assignments = (
+        db.query(models.ResourceAssignment)
+        .filter(models.ResourceAssignment.resource_demand_id.in_(demand_ids))
+        .count()
+        if demand_ids
+        else 0
+    )
+    documents_affected = (
+        db.query(models.DocumentLink)
+        .filter(models.DocumentLink.entity_type == "plan_phase", models.DocumentLink.entity_id.in_(all_ids))
+        .count()
+    )
+    return {
+        "descendants": descendants,
+        "all_ids": all_ids,
+        "comments_affected": _count(models.Comment, models.Comment.plan_phase_id),
+        "tasks_affected": _count(models.Task, models.Task.plan_phase_id),
+        "blockers_affected": _count(models.Blocker, models.Blocker.plan_phase_id),
+        "decisions_affected": _count(models.Decision, models.Decision.plan_phase_id),
+        "milestones_affected": _count(models.Milestone, models.Milestone.plan_phase_id),
+        "documents_affected": documents_affected,
+        "resource_demands_affected": len(demand_ids),
+        "resource_assignments_affected": assignments,
+        "demand_ids": demand_ids,
+    }
+
+
+@router.get("/plan-phases/{plan_phase_id}/subtree-impact", response_model=schemas.PlanPhaseSubtreeImpactOut)
+def get_subtree_impact(plan_phase_id: int, db: Session = Depends(get_db)):
+    """P18/B-3 (Abschnitt 6b.9): zeigt die Auswirkungen einer "Gesamten Zweig löschen"-Aktion
+    an, BEVOR sie ausgeführt wird - Anzahl betroffener Nachfahren-Phasen sowie Assignments/
+    Collaboration (Comments/Tasks/Blocker/Decisions)/Milestones/Documents."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    impact = _collect_subtree_impact(db, plan_phase)
+    return schemas.PlanPhaseSubtreeImpactOut(
+        plan_phase_id=plan_phase.id,
+        phase_type=plan_phase.phase_type,
+        descendant_phase_count=len(impact["descendants"]),
+        comments_affected=impact["comments_affected"],
+        tasks_affected=impact["tasks_affected"],
+        blockers_affected=impact["blockers_affected"],
+        decisions_affected=impact["decisions_affected"],
+        milestones_affected=impact["milestones_affected"],
+        documents_affected=impact["documents_affected"],
+        resource_demands_affected=impact["resource_demands_affected"],
+        resource_assignments_affected=impact["resource_assignments_affected"],
+    )
+
+
+@router.post("/plan-phases/{plan_phase_id}/delete-subtree", status_code=204)
+def delete_subtree(
+    plan_phase_id: int, payload: schemas.PlanPhaseDeleteSubtreeRequest, db: Session = Depends(get_db)
+):
+    """P18/B-3 (BD-11, CLOSED, Abschnitt 6b.9): separate, stark bestätigte, auditierbare
+    Aktion - NIE die Standardaktion (das ist der blockierende Standard-DELETE oben). Löscht
+    diese Phase und alle Nachfahren-Phasen inkl. ihrer ResourceDemand/ResourceAssignment-
+    Zeilen. Collaboration-Inhalte (Comments/Tasks/Blocker/Decisions/Milestones) werden NICHT
+    gelöscht, nur entkoppelt (plan_phase_id -> NULL, analog zum bestehenden ON DELETE SET
+    NULL-Verhalten eines einzelnen Phasen-Deletes) - ihre Historie bleibt erhalten."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    impact = _collect_subtree_impact(db, plan_phase)
+    descendant_count = len(impact["descendants"])
+    if (
+        payload.confirm_phase_type != plan_phase.phase_type
+        or payload.confirm_descendant_count != descendant_count
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Bestätigung stimmt nicht überein - erwartet phase_type="
+                f"'{plan_phase.phase_type}' und descendant_count={descendant_count}"
+            ),
+        )
+
+    all_ids = impact["all_ids"]
+    demand_ids = impact["demand_ids"]
+    now = _now()
+
+    if demand_ids:
+        db.query(models.ResourceAssignment).filter(
+            models.ResourceAssignment.resource_demand_id.in_(demand_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.ResourceDemand).filter(models.ResourceDemand.id.in_(demand_ids)).delete(
+            synchronize_session=False
+        )
+
+    # Collaboration-Inhalte bleiben erhalten, nur die Verknüpfung entfällt (wie beim
+    # bestehenden ON DELETE SET NULL-Verhalten eines einzelnen Phasen-Deletes).
+    for model in (models.Comment, models.Task, models.Blocker, models.Decision, models.Milestone):
+        db.query(model).filter(model.plan_phase_id.in_(all_ids)).update(
+            {"plan_phase_id": None}, synchronize_session=False
+        )
+    db.query(models.PlanHistory).filter(models.PlanHistory.plan_phase_id.in_(all_ids)).update(
+        {"plan_phase_id": None}, synchronize_session=False
+    )
+    db.query(models.DocumentLink).filter(
+        models.DocumentLink.entity_type == "plan_phase", models.DocumentLink.entity_id.in_(all_ids)
+    ).delete(synchronize_session=False)
+    db.query(models.TagLink).filter(
+        models.TagLink.entity_type == "plan_phase", models.TagLink.entity_id.in_(all_ids)
+    ).delete(synchronize_session=False)
+    db.query(models.EntityRelation).filter(
+        (
+            (models.EntityRelation.source_entity_type == "plan_phase")
+            & (models.EntityRelation.source_entity_id.in_(all_ids))
+        )
+        | (
+            (models.EntityRelation.target_entity_type == "plan_phase")
+            & (models.EntityRelation.target_entity_id.in_(all_ids))
+        )
+    ).delete(synchronize_session=False)
+
+    # Audit-Eintrag (Abschnitt 6b.9: auditierbar, wer wann welchen Zweig gelöscht hat).
+    # plan_phase_id bleibt bewusst None - die referenzierten Phasen existieren gleich nicht
+    # mehr, der Alt-Wert hält die Information stattdessen im Klartext fest.
+    db.add(
+        models.PlanHistory(
+            project_id=plan_phase.project_id,
+            plan_phase_id=None,
+            bereich="phase_subtree_delete",
+            feld="phase_type",
+            alter_wert=f"{plan_phase.phase_type} (+{descendant_count} Unterphasen)",
+            neuer_wert=None,
+            geaendert_am=now,
+        )
+    )
+
+    # Nachfahren-Phasen tiefste Ebene zuerst löschen (parent_phase_id-FK hat kein
+    # ON DELETE CASCADE - ein Kind muss vor seinem Elternteil gelöscht werden).
+    descendants_by_depth = sorted(
+        impact["descendants"], key=lambda phase: planning_calc.depth_of(db, phase.id), reverse=True
+    )
+    for phase in descendants_by_depth:
+        db.delete(phase)
     db.delete(plan_phase)
     db.commit()
 
@@ -356,6 +671,254 @@ def get_plan_phase_metrics(plan_phase_id: int, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# Direct Assignment ohne Rollen-Zwang (P18/B-4, CONCEPT.md Abschnitt 6b.4/6b.10/6b.11)
+# ---------------------------------------------------------------------------
+
+_SYSTEM_ROLE_NAME = "Ohne Rolle"
+
+
+def _get_or_create_system_role(db: Session) -> models.ResourceRole:
+    """Interne Systemrolle, per B-1-Migration geseedet (Abschnitt 6b.4). Defensiv per
+    is_system_role ODER Name gesucht und bei Bedarf angelegt, damit dieser Endpunkt auch
+    gegen eine DB funktioniert, die die Migration (noch) nicht durchlaufen hat - kein
+    Hard-Fail auf einer fehlenden Seed-Zeile."""
+    role = db.query(models.ResourceRole).filter(models.ResourceRole.is_system_role.is_(True)).first()
+    if role is not None:
+        return role
+    role = db.query(models.ResourceRole).filter(models.ResourceRole.name == _SYSTEM_ROLE_NAME).first()
+    if role is not None:
+        role.is_system_role = True
+        return role
+    role = models.ResourceRole(
+        name=_SYSTEM_ROLE_NAME,
+        description=(
+            "Interne Systemrolle (nicht löschbar, im normalen Rollen-Picker ausgeblendet) - "
+            "technische Trägerschicht für direkte Personenzuordnung ohne erzwungene "
+            "Rollenauswahl (CONCEPT.md Abschnitt 6b.4)."
+        ),
+        active=True,
+        is_system_role=True,
+    )
+    db.add(role)
+    db.flush()
+    return role
+
+
+def _get_or_create_carrier_demand(db: Session, plan_phase: models.PlanPhase) -> models.ResourceDemand:
+    """Die "technische Trägerschicht" (Abschnitt 6b.4): eine ResourceDemand mit der internen
+    Systemrolle, an die eine direkte Personenzuordnung technisch gehängt wird, OHNE dass ein
+    Projektleiter je eine Rolle auswählen muss. demand.fte selbst ist bewusst KEINE fachliche
+    Aussage (nie im UI gezeigt) - der Bedarf bleibt ausschließlich plan_fte (Abschnitt 3/6b.10).
+    period ist ein rein technisches Pflichtfeld des bestehenden ResourceDemand-Schemas, aus
+    forecast_start abgeleitet (Fallback: aktueller Monat, falls die Phase noch keinen
+    Zeitraum hat)."""
+    role = _get_or_create_system_role(db)
+    demand = (
+        db.query(models.ResourceDemand)
+        .filter(
+            models.ResourceDemand.plan_phase_id == plan_phase.id,
+            models.ResourceDemand.resource_role_id == role.id,
+        )
+        .first()
+    )
+    if demand is not None:
+        return demand
+    if plan_phase.forecast_start:
+        year, month = int(plan_phase.forecast_start[:4]), int(plan_phase.forecast_start[5:7])
+        period = f"{constants.MONAT_NAMEN[month - 1]} {year % 100:02d}"
+    else:
+        period = constants.current_period()
+    now = _now()
+    demand = models.ResourceDemand(
+        project_id=plan_phase.project_id,
+        plan_phase_id=plan_phase.id,
+        resource_role_id=role.id,
+        period=period,
+        fte=0,
+        commitment_level="TENTATIVE",
+        erstellt_am=now,
+        aktualisiert_am=now,
+    )
+    db.add(demand)
+    db.flush()
+    return demand
+
+
+def _plan_phase_assignment_summary(
+    db: Session, plan_phase: models.PlanPhase
+) -> schemas.PlanPhaseAssignmentSummaryOut:
+    rows = (
+        db.query(models.ResourceAssignment, models.Person.display_name)
+        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
+        .filter(models.ResourceDemand.plan_phase_id == plan_phase.id)
+        .all()
+    )
+    by_person: dict[int, dict] = {}
+    for assignment, person_name in rows:
+        entry = by_person.setdefault(
+            assignment.person_id, {"person_id": assignment.person_id, "person_name": person_name, "fte": 0.0}
+        )
+        entry["fte"] += assignment.fte
+    assigned_fte = sum(entry["fte"] for entry in by_person.values())
+    summary = phase_metrics_calc.assignment_summary(plan_phase.plan_fte, assigned_fte)
+    return schemas.PlanPhaseAssignmentSummaryOut(
+        plan_phase_id=plan_phase.id,
+        plan_fte=summary["plan_fte"],
+        assigned_fte=summary["assigned_fte"],
+        open_fte=summary["open_fte"],
+        assignments=[
+            schemas.PlanPhaseAssignedPersonOut(
+                person_id=e["person_id"], person_name=e["person_name"], fte=round(e["fte"], 4)
+            )
+            for e in sorted(by_person.values(), key=lambda e: e["person_name"])
+        ],
+    )
+
+
+@router.get(
+    "/plan-phases/{plan_phase_id}/assignment-summary", response_model=schemas.PlanPhaseAssignmentSummaryOut
+)
+def get_plan_phase_assignment_summary(plan_phase_id: int, db: Session = Depends(get_db)):
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    return _plan_phase_assignment_summary(db, plan_phase)
+
+
+@router.post(
+    "/plan-phases/{plan_phase_id}/assign-person", response_model=schemas.PlanPhaseAssignmentSummaryOut
+)
+def assign_person_to_plan_phase(
+    plan_phase_id: int, payload: schemas.PlanPhaseAssignPersonRequest, db: Session = Depends(get_db)
+):
+    """P18/B-4 (Abschnitt 6b.4/6b.10): direkte Personenzuordnung OHNE erzwungene
+    Rollenauswahl - hängt technisch transparent an einer ResourceDemand mit der internen
+    Systemrolle "Ohne Rolle". Ändert plan_fte NIE (Kernprinzip, Abschnitt 3/6b.10) - auch bei
+    Überbesetzung nicht. Upsert: erneutes Zuweisen derselben Person aktualisiert nur die FTE."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if planning_calc.has_children(db, plan_phase_id):
+        raise HTTPException(
+            status_code=422,
+            detail="Direkte Personenzuordnung ist nur auf einer Leaf-Phase möglich (diese Phase ist eine Sammelphase)",
+        )
+    person = db.get(models.Person, payload.person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="Person nicht gefunden")
+
+    demand = _get_or_create_carrier_demand(db, plan_phase)
+    now = _now()
+    assignment = (
+        db.query(models.ResourceAssignment)
+        .filter(
+            models.ResourceAssignment.resource_demand_id == demand.id,
+            models.ResourceAssignment.person_id == payload.person_id,
+        )
+        .first()
+    )
+    if assignment is not None:
+        assignment.fte = payload.fte
+        assignment.aktualisiert_am = now
+    else:
+        assignment = models.ResourceAssignment(
+            resource_demand_id=demand.id,
+            person_id=payload.person_id,
+            fte=payload.fte,
+            erstellt_am=now,
+            aktualisiert_am=now,
+        )
+        db.add(assignment)
+    db.commit()
+    db.refresh(plan_phase)
+    return _plan_phase_assignment_summary(db, plan_phase)
+
+
+@router.delete(
+    "/plan-phases/{plan_phase_id}/assign-person/{person_id}",
+    response_model=schemas.PlanPhaseAssignmentSummaryOut,
+)
+def unassign_person_from_plan_phase(plan_phase_id: int, person_id: int, db: Session = Depends(get_db)):
+    """Entfernt die direkte Zuordnung (System-Rolle "Ohne Rolle") dieser Person von dieser
+    Phase. Rührt eine etwaige ZUSÄTZLICHE Zuordnung über eine echte Rollen-Aufschlüsselung
+    (Abschnitt 6b.4) NICHT an - die bleibt über die bestehenden
+    /resource-demands/{id}/assignments-Endpunkte verwaltet."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    role = _get_or_create_system_role(db)
+    demand = (
+        db.query(models.ResourceDemand)
+        .filter(
+            models.ResourceDemand.plan_phase_id == plan_phase_id,
+            models.ResourceDemand.resource_role_id == role.id,
+        )
+        .first()
+    )
+    if demand is not None:
+        db.query(models.ResourceAssignment).filter(
+            models.ResourceAssignment.resource_demand_id == demand.id,
+            models.ResourceAssignment.person_id == person_id,
+        ).delete(synchronize_session=False)
+        db.commit()
+    return _plan_phase_assignment_summary(db, plan_phase)
+
+
+@router.get(
+    "/plan-phases/{plan_phase_id}/assignment-candidates", response_model=list[schemas.CandidatePersonOut]
+)
+def list_plan_phase_assignment_candidates(plan_phase_id: int, db: Session = Depends(get_db)):
+    """Wie GET /resource-demands/{id}/candidates, aber Available Capacity über den GESAMTEN
+    Phasenzeitraum geprüft (compute_person_capacity_for_range, Abschnitt 6b.5/6b.11) statt
+    nur einen einzelnen Monats-Bucket - für die direkte Personenzuordnung ohne Rollen-Zwang.
+    Schließt Personen aus, die bereits über irgendeine ResourceDemand dieser Phase zugeordnet
+    sind (Rollen-Aufschlüsselung UND direkte Zuordnung zählen gleichermaßen)."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if not plan_phase.forecast_start or not plan_phase.forecast_end:
+        raise HTTPException(
+            status_code=422, detail="Phase hat noch keinen Zeitraum (forecast_start/forecast_end fehlt)"
+        )
+    range_start = date.fromisoformat(plan_phase.forecast_start)
+    range_end = date.fromisoformat(plan_phase.forecast_end)
+
+    already_assigned = {
+        row[0]
+        for row in db.query(models.ResourceAssignment.person_id)
+        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+        .filter(models.ResourceDemand.plan_phase_id == plan_phase_id)
+        .all()
+    }
+
+    persons = (
+        db.query(models.Person)
+        .join(models.ResourceProfile, models.ResourceProfile.person_id == models.Person.id)
+        .filter(models.Person.active.is_(True), models.ResourceProfile.capacity_relevant.is_(True))
+        .all()
+    )
+
+    candidates: list[schemas.CandidatePersonOut] = []
+    for person in persons:
+        if person.id in already_assigned:
+            continue
+        capacity = capacity_calc.compute_person_capacity_for_range(db, person.id, range_start, range_end)
+        if capacity is None or capacity.available_fte <= 0:
+            continue
+        skill_rows = (
+            db.query(models.Skill.name)
+            .join(models.PersonSkill, models.PersonSkill.skill_id == models.Skill.id)
+            .filter(models.PersonSkill.person_id == person.id)
+            .order_by(models.Skill.name)
+            .all()
+        )
+        candidates.append(
+            schemas.CandidatePersonOut(
+                person_id=person.id,
+                display_name=person.display_name,
+                available_fte=capacity.available_fte,
+                skills=[name for (name,) in skill_rows],
+            )
+        )
+
+    candidates.sort(key=lambda c: c.available_fte, reverse=True)
+    return candidates
+
+
+# ---------------------------------------------------------------------------
 # Milestone
 # ---------------------------------------------------------------------------
 
@@ -365,6 +928,7 @@ def _milestone_out(db: Session, m: models.Milestone) -> schemas.MilestoneOut:
         id=m.id,
         project_id=m.project_id,
         subproject_id=m.subproject_id,
+        plan_phase_id=m.plan_phase_id,
         name=m.name,
         baseline_date=m.baseline_date,
         forecast_date=m.forecast_date,
@@ -402,11 +966,13 @@ def list_milestones(project_id: int, db: Session = Depends(get_db)):
 def create_milestone(project_id: int, payload: schemas.MilestoneCreate, db: Session = Depends(get_db)):
     _get_project_or_404(db, project_id)
     _check_subproject(db, project_id, payload.subproject_id)
+    _check_milestone_plan_phase(db, project_id, payload.plan_phase_id)
     _check_owner(db, payload.owner_person_id, payload.owner_team_id)
     now = _now()
     milestone = models.Milestone(
         project_id=project_id,
         subproject_id=payload.subproject_id,
+        plan_phase_id=payload.plan_phase_id,
         name=payload.name,
         baseline_date=payload.baseline_date,
         forecast_date=payload.forecast_date,
@@ -432,6 +998,8 @@ def update_milestone(milestone_id: int, payload: schemas.MilestoneUpdate, db: Se
     changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
     if "subproject_id" in changes:
         _check_subproject(db, milestone.project_id, changes["subproject_id"])
+    if "plan_phase_id" in changes:
+        _check_milestone_plan_phase(db, milestone.project_id, changes["plan_phase_id"])
     _check_owner(db, changes.get("owner_person_id"), changes.get("owner_team_id"))
     if changes:
         for field, value in changes.items():

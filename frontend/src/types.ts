@@ -580,10 +580,35 @@ export const PLAN_PHASE_STATUS_OPTIONS: PlanPhaseStatus[] = ["geplant", "laufend
 // übernommen, damit die neue Ansicht für Nutzer:innen des alten Gantt vertraut bleibt.
 export const PLAN_PHASE_TYPE_SUGGESTIONS = ["Pflichtenheft", "Konfiguration", "Test", "Schulung", "GoLive"];
 
+// P18/B-1/B-3 (BD-10, CLOSED): maximale Hierarchietiefe 3 Ebenen, backend-validiert. Frontend
+// nutzt denselben Wert nur zur Vorfilterung (z.B. "Übergeordnete Phase"-Picker,
+// "+ Unterphase hinzufügen"-Sichtbarkeit) - keine zweite Quelle der Wahrheit, das Backend
+// validiert unabhängig davon verbindlich.
+export const MAX_PLAN_PHASE_DEPTH = 3;
+
+// 1 = Top-Level, 2 = Kind einer Top-Level-Phase, 3 = Enkelkind. Bricht bei einem Zyklus
+// defensiv ab (sollte durch das Backend nie erreichbar sein).
+export function planPhaseDepth(phases: PlanPhase[], phaseId: number): number {
+  const byId = new Map(phases.map((p) => [p.id, p]));
+  let depth = 1;
+  let current = byId.get(phaseId);
+  const seen = new Set<number>([phaseId]);
+  while (current?.parent_phase_id != null) {
+    if (seen.has(current.parent_phase_id)) break;
+    seen.add(current.parent_phase_id);
+    current = byId.get(current.parent_phase_id);
+    depth += 1;
+  }
+  return depth;
+}
+
 export interface PlanPhase {
   id: number;
   project_id: number;
   subproject_id: number | null;
+  // P18/B-1/B-3: Self-referencing Hierarchie (CONCEPT.md Abschnitt 6b.1). null = Top-Level.
+  parent_phase_id: number | null;
+  reihenfolge: number;
   phase_type: string;
   baseline_start: string | null;
   baseline_end: string | null;
@@ -600,6 +625,13 @@ export interface PlanPhase {
   aktualisiert_am: string;
   tags: string[];
   documents: Document[];
+  // P18/B-3: query-seitig berechnet, kein gespeichertes Feld (CONCEPT.md Abschnitt 6b.3).
+  has_children: boolean;
+  // Nur bei has_children=true befüllt - aus den Leaf-Nachfahren abgeleitet, NIE aus einem
+  // eigenen Feld der Parent-Phase (forecast_start/forecast_end/plan_fte bleiben dann null).
+  derived_forecast_start: string | null;
+  derived_forecast_end: string | null;
+  derived_capacity: number | null;
 }
 
 // Phase 26.10: PlanPhase Workspace (P3-Endpoints, backend/app/routers/planning.py +
@@ -627,6 +659,60 @@ export interface PlanPhaseDetail extends PlanPhase {
   decisions: Decision[];
   resource_demands: ResourceDemand[];
   metrics: PhaseMetricsOut;
+  // P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI.
+  children: PlanPhase[];
+}
+
+// P18/B-4 (CONCEPT.md Abschnitt 6b.10): Bedarf/Besetzt/Offen einer Leaf-PlanPhase - UI-
+// Vokabular "Geplanter Ressourcenbedarf"/"Besetzung"/"Offen", NICHT "ResourceDemand".
+export interface PlanPhaseAssignedPerson {
+  person_id: number;
+  person_name: string;
+  fte: number;
+}
+
+export interface PlanPhaseAssignmentSummary {
+  plan_phase_id: number;
+  plan_fte: number | null;
+  assigned_fte: number;
+  open_fte: number | null;
+  assignments: PlanPhaseAssignedPerson[];
+}
+
+// P18/B-3 (CONCEPT.md Abschnitt 6b.9): Vorschau vor "Gesamten Zweig löschen".
+export interface PlanPhaseSubtreeImpact {
+  plan_phase_id: number;
+  phase_type: string;
+  descendant_phase_count: number;
+  comments_affected: number;
+  tasks_affected: number;
+  blockers_affected: number;
+  decisions_affected: number;
+  milestones_affected: number;
+  documents_affected: number;
+  resource_demands_affected: number;
+  resource_assignments_affected: number;
+}
+
+// P18/B-5 (CONCEPT.md Abschnitt 6b.6): read-only Auswertung, kein Eingabefeld.
+export interface ProjectMonthlyCapacityEntry {
+  period: string;
+  hours: number;
+  fte_equivalent: number;
+}
+
+// P18/B-4 (CONCEPT.md Abschnitt 6b.5/6b.11): Available Capacity über einen Datumsbereich statt
+// nur einen Monats-Bucket.
+export interface PersonCapacityRange {
+  person_id: number;
+  range_start: string;
+  range_end: string;
+  nominal_fte: number;
+  holiday_fte: number;
+  absence_fte: number;
+  internal_fte: number;
+  available_fte: number;
+  working_days: number;
 }
 
 export type MilestoneStatus = "geplant" | "gefaehrdet" | "erreicht" | "verpasst";
@@ -642,6 +728,9 @@ export interface Milestone {
   id: number;
   project_id: number;
   subproject_id: number | null;
+  // P18/B-1/B-7 (CONCEPT.md Abschnitt 6b.8): ersetzt subproject_id fachlich. null = projekt-
+  // weiter Meilenstein; gesetzt kann auf eine Leaf- oder Parent-Phase zeigen.
+  plan_phase_id: number | null;
   name: string;
   baseline_date: string | null;
   forecast_date: string | null;

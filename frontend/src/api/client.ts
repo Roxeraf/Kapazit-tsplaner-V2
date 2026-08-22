@@ -41,13 +41,17 @@ import type {
   EntityRelation,
   Milestone,
   MilestoneStatus,
+  PersonCapacityRange,
   PlanHistoryEntry,
   PlanPhase,
+  PlanPhaseAssignmentSummary,
   PlanPhaseDetail,
   PlanPhaseStatus,
+  PlanPhaseSubtreeImpact,
   PhaseMetricsOut,
   ProjectDetail,
   ProjectMembership,
+  ProjectMonthlyCapacityEntry,
   ProjectStatus,
   ProjectSummary,
   PortfolioAllocationGapEntry,
@@ -127,18 +131,26 @@ export const api = {
   deleteProject: (projectId: number) => request<void>(`/projects/${projectId}`, { method: "DELETE" }),
   reorderProjects: (projectIds: number[]) =>
     request<void>("/projects/reorder", { method: "PUT", body: JSON.stringify({ project_ids: projectIds }) }),
+  /** @deprecated P18/B-7/B-8 (CONCEPT.md Abschnitt 6b.7): Subproject wird fachlich durch eine
+   * Parent-PlanPhase ersetzt (CONCEPT.md Abschnitt 6b.7/19 der Aufgabenstellung: "keine neue
+   * Subproject-UX"). Bleibt compat-only bestehen, bis eine ausgeführte B-2-Migration
+   * bestehende Subprojects auf Parent-PlanPhases überführt hat (B-8, noch nicht erfolgt) -
+   * danach ist dieser Pfad vollständig obsolet. Keine neuen Aufrufstellen anlegen. */
   createSubproject: (projectId: number, name: string, reihenfolge: number) =>
     request(`/projects/${projectId}/subprojects`, {
       method: "POST",
       body: JSON.stringify({ name, reihenfolge }),
     }),
+  /** @deprecated siehe createSubproject. */
   deleteSubproject: (subprojectId: number) =>
     request<void>(`/projects/subprojects/${subprojectId}`, { method: "DELETE" }),
+  /** @deprecated siehe createSubproject. */
   updateSubproject: (subprojectId: number, payload: { name?: string; reihenfolge?: number }) =>
     request<SubprojectDetail>(`/projects/subprojects/${subprojectId}`, {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  /** @deprecated siehe createSubproject. */
   listAllSubprojects: () => request<SubprojectListItem[]>("/projects/subprojects/all"),
 
   // Planung (Phase 26.2): PlanPhase/Milestone/Baseline ersetzen ab jetzt Gantt/FTE als
@@ -148,6 +160,8 @@ export const api = {
     projectId: number,
     payload: {
       subproject_id?: number | null;
+      parent_phase_id?: number | null;
+      reihenfolge?: number;
       phase_type: string;
       baseline_start?: string | null;
       baseline_end?: string | null;
@@ -167,6 +181,8 @@ export const api = {
     planPhaseId: number,
     payload: Partial<{
       subproject_id: number | null;
+      parent_phase_id: number | null;
+      reihenfolge: number;
       phase_type: string;
       baseline_start: string | null;
       baseline_end: string | null;
@@ -183,6 +199,23 @@ export const api = {
     }>,
   ) => request<PlanPhase>(`/projects/plan-phases/${planPhaseId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePlanPhase: (planPhaseId: number) => request<void>(`/projects/plan-phases/${planPhaseId}`, { method: "DELETE" }),
+  // P18/B-3 (CONCEPT.md Abschnitt 6b.9, BD-11): Standard-DELETE liefert 409 mit
+  // {child_count, message} statt zu kaskadieren, sobald die Phase Kinder hat. Eigener
+  // Rückgabetyp statt Exception, damit der Aufrufer den Blockier-Dialog (Unterphasen
+  // verschieben/Gesamten Zweig löschen/Abbrechen) sauber anzeigen kann, ohne Fehlertext zu
+  // parsen - der generische request()-Wrapper wirft sonst nur eine Error mit Rohtext.
+  tryDeletePlanPhase: async (
+    planPhaseId: number,
+  ): Promise<{ blocked: false } | { blocked: true; childCount: number; message: string }> => {
+    const res = await fetch(`${API_BASE}/projects/plan-phases/${planPhaseId}`, { method: "DELETE" });
+    if (res.status === 204) return { blocked: false };
+    if (res.status === 409) {
+      const body = await res.json();
+      return { blocked: true, childCount: body.detail.child_count, message: body.detail.message };
+    }
+    const body = await res.text();
+    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+  },
   getPlanPhaseDetail: (planPhaseId: number) =>
     request<PlanPhaseDetail>(`/projects/plan-phases/${planPhaseId}`),
   getPlanPhaseMetrics: (planPhaseId: number) =>
@@ -192,11 +225,49 @@ export const api = {
       `/projects/plan-phases/${planPhaseId}/activity${limit ? `?limit=${limit}` : ""}`,
     ),
 
+  // P18/B-3 (CONCEPT.md Abschnitt 6b.9): Reparenting/Subtree-Delete, jeweils separat vom
+  // normalen CRUD, da Subtree-Delete eine bewusst destruktive, stark bestätigte Aktion ist.
+  reparentPlanPhaseChildren: (planPhaseId: number, newParentPhaseId: number | null) =>
+    request<{ moved_count: number; children: PlanPhase[] }>(
+      `/projects/plan-phases/${planPhaseId}/reparent-children`,
+      { method: "POST", body: JSON.stringify({ new_parent_phase_id: newParentPhaseId }) },
+    ),
+  getPlanPhaseSubtreeImpact: (planPhaseId: number) =>
+    request<PlanPhaseSubtreeImpact>(`/projects/plan-phases/${planPhaseId}/subtree-impact`),
+  deletePlanPhaseSubtree: (planPhaseId: number, payload: { confirm_phase_type: string; confirm_descendant_count: number }) =>
+    request<void>(`/projects/plan-phases/${planPhaseId}/delete-subtree`, { method: "POST", body: JSON.stringify(payload) }),
+
+  // P18/B-4 (CONCEPT.md Abschnitt 6b.4/6b.10/6b.11): Direct Assignment ohne Rollen-Zwang.
+  getPlanPhaseAssignmentSummary: (planPhaseId: number) =>
+    request<PlanPhaseAssignmentSummary>(`/projects/plan-phases/${planPhaseId}/assignment-summary`),
+  assignPersonToPlanPhase: (planPhaseId: number, payload: { person_id: number; fte: number }) =>
+    request<PlanPhaseAssignmentSummary>(`/projects/plan-phases/${planPhaseId}/assign-person`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  unassignPersonFromPlanPhase: (planPhaseId: number, personId: number) =>
+    request<PlanPhaseAssignmentSummary>(`/projects/plan-phases/${planPhaseId}/assign-person/${personId}`, {
+      method: "DELETE",
+    }),
+  getPlanPhaseAssignmentCandidates: (planPhaseId: number) =>
+    request<CandidatePerson[]>(`/projects/plan-phases/${planPhaseId}/assignment-candidates`),
+  getPersonCapacityRange: (personId: number, start: string, end: string) =>
+    request<PersonCapacityRange>(`/people/${personId}/capacity-range?start=${start}&end=${end}`),
+
+  // P18/B-5 (CONCEPT.md Abschnitt 6b.6): read-only Auswertung, kein Eingabefeld.
+  getProjectMonthlyCapacity: (projectId: number, periods?: string[]) =>
+    request<ProjectMonthlyCapacityEntry[]>(
+      `/projects/${projectId}/capacity/monthly${
+        periods && periods.length > 0 ? `?${periods.map((p) => `periods=${encodeURIComponent(p)}`).join("&")}` : ""
+      }`,
+    ),
+
   listMilestones: (projectId: number) => request<Milestone[]>(`/projects/${projectId}/milestones`),
   createMilestone: (
     projectId: number,
     payload: {
       subproject_id?: number | null;
+      plan_phase_id?: number | null;
       name: string;
       baseline_date?: string | null;
       forecast_date?: string | null;
@@ -211,6 +282,7 @@ export const api = {
     milestoneId: number,
     payload: Partial<{
       subproject_id: number | null;
+      plan_phase_id: number | null;
       name: string;
       baseline_date: string | null;
       forecast_date: string | null;

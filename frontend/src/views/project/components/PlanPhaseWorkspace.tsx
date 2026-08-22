@@ -6,18 +6,21 @@ import DecisionList from "./DecisionList";
 import NotesSection from "../../../components/NotesSection";
 import PersonPicker from "../../../components/PersonPicker";
 import PlanPhaseCapacityTab from "./PlanPhaseCapacityTab";
+import PlanPhaseCreateModal from "./PlanPhaseCreateModal";
 import TagInput from "../../../components/TagInput";
 import TaskList from "./TaskList";
 import usePeopleMap from "../../../hooks/usePeopleMap";
 import { categorize, CATEGORY_ICONS } from "../../../documentIcons";
 import {
+  MAX_PLAN_PHASE_DEPTH,
   PLAN_PHASE_STATUS_LABELS,
   PLAN_PHASE_STATUS_OPTIONS,
   PLAN_PHASE_TYPE_SUGGESTIONS,
+  planPhaseDepth,
   type EntityType,
+  type PlanPhase,
   type PlanPhaseDetail,
   type PlanPhaseStatus,
-  type SubprojectDetail,
 } from "../../../types";
 
 // P11 (Planungs-/Kapazitätskonsolidierung): PlanPhase Workspace - rechtsseitiger Drawer, jetzt
@@ -48,13 +51,13 @@ function fmtDate(iso: string | null): string {
 export default function PlanPhaseWorkspace({
   planPhaseId,
   projectId,
-  subprojects,
+  allPhases,
   onClose,
   onChanged,
 }: {
   planPhaseId: number | null;
   projectId: number;
-  subprojects: SubprojectDetail[];
+  allPhases: PlanPhase[];
   onClose: () => void;
   onChanged?: () => void;
 }) {
@@ -63,6 +66,7 @@ export default function PlanPhaseWorkspace({
   const [tab, setTab] = useState<Tab>("uebersicht");
   const [correctingActual, setCorrectingActual] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showCreateChild, setShowCreateChild] = useState(false);
   // ActivityFeed lädt selbst nach, bekommt Mutationen von NotesSection/TaskList/DecisionList/
   // BlockerList (Geschwisterkomponenten im selben Tab) aber nicht automatisch mit - dieser
   // Zähler wird bei jedem reload() hochgezählt und an ActivityFeed durchgereicht (P16.1).
@@ -164,10 +168,22 @@ export default function PlanPhaseWorkspace({
     >
       <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
         <h3 style={{ color: "var(--navy)", margin: 0 }}>{detail?.phase_type ?? "Phase"}</h3>
-        <button type="button" className="btn secondary" onClick={onClose}>
-          Schließen
-        </button>
+        <div style={{ display: "flex", gap: "0.4rem" }}>
+          {detail && planPhaseDepth(allPhases, detail.id) < MAX_PLAN_PHASE_DEPTH && (
+            <button type="button" className="btn secondary" onClick={() => setShowCreateChild(true)}>
+              + Unterphase
+            </button>
+          )}
+          <button type="button" className="btn secondary" onClick={onClose}>
+            Schließen
+          </button>
+        </div>
       </div>
+      {detail?.parent_phase_id != null && (
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "-0.3rem 0 0.6rem" }}>
+          Übergeordnete Phase: {allPhases.find((p) => p.id === detail.parent_phase_id)?.phase_type ?? "…"}
+        </p>
+      )}
 
       <div style={{ display: "flex", gap: "0.35rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
         {([
@@ -208,23 +224,40 @@ export default function PlanPhaseWorkspace({
                 ))}
               </datalist>
 
-              <label>
-                Zeitraum (Start – Ende)
-                <div style={{ display: "flex", gap: "0.4rem" }}>
-                  <input
-                    key={`${detail.id}-fs-${detail.forecast_start}`}
-                    type="date"
-                    defaultValue={detail.forecast_start ?? ""}
-                    onBlur={(e) => update({ forecast_start: e.target.value || null })}
-                  />
-                  <input
-                    key={`${detail.id}-fe-${detail.forecast_end}`}
-                    type="date"
-                    defaultValue={detail.forecast_end ?? ""}
-                    onBlur={(e) => update({ forecast_end: e.target.value || null })}
-                  />
+              {detail.has_children ? (
+                <div style={{ fontSize: "0.85rem", background: "#f7f9fc", borderRadius: "0.4rem", padding: "0.5rem 0.6rem" }}>
+                  <div>
+                    <strong>Zeitraum:</strong>{" "}
+                    {detail.derived_forecast_start && detail.derived_forecast_end
+                      ? `${fmtDate(detail.derived_forecast_start)} – ${fmtDate(detail.derived_forecast_end)}`
+                      : "—"}{" "}
+                    <span style={{ color: "var(--text-muted)" }}>(abgeleitet aus {detail.children.length} Unterphase(n))</span>
+                  </div>
+                  <div style={{ marginTop: "0.2rem" }}>
+                    <strong>Geplanter Ressourcenbedarf:</strong>{" "}
+                    {detail.derived_capacity != null ? `${detail.derived_capacity.toFixed(2)} FTE` : "—"}{" "}
+                    <span style={{ color: "var(--text-muted)" }}>(aggregiert, nicht direkt editierbar)</span>
+                  </div>
                 </div>
-              </label>
+              ) : (
+                <label>
+                  Zeitraum (Start – Ende)
+                  <div style={{ display: "flex", gap: "0.4rem" }}>
+                    <input
+                      key={`${detail.id}-fs-${detail.forecast_start}`}
+                      type="date"
+                      defaultValue={detail.forecast_start ?? ""}
+                      onBlur={(e) => update({ forecast_start: e.target.value || null })}
+                    />
+                    <input
+                      key={`${detail.id}-fe-${detail.forecast_end}`}
+                      type="date"
+                      defaultValue={detail.forecast_end ?? ""}
+                      onBlur={(e) => update({ forecast_end: e.target.value || null })}
+                    />
+                  </div>
+                </label>
+              )}
 
               <div className="field-row" style={{ marginTop: 0 }}>
                 <label>
@@ -237,36 +270,40 @@ export default function PlanPhaseWorkspace({
                     ))}
                   </select>
                 </label>
-                <label>
-                  Plan-Aufwand (FTE)
-                  <input
-                    key={`${detail.id}-fte-${detail.plan_fte}`}
-                    type="number"
-                    min={0}
-                    step={0.05}
-                    defaultValue={detail.plan_fte ?? ""}
-                    placeholder="—"
-                    onBlur={(e) => {
-                      const raw = e.target.value.trim();
-                      update({ plan_fte: raw === "" ? null : Number(raw) });
-                    }}
-                  />
-                </label>
+                {!detail.has_children && (
+                  <label>
+                    Geplanter Ressourcenbedarf (FTE)
+                    <input
+                      key={`${detail.id}-fte-${detail.plan_fte}`}
+                      type="number"
+                      min={0}
+                      step={0.05}
+                      defaultValue={detail.plan_fte ?? ""}
+                      placeholder="—"
+                      onBlur={(e) => {
+                        const raw = e.target.value.trim();
+                        update({ plan_fte: raw === "" ? null : Number(raw) });
+                      }}
+                    />
+                  </label>
+                )}
               </div>
 
               <div className="field-row" style={{ marginTop: 0 }}>
                 <label>
-                  Teilprojekt
+                  Übergeordnete Phase
                   <select
-                    value={detail.subproject_id ?? ""}
-                    onChange={(e) => update({ subproject_id: e.target.value === "" ? null : Number(e.target.value) })}
+                    value={detail.parent_phase_id ?? ""}
+                    onChange={(e) => update({ parent_phase_id: e.target.value === "" ? null : Number(e.target.value) })}
                   >
-                    <option value="">Projektweit</option>
-                    {subprojects.map((sp) => (
-                      <option key={sp.id} value={sp.id}>
-                        {sp.name}
-                      </option>
-                    ))}
+                    <option value="">— Top-Level —</option>
+                    {allPhases
+                      .filter((p) => p.id !== detail.id && planPhaseDepth(allPhases, p.id) < MAX_PLAN_PHASE_DEPTH)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.phase_type}
+                        </option>
+                      ))}
                   </select>
                 </label>
                 <label>
@@ -349,15 +386,30 @@ export default function PlanPhaseWorkspace({
           </div>
         </>
       ) : tab === "kapazitaet" ? (
-        <PlanPhaseCapacityTab
-          projectId={projectId}
-          planPhaseId={detail.id}
-          planFte={detail.plan_fte}
-          forecastStart={detail.forecast_start}
-          demands={detail.resource_demands}
-          metrics={detail.metrics}
-          onChanged={reload}
-        />
+        detail.has_children ? (
+          <div className="card">
+            <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Kapazität (aggregiert)</h4>
+            <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+              Diese Phase ist eine Sammelphase - Kapazitätsplanung und Personenbesetzung finden ausschließlich in
+              ihren Unterphasen statt (keine doppelte Kapazitätsplanung auf Parent- und Kindebene).
+            </p>
+            <div style={{ fontSize: "0.85rem", marginTop: "0.4rem" }}>
+              <strong>Aggregiert aus {detail.children.length} Unterphase(n):</strong>{" "}
+              {detail.derived_capacity != null ? `${detail.derived_capacity.toFixed(2)} FTE` : "Noch keine Kapazität geplant"}
+            </div>
+          </div>
+        ) : (
+          <PlanPhaseCapacityTab
+            projectId={projectId}
+            planPhaseId={detail.id}
+            planFte={detail.plan_fte}
+            forecastStart={detail.forecast_start}
+            forecastEnd={detail.forecast_end}
+            demands={detail.resource_demands}
+            metrics={detail.metrics}
+            onChanged={reload}
+          />
+        )
       ) : tab === "aktivitaet" ? (
         <>
           <div className="card" style={{ marginBottom: "0.75rem" }}>
@@ -427,6 +479,16 @@ export default function PlanPhaseWorkspace({
           />
           {uploading && <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Lädt hoch …</p>}
         </div>
+      )}
+
+      {showCreateChild && detail && (
+        <PlanPhaseCreateModal
+          projectId={projectId}
+          allPhases={allPhases}
+          defaultParentPhaseId={detail.id}
+          onClose={() => setShowCreateChild(false)}
+          onCreated={reload}
+        />
       )}
     </div>
   );

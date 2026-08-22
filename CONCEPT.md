@@ -808,10 +808,26 @@ freigegeben/gelockt** (Codebase Validation Matrix + vollständige Herleitung sie
 Abschnitt 35 "Final Lock Addendum" mit den in diesem Durchgang eingearbeiteten Korrekturen).
 **BD-10/BD-11/BD-12/BD-13 sind CLOSED** (Abschnitt 14) — es gibt keine offene
 Architekturentscheidung mehr, nur noch die technische Umsetzung (Implementierungspakete
-B-1–B-8, siehe Pass-2-Dokument Abschnitt 30). **Löst Abschnitt 6a (P18 Pass 1) fachlich ab**
-(Begründung: Abschnitt 2 des Pass-2-Dokuments). Beschreibt Zielverhalten, kein Ist-Zustand — bis
-zur tatsächlichen Implementierung gilt technisch unverändert Abschnitt 6. **Keine Migration
-wurde ausgeführt, kein Produktcode/Frontend wurde geändert.**
+B-1–B-8, siehe Pass-2-Dokument Abschnitt 35.5). **Löst Abschnitt 6a (P18 Pass 1) fachlich ab**
+(Begründung: Abschnitt 2 des Pass-2-Dokuments). Beschreibt Zielverhalten, **teilweise bereits
+Ist-Zustand:** Paket **B-1 (Hierarchy Domain Foundation) ist implementiert** (additive
+Schema-Grundlage: `PlanPhase.parent_phase_id`/`reihenfolge`, `Milestone.plan_phase_id`,
+`PlanHistory.plan_phase_id`, `ResourceRole.is_system_role` + Seed "Ohne Rolle" — siehe 16.7).
+**B-2 (Migration Tooling) ist ebenfalls implementiert und verifiziert**
+(`backend/scripts/migrate_to_planphase_hierarchy.py`, Dry-Run-Default, siehe 16.8) — **aber
+noch nicht gegen echte Produktivdaten ausgeführt** (erfordert gesonderte Freigabe). **B-3
+(Phase Tree API), B-4 (Direct Assignment/Available Capacity Range) und B-5 (Derived Monthly &
+Portfolio Capacity) sind implementiert** (siehe 16.9/16.10/16.11). **B-6 (PlanPhase Tree UX)
+ist ebenfalls implementiert** (Baum-UI in Liste/Gantt/Workspace, Direct-Assignment-UX,
+BD-11-Blockier-Dialog — siehe 16.12): die PlanPhase-Hierarchie ist damit **erstmals für
+Nutzer:innen sichtbar und bedienbar**, nicht mehr nur über die API. **B-7 (Gantt/Milestone/
+Planstand Integration) ist ebenfalls implementiert** (`Milestone.plan_phase_id` operativ in
+Router+UI, Planstand friert `parent_phase_id`/`reihenfolge`/`Milestone.plan_phase_id` mit ein,
+Planstand-Vergleich zeigt strukturelle Abweichungen mit Phasennamen statt roher IDs — siehe
+16.13). Weiterhin offen: keine Migration wurde gegen echte Produktivdaten ausgeführt (B-2 noch
+nicht angewendet, bestehende Subprojects/Grobplanung sind daher weiterhin die einzige Quelle
+für bereits existierende Projekte), und `ResourceDemandGrid`/Subproject-Verwaltung sind noch
+nicht entfernt (B-8, blockiert bis die B-2-Migration tatsächlich ausgeführt wurde).
 
 ### 6b.1 Kernidee
 
@@ -1705,6 +1721,371 @@ plan ab.
   spezifiziert und nicht mehr durch eine offene BD blockiert, sollte aber wie jede
   produktionswirksame Datenmigration erst nach expliziter Umsetzungsfreigabe durch das Team
   ausgeführt werden (kein automatischer Trigger durch diesen Dokumentations-Durchgang).
+
+### 16.7 P18 Implementierung — B-1 Hierarchy Domain Foundation (dieser Durchgang)
+
+**Erstes Umsetzungspaket der PlanPhase-only-Zielarchitektur (Abschnitt 6b), Validation Gate
+bestanden.** Rein additive Schema-Grundlage, exakt wie in Abschnitt 6b.1/6b.1a/6b.8 und
+Pass-2-Dokument Abschnitt 35.5 (Paket B-1) spezifiziert — bewusst **ohne** jede
+Backend-Logik, API-Änderung oder Datenmigration (folgt in B-2/B-3/B-4/B-5):
+
+- Neue Alembic-Revision `0005_p18_hierarchy_foundation` (additiv, `check_migrations.py` grün:
+  Kettenintegrität, Upgrade base→head, kein Drift zu `models.py`, Seeds vollständig,
+  Downgrade/Upgrade-Roundtrip sauber).
+- `PlanPhase.parent_phase_id` (self-referencing FK, nullable, indiziert) und
+  `PlanPhase.reihenfolge` (Integer, NOT NULL, default 0) — Grundlage der Hierarchie
+  (Tiefenvalidierung ≤ 3 Ebenen und Zyklenprüfung folgen als Backend-Guard in B-3).
+- `Milestone.plan_phase_id` (nullable FK, `ON DELETE SET NULL`, indiziert) — ersetzt
+  `subproject_id` fachlich (Abschnitt 6b.8); `subproject_id` bleibt compat-only bestehen.
+- `PlanHistory.plan_phase_id` (nullable FK, `ON DELETE SET NULL`, indiziert) — Voraussetzung
+  für die in Abschnitt 6b.1a spezifizierte Historisierung des `plan_fte`-Werts beim
+  Leaf→Parent-Übergang (Schreibpfad folgt in B-3).
+- `ResourceRole.is_system_role` (Boolean, NOT NULL, default false) + Seed-Zeile "Ohne Rolle"
+  (`is_system_role = true`, einmalig per Migration angelegt) — technische Trägerschicht für
+  die in Abschnitt 6b.4 spezifizierte direkte Personenzuordnung ohne erzwungene Rollenauswahl.
+  Governance-Regeln (nicht löschbar, im normalen Rollen-Picker ausgeblendet, kein
+  Skill-Matching, keine eigenständige Rolle in Reporting/Controlling) sind mit diesem Flag
+  technisch möglich, werden aber **noch nicht** durchgesetzt — das ist Backend-Scope von B-3/B-4.
+- `check_migrations.py` um eine Seed-Verifikation ergänzt (Systemrolle "Ohne Rolle" existiert
+  nach jedem Rebuild genau einmal).
+- **Keine Verhaltensänderung an bestehenden Endpunkten** — alle neuen Spalten sind bislang
+  ungenutzt (kein Router liest/schreibt sie), Regressionsrisiko minimal.
+- **Nächstes Paket:** B-2 (Migration Tooling, Dry-Run-Skript) und B-3 (Phase Tree API) —
+  siehe Pass-2-Dokument Abschnitt 35.5.
+
+### 16.8 P18 Implementierung — B-2 Migration Tooling (dieser Durchgang)
+
+**Zweites Umsetzungspaket, Validation Gate bestanden.** Neues, eigenständiges Skript
+`backend/scripts/migrate_to_planphase_hierarchy.py` (kein Alembic-Bestandteil, reine
+Datenmigration) — setzt B-1 voraus, **noch keine Ausführung gegen Produktivdaten** (siehe
+Abschnitt 6b.12/BD-12, Pass-2-Dokument Abschnitt 35.5 Paket B-2):
+
+- **Sicherheitsdefault:** Ohne `--apply` läuft das Skript ausschließlich als Dry-Run —
+  alle Änderungen werden berechnet und reportet, danach steht ein expliziter Rollback (keine
+  Zeile geschrieben). Nur `--apply` committet wirklich. Kein automatischer Produktivlauf.
+- **Subproject-Migration** (Abschnitt 6b.7/Pass-2-Dokument Abschnitt 22): pro `Subproject`
+  eine neue Top-Level-Parent-`PlanPhase` (`phase_type = Subproject.name`,
+  `reihenfolge = Subproject.reihenfolge`), bestehende `PlanPhase`-Kinder reparented
+  (`parent_phase_id`), `Milestone`/`Comment` umgehängt (`plan_phase_id`).
+  `subprojects`/`subproject_id` bleiben unverändert bestehen (compat-only).
+- **Grobplanungs-Migration** (Abschnitt 6b.12, korrigierte Monats-Leaf-Strategie): pro
+  Projekt mit `ResourceDemand(plan_phase_id IS NULL)`-Zeilen eine neue Parent-Phase
+  "Grobplanung (migriert)" + eine Monats-Leaf-Phase je distinkter Periode, `plan_fte` der
+  Leaf-Phase einmalig aus `SUM(ResourceDemand.fte)` dieser Periode abgeleitet (keine neue
+  Laufzeitregel — danach gilt wieder uneingeschränkt "`plan_fte` ist führend").
+  `ResourceAssignment` bleibt unberührt (hängt nur an `resource_demand_id`).
+- **Idempotenz:** beide Migrationszweige filtern auf "noch nicht reparented/relinked"
+  (`parent_phase_id`/`plan_phase_id IS NULL`) bzw. "noch offene Grobplanungs-Demands" — ein
+  zweiter Lauf gegen bereits migrierte Daten findet nichts mehr und legt keine doppelten
+  Phasen an.
+- **Report:** je Projekt Subprojects/Grobplanung migriert, reparented/relinked-Zählungen,
+  FTE-Summen vorher/nachher, verwaiste `ResourceDemand`-Zeilen danach (Soll: 0),
+  Milestones vorher/nachher — plus ein globaler Hierarchietiefe-/Zyklus-Check über den
+  gesamten `PlanPhase`-Bestand (BD-12-Report-Anforderungen).
+- **Verifikation:** `backend/scripts/test_migrate_to_planphase_hierarchy.py` (kein pytest im
+  Repo, analog zu `check_migrations.py` als Muster für eigenständige Prüfskripte) — baut eine
+  Wegwerf-SQLite-DB, seedet einen repräsentativen Testfall (1 Subproject mit 2 Kindphasen,
+  Milestone, Comment; 2 Grobplanungsperioden mit je 2 Rollen, 1 Assignment) und prüft: Dry-Run
+  schreibt nichts, Apply verliert keine Milestones/Comments/Assignments/ResourceDemands, keine
+  verwaisten Demands danach, Re-Run nach Apply ist idempotent (kein doppelter Report-Eintrag,
+  keine doppelten Phasen). Alle Prüfungen grün.
+- **Keine Verhaltensänderung an bestehenden Endpunkten, keine Ausführung gegen echte
+  Projektdaten** — reines, verifiziertes Werkzeug. Die tatsächliche Ausführung gegen
+  Produktivdaten erfordert eine gesonderte Freigabe außerhalb dieses Pakets (B-2 Definition of
+  Done, unverändert).
+- **Nächstes Paket:** B-3 (Phase Tree API: CRUD-Guards, Baum-Payload, Löschguards gemäß
+  BD-11) — siehe Pass-2-Dokument Abschnitt 35.5.
+
+### 16.9 P18 Implementierung — B-3 Phase Tree API (dieser Durchgang)
+
+**Drittes Umsetzungspaket, Validation Gate bestanden.** Erstes Paket mit echter
+Backend-Logik/API-Verhaltensänderung — `PlanPhase.parent_phase_id` ist jetzt operativ
+wirksam (CONCEPT.md Abschnitt 6b.1/6b.1a/6b.3/6b.9, Pass-2-Dokument Abschnitt 35.5 Paket B-3):
+
+- Neues Modul `backend/app/planning_calc.py`: `has_children`, `direct_children`, `depth_of`,
+  `all_descendants`, `leaf_descendants`, `subtree_max_depth`, `derive_parent_bounds`,
+  `derive_parent_capacity` — reine, lesende Aggregationsfunktionen, kein neues Statusfeld
+  (Leaf/Parent bleibt query-seitig berechnet).
+- **CRUD-Guards** (`_check_parent_phase` in `routers/planning.py`): projektfremder Parent
+  (`422`), Selbst-Parent (`422`), Zyklus — auch bei Reparenting eines ganzen Teilbaums, nicht
+  nur der einzelnen Phase (`422`), maximale Hierarchietiefe 3 Ebenen inkl. der Höhe eines
+  bereits vorhandenen eigenen Teilbaums (`422`, BD-10).
+- **Leaf→Parent-Übergang** (`_maybe_historize_parent_fte`): sobald eine Phase ihr erstes Kind
+  erhält (per `POST .../plan-phases` oder `PUT /plan-phases/{id}`), wird ihr `plan_fte`
+  serverseitig auf `NULL` gesetzt und der alte Wert in `PlanHistory`
+  (`bereich="phase_struktur"`, `plan_phase_id` gesetzt) historisiert — keine automatische
+  Reaktivierung beim Rückweg (Abschnitt 6b.1a). `PlanHistoryOut`/`GET
+  /projects/{id}/history` geben `plan_phase_id` jetzt mit aus (kleine, additive Erweiterung,
+  nötig um die Historisierung überhaupt beobachtbar zu machen).
+- **Löschguard** (BD-11, CLOSED): Standard-`DELETE /plan-phases/{id}` einer Phase mit Kindern
+  liefert `409` mit `{child_count, message}` statt zu kaskadieren.
+- **Neu:** `POST /plan-phases/{id}/reparent-children` (Kinder auf einen anderen Parent oder
+  Top-Level verschieben, danach ist die Phase leaf und normal löschbar).
+- **Neu:** `GET /plan-phases/{id}/subtree-impact` (Vorschau: Anzahl Nachfahren, betroffene
+  Comments/Tasks/Blocker/Decisions/Milestones/Documents/ResourceDemands/ResourceAssignments)
+  und `POST /plan-phases/{id}/delete-subtree` (separate, stark bestätigte Aktion — verlangt
+  `confirm_phase_type`/`confirm_descendant_count` exakt passend zur aktuellen Impact-Zahl,
+  sonst `422`). Löscht Nachfahren-Phasen inkl. ihrer `ResourceDemand`/`ResourceAssignment`-
+  Zeilen; Collaboration-Inhalte (Comment/Task/Blocker/Decision/Milestone) werden **nicht**
+  gelöscht, nur entkoppelt (`plan_phase_id → NULL`, wie beim bestehenden Einzel-Delete);
+  auditiert über einen `PlanHistory`-Eintrag (`bereich="phase_subtree_delete"`).
+- **`PlanPhaseOut`/`PlanPhaseDetail` erweitert:** `parent_phase_id`, `reihenfolge`,
+  `has_children`, `derived_forecast_start`/`derived_forecast_end`/`derived_capacity` (nur bei
+  `has_children=true` befüllt, abgeleitet aus Leaf-Nachfahren, nie aus einem eigenen Feld der
+  Parent-Phase); `PlanPhaseDetail.children` (direkte Kinder, für die Baum-UI in B-6).
+- **Verifikation:** `backend/scripts/test_planning_phase_tree_api.py` (TestClient gegen die
+  echte FastAPI-App, kein pytest im Repo) — prüft alle sieben oben genannten Punkte plus
+  subtree-impact/delete-subtree inkl. Assignment-/Comment-Erhalt. Alle Prüfungen grün,
+  `check_migrations.py` weiterhin grün (keine Schema-Änderung in diesem Paket).
+- **Noch nicht in Scope:** Direct-Assignment-UX ohne Rollenzwang, Available Capacity über
+  Zeiträume (B-4); Monatsaggregation/Portfolio-Cutover (B-5); Frontend (B-6/B-7).
+- **Nächstes Paket:** B-4 (Capacity/Assignment Simplification: direkte Personenzuordnung ohne
+  Rollenzwang über die interne Systemrolle "Ohne Rolle", `compute_person_capacity_for_range`)
+  — siehe Pass-2-Dokument Abschnitt 35.5.
+
+### 16.10 P18 Implementierung — B-4 Capacity/Assignment Simplification (dieser Durchgang)
+
+**Viertes Umsetzungspaket, Validation Gate bestanden** (CONCEPT.md Abschnitt 6b.4/6b.5/6b.10/
+6b.11, Pass-2-Dokument Abschnitt 35.5 Paket B-4):
+
+- **`capacity_calc.compute_person_capacity_for_range(db, person_id, range_start, range_end)`**
+  (neu): bereichsbasierte Erweiterung von `compute_person_capacity` — keine neue Holiday-/
+  Absence-/InternalAllocation-Query, jeder überlappte Kalendermonat ruft die bestehende
+  Funktion unverändert auf und wird nur werktage-anteilig gewichtet (identische Konvention
+  wie die Monatsverteilung, BD-4-konform). Neues Schema `PersonCapacityRangeOut`, neuer
+  Endpoint `GET /people/{id}/capacity-range?start=&end=`.
+- **Direct Assignment ohne Rollen-Zwang** (`routers/planning.py`): `POST
+  /plan-phases/{id}/assign-person` ordnet eine Person direkt zu, ohne dass eine Rolle gewählt
+  werden muss — legt dafür transparent (idempotent, genau einmal je Phase) eine
+  `ResourceDemand` mit der internen Systemrolle "Ohne Rolle" an (`_get_or_create_system_role`/
+  `_get_or_create_carrier_demand`). `DELETE
+  /plan-phases/{id}/assign-person/{person_id}` entfernt nur diese direkte Zuordnung, rührt
+  eine etwaige echte Rollen-Aufschlüsselung nicht an. Beide Endpunkte lehnen Parent-Phasen
+  (`has_children=true`) mit `422` ab — Kapazität/Assignments sind Leaf-only (Abschnitt 6b.3).
+- **Bedarf/Besetzt/Offen** (`phase_metrics_calc.assignment_summary`, neu, + `GET
+  /plan-phases/{id}/assignment-summary`): `plan_fte` bleibt immer der Bedarf, `assigned_fte`
+  ist die Summe **aller** `ResourceAssignment.fte` über alle `ResourceDemand`s der Phase
+  (Systemrolle UND echte Rollen-Aufschlüsselung zählen gleichermaßen), `open_fte` kann negativ
+  sein (Überbesetzung wird angezeigt, nicht verhindert) — `plan_fte` wird dabei **nie**
+  automatisch erhöht (Kernprinzip, Abschnitt 3/6b.10, exakt das Zahlenbeispiel aus Abschnitt 8
+  der Aufgabenstellung nachgestellt und verifiziert: 0,40/0,20/0,20 → 0,40/0,50/−0,10).
+- **`GET /plan-phases/{id}/assignment-candidates`** (neu): wie die bestehenden
+  `resource-demands/{id}/candidates`, aber Available Capacity über den **gesamten**
+  Phasenzeitraum geprüft (`compute_person_capacity_for_range`) statt nur einen Monats-Bucket;
+  schließt bereits zugeordnete Personen aus (Systemrolle + echte Rollen-Demands gemeinsam).
+- **Rollen-Governance** (Abschnitt 6b.4/35.3, Teilumsetzung): `GET /resource-roles` blendet
+  die Systemrolle standardmäßig aus (`include_system_roles=true` als expliziter Opt-in).
+  Skill-Matching-Filterung existiert für **keine** Rolle im heutigen Code (`candidates`
+  filtert nie nach Skill, zeigt sie nur informativ an) — die Governance-Regel "kein
+  Skill-Matching für die Systemrolle" ist damit strukturell bereits erfüllt, ohne
+  Code-Änderung. **Noch offen (bewusst nicht in diesem Paket):** `GET /controlling/roles`
+  filtert die Systemrolle noch nicht explizit aus der Rollenauswertung heraus — das ist eine
+  reine Reporting-Kosmetik ohne Auswirkung auf Kapazitätszahlen und wird mit B-5
+  (Monatsaggregation/Portfolio-Cutover) mit erledigt, da beide denselben Router
+  (`controlling.py`) berühren.
+- **Verifikation:** `backend/scripts/test_direct_assignment_and_capacity_range.py`
+  (TestClient-Integrationstest) — prüft Range-Capacity über eine Monatsgrenze (inkl. exakter
+  Nachrechnung der werktage-anteiligen Gewichtung, nicht nur ein Toleranzband), Rollen-Picker-
+  Filterung, idempotente Carrier-Demand, Bedarf/Besetzt/Offen inkl. Überbesetzung, Parent-
+  Block, Candidates-Ausschluss. Alle Prüfungen grün, `check_migrations.py`/B-2/B-3-Skripte
+  weiterhin grün (keine Schema-Änderung in diesem Paket).
+- **Nächstes Paket:** B-5 (Monthly/Portfolio Capacity Cutover: `compute_project_monthly_
+  capacity`, Anschluss an Controlling/GAP/Cockpit — blockiert produktiv erst nach
+  ausgeführter B-2-Migration) — siehe Pass-2-Dokument Abschnitt 35.5.
+
+### 16.11 P18 Implementierung — B-5 Derived Monthly & Portfolio Capacity (dieser Durchgang)
+
+**Fünftes Umsetzungspaket, Validation Gate bestanden** (CONCEPT.md Abschnitt 6b.6, Abschnitt
+13 der Aufgabenstellung — bewusst NICHT "Monthly Planning" genannt, Pass-2-Dokument Abschnitt
+35.5 Paket B-5). **Wichtig:** produktiv wirksam wird der Cutover erst, nachdem B-2 tatsächlich
+gegen die Zieldaten ausgeführt wurde (noch nicht geschehen) — bis dahin können in einer
+Produktiv-DB weiterhin `ResourceDemand(plan_phase_id IS NULL)`-Zeilen existieren, die von den
+unten beschriebenen Endpunkten schlicht nicht mehr gelesen werden (kein Fehler, aber auch
+keine Berücksichtigung mehr — Grund, warum B-2 zuerst ausgeführt werden muss).
+
+- **`phase_metrics_calc.monthly_distribution(plan_fte, forecast_start, forecast_end) ->
+  dict[str, float]`** (neu): werktage-anteilige Monatsverteilung der Planstunden einer Phase,
+  1:1 nach der in Abschnitt 6a.6 spezifizierten und jetzt verifizierten Formel (kein
+  Feiertagsabzug, kein 50/50-Split).
+- **`capacity_calc.compute_project_monthly_capacity(db, project_id, periods=None) ->
+  dict[str, float]`** (neu): Summe von `monthly_distribution` über **alle** `PlanPhase`s des
+  Projekts, in Stunden. Kein explizites Leaf-Filtering nötig — eine Parent-Phase trägt nach
+  dem B-3-Lifecycle immer `plan_fte=None` und liefert damit automatisch `{}` bei
+  `monthly_distribution`, ohne eigenen Beitrag zur Summe. **Das ist jetzt die einzige
+  Berechnungsquelle für "Projektkapazität(Monat)"** — kein `ResourceDemand`-Summenmodell mehr.
+- **`GET /projects/{id}/capacity/monthly?periods=`** (neu, additiv): read-only Auswertung
+  (Stunden + FTE-Äquivalent je Monat), UI-Label "Projektkapazität" — kein Eingabefeld, kein
+  `ResourceDemandGrid`-Ersatz. Default-Zeitraum aus `Project.start_monat`/`anzahl_monate`.
+- **`GET /projects/{id}/cockpit` (Capacity-Block)**: `demand_fte` kommt jetzt ausschließlich
+  aus `compute_project_monthly_capacity` (verifiziert: eine bewusst falsche
+  `ResourceDemand.fte` im aktuellen Monat verändert das Ergebnis nicht mehr). `assigned_fte`
+  bleibt unverändert die Summe der `ResourceAssignment.fte` (Personenauslastung ist ein
+  eigenes, von `plan_fte` unabhängiges Konzept, Abschnitt 6b.10/Abschnitt 15 der
+  Aufgabenstellung — Projektbedarf ≠ Personenbelegung, beide Werte dürfen auseinanderlaufen).
+- **`capacity_calc.compute_capacity_gap`** (Portfolio-GAP, genutzt von `GET
+  /gap-engine/capacity` und `GET /controlling/capacity-heatmap`): ohne `resource_role_id`
+  kommt die Bedarfsseite jetzt aus `compute_portfolio_planphase_demand_fte` (Summe der
+  PlanPhase-abgeleiteten Kapazität über alle Projekte, als FTE-Äquivalent) statt aus einer
+  `ResourceDemand`-Summe. Ein gesetzter `resource_role_id`-Filter bleibt bewusst auf der
+  optionalen Rollen-Aufschlüsselung (`ResourceDemand`) — Rolle ist keine Dimension der
+  PlanPhase-Kapazität (Abschnitt 6b.4), das ist die einzige Stelle, an der Rolleninformation
+  überhaupt existiert.
+- **Rollen-Governance vervollständigt** (Rest von Abschnitt 6b.4/35.3, nach der in B-4
+  offengelassenen Lücke): `GET /controlling/allocation-gaps` und `GET /controlling/roles`
+  blenden die interne Systemrolle "Ohne Rolle" jetzt aus — sie erscheint nicht mehr als
+  eigenständige, gleichwertige Rolle neben echten Rollen wie "Senior Consultant".
+- **Bewusst NICHT verändert:** Response-Schemas der bestehenden Endpunkte
+  (`CapacityGapOut`/`PortfolioAllocationGapEntry`/`RoleAnalysisEntry`/`CockpitCapacity`) —
+  nur die Berechnung dahinter wechselt, keine neue API-Landschaft (B-5-Vorgabe).
+- **Verifikation:** `backend/scripts/test_derived_monthly_capacity.py` — prüft
+  `monthly_distribution` exakt gegen das vollständig durchgerechnete Red-Bull-WMS-Beispiel aus
+  Abschnitt 6a.6 (112,0 h Oktober / 160,0 h November), `compute_project_monthly_capacity`
+  inkl. Parent-Ignoranz, den neuen Endpoint, den Cockpit-Cutover (inkl. Beweis, dass die alte
+  `ResourceDemand`-Summe nicht mehr einfließt) und die Rollen-Governance. Alle Prüfungen
+  grün, `check_migrations.py`/B-2/B-3/B-4-Skripte weiterhin grün (keine Schema-Änderung in
+  diesem Paket).
+- **Nächstes Paket:** B-6 (PlanPhase Tree UX: Baum-UI in Liste/Gantt/Workspace, Löschverhalten
+  gemäß BD-11 in der UI) — größtes verbleibendes Frontend-Einzelpaket, siehe Pass-2-Dokument
+  Abschnitt 35.5.
+
+### 16.12 P18 Implementierung — B-6 PlanPhase Tree UX (dieser Durchgang)
+
+**Sechstes Umsetzungspaket, Validation Gate bestanden.** Erstes Frontend-Paket — verdrahtet
+B-1–B-5 erstmals sichtbar in die Bedienoberfläche (CONCEPT.md Abschnitt 6b, Pass-2-Dokument
+Abschnitt 35.5 Paket B-6):
+
+- **`PlanPhaseList.tsx`/`PlanPhaseGantt.tsx`:** von Teilprojekt-Gruppierung auf echte
+  Baum-Darstellung nach `parent_phase_id` umgestellt (rekursiv, max. 3 Ebenen, BD-10) —
+  Collapse/Expand pro Sammelphase, "+ Unterphase hinzufügen" pro Zeile (ausgeblendet auf
+  Ebene 3). Eine Sammelphase (`has_children`) zeigt `derived_forecast_start/end`/
+  `derived_capacity` ("abgeleitet"/"aggregiert") statt editierbarer eigener Werte; im Gantt
+  ein umrandeter Summary-Balken statt eines gefüllten Leaf-Balkens.
+- **`PlanPhaseCreateModal.tsx`:** "Übergeordnete Phase"-Select ersetzt das bisherige
+  "Teilprojekt"-Select als primären Strukturierungs-Mechanismus (`subproject_id` bleibt im
+  Modell compat-only bestehen, aber keine neue Bedienoberfläche dafür) — Ebene-3-Phasen
+  werden aus der Auswahl gefiltert (Frontend-Vorfilterung, Backend validiert unabhängig
+  davon verbindlich).
+- **`PlanPhaseWorkspace.tsx`:** zeigt "Übergeordnete Phase"-Breadcrumb, "+ Unterphase"-Aktion
+  (tiefenbegrenzt), verzweigt Zeitraum/Kapazität-Anzeige und den Kapazität-Tab auf
+  Leaf-vs-Parent (Parent: read-only aggregierte Ansicht, keine Assignments — Abschnitt 6b.3).
+- **`PlanPhaseCapacityTab.tsx`:** komplett neu strukturiert nach Abschnitt 5 — **primär**
+  Direct-Assignment-UX ("Personenbesetzung", `[+ Mitarbeiter zuweisen]` ohne Rollenzwang,
+  zeigt Available Capacity über den Phasenzeitraum vor dem Zuweisen sowie
+  Bedarf/Besetzt/Offen danach), die bestehende Rollen-Aufschlüsselung bleibt als
+  eingeklappter, explizit optionaler Zusatzabschnitt "Rollen aufschlüsseln (optional)"
+  bestehen — nie Voraussetzung für eine normale Personenzuweisung.
+- **`PlanPhaseDeleteDialog.tsx`** (neu): setzt BD-11 in der UI um — Standard-Löschen zeigt bei
+  `409` einen Blockier-Dialog mit "Unterphasen auf Top-Level verschieben, dann löschen" und
+  "Gesamten Zweig löschen …" (mit Impact-Anzeige aus `subtree-impact` und
+  Namens-Bestätigung), nie eine stille Kaskade.
+- **`api/client.ts`/`types.ts`:** neue Typen/Endpunkte für alle B-3/B-4/B-5-Schnittstellen
+  (`reparentPlanPhaseChildren`, `getPlanPhaseSubtreeImpact`, `deletePlanPhaseSubtree`,
+  `getPlanPhaseAssignmentSummary`, `assignPersonToPlanPhase`,
+  `unassignPersonFromPlanPhase`, `getPlanPhaseAssignmentCandidates`,
+  `getPersonCapacityRange`, `getProjectMonthlyCapacity`); `tryDeletePlanPhase` gibt den
+  409-Fall als typisiertes Ergebnis statt als geworfene Exception zurück, damit der
+  Blockier-Dialog sauber angezeigt werden kann.
+- **Verifikation:** manueller Browser-Durchlauf (Backend + Vite-Dev-Server lokal gestartet,
+  Chromium-Smoke-Test) — Baum anlegen (Top-Level + Unterphase, Sammelphase zeigt
+  abgeleitete Werte korrekt), Direct Assignment inkl. Available-Capacity-Vorschau und
+  Bedarf/Besetzt/Offen (auch Überbesetzung), BD-11-Blockier-Dialog bei Löschversuch einer
+  Sammelphase — alles wie spezifiziert. `npx tsc -b` und `npx oxlint` clean. Kein
+  automatisierter Playwright-Testlauf in diesem Paket (im Repo bislang keine
+  Playwright-Infrastruktur vorhanden) — das Aufsetzen eines dauerhaften E2E-Test-Setups ist
+  ein eigenständiges Vorhaben, hier bewusst nicht mit-erledigt; die B-3/B-4/B-5
+  Backend-Skripte und dieser manuelle Durchlauf sind der aktuelle Verifikationsstand.
+- **Bewusst unverändert in diesem Paket:** `ResourceDemandGrid.tsx` (Grobplanungs-UI) und die
+  Subproject-Verwaltung in `ProjectPlanningTab.tsx` bleiben bestehen (Legacy-Cutover ist
+  B-8); `MilestoneList.tsx` nutzt weiterhin `subproject_id` (Migration auf `plan_phase_id`
+  ist B-7).
+- **Nächstes Paket:** B-7 (Gantt/Milestone/Planstand Integration: `Milestone.plan_phase_id`
+  operativ in Router+UI, Baseline friert Baumstruktur ein) — siehe Pass-2-Dokument
+  Abschnitt 35.5.
+
+### 16.13 P18 Implementierung — B-7 Gantt/Milestone/Planstand Integration (dieser Durchgang)
+
+**Siebtes Umsetzungspaket, Validation Gate bestanden** (CONCEPT.md Abschnitt 6b.8/6b.14,
+Pass-2-Dokument Abschnitt 35.5 Paket B-7):
+
+- **`Milestone.plan_phase_id` ist jetzt operativ** (Router + UI): `POST`/`PUT
+  /projects/{id}/milestones` nehmen `plan_phase_id` statt `subproject_id` als primäre
+  Verknüpfung entgegen (neuer Guard `_check_milestone_plan_phase` — Projekt-Grenze, aber
+  **keine** Hierarchie-Validierung, da ein Milestone bewusst sowohl an eine Leaf- als auch an
+  eine Parent-Phase gehängt werden darf, Abschnitt 6b.8). `subproject_id` bleibt
+  compat-only im Modell bestehen.
+- **`_SNAPSHOT_FIELDS`/`DEVIATION_FIELDS` erweitert** (`baseline_calc.py`/`routers/
+  baselines.py`): ein Planstand friert jetzt zusätzlich `PlanPhase.parent_phase_id`/
+  `reihenfolge` und `Milestone.plan_phase_id` ein — additiv, keine Schemaänderung nötig
+  (`BaselineEntry` ist generisch genug). `parent_phase_id`/`plan_phase_id` sind zusätzlich
+  als sichtbare Deviation registriert (`reihenfolge` bewusst nicht — reine Sortierposition
+  ist keine fachlich sichtbare Abweichung).
+- **`MilestoneList.tsx`:** "Übergeordnete Phase"-Select ersetzt das "Teilprojekt"-Select
+  (lädt `PlanPhase`s selbst über `listPlanPhases`, analog zu `PlanPhaseList.tsx`).
+- **`BaselineList.tsx`:** neue Feldbeschriftung "Übergeordnete Phase" für
+  `parent_phase_id`/`plan_phase_id`, mit Namensauflösung gegen den aktuellen `PlanPhase`-Baum
+  statt roher IDs (`"Wareneingang → Top-Level"` statt `"2 → null"`) — genau das in Abschnitt
+  6b.14/Pass-2-Dokument Abschnitt 16 geforderte Beispiel, jetzt verifiziert.
+- **Verifikation:** `backend/scripts/test_milestone_and_baseline_tree.py` (Milestone an
+  Leaf/Parent, Projekt-Grenze, Snapshot-Felder, Deviation nach Reparenting) plus manueller
+  Browser-Durchlauf (Milestone anlegen und mit Phasennamen statt ID anzeigen; Planstand vor
+  einem Reparenting festhalten, danach zeigt der Vergleich exakt
+  "Übergeordnete Phase: Wareneingang → Top-Level"). Alle Prüfungen grün, `check_migrations.py`/
+  B-2/B-3/B-4/B-5-Skripte weiterhin grün (keine Schema-Änderung in diesem Paket).
+- **Bewusst unverändert:** `PlanPhaseGantt.tsx` (Tree-Gantt kam bereits mit B-6);
+  `ResourceDemandGrid.tsx`/Subproject-Verwaltung bleiben bestehen (B-8).
+- **Nächstes Paket:** B-8 (Legacy Cutover: `ResourceDemandGrid.tsx` entfernen/deprecaten,
+  Subproject-UI als deprecated markieren, vollständige Regression, finales CONCEPT.md-Update
+  auf "implementiert") — abhängig von einer tatsächlich ausgeführten B-2-Migration, siehe
+  Pass-2-Dokument Abschnitt 35.5.
+
+### 16.14 P18 Implementierung — B-8 Legacy Cutover (dieser Durchgang, TEILWEISE — bewusst
+nicht abgeschlossen)
+
+**Achtes und letztes Paket. Nur der nicht-destruktive, migrationsunabhängige Teil wurde in
+diesem Durchgang umgesetzt — der eigentliche Cutover (Entfernen von
+`ResourceDemandGrid.tsx`/Subproject-UI) bleibt bewusst BLOCKIERT**, exakt wie im
+Pass-2-Dokument Abschnitt 35.5 (Paket B-8) und CONCEPT.md Abschnitt 6b.12 spezifiziert:
+Dependency ist eine **tatsächlich gegen Produktivdaten ausgeführte B-2-Migration**, und diese
+Ausführung erfordert laut Auftragsvorgabe (Abschnitt 25/35.2) eine **gesonderte Freigabe** —
+kein automatischer Trigger durch einen Implementierungsdurchgang. Ohne diese Migration hätten
+real existierende Projekte mit produktiver Grobplanung (`ResourceDemand.plan_phase_id IS
+NULL`) nach einem Entfernen von `ResourceDemandGrid.tsx` keinen Bedienweg mehr für ihre
+bereits gepflegten Daten — das wäre ein Datenverlust-Risiko für die Nutzer:innen, keine reine
+Aufräumarbeit.
+
+**In diesem Durchgang umgesetzt (sicher, nicht-destruktiv, jederzeit rückgängig machbar):**
+
+- `ResourceDemandGrid.tsx`: `@deprecated`-Dokumentationskommentar ergänzt (P18/B-8,
+  Ablösung durch den PlanPhase-Baum erklärt, Bedingung für die tatsächliche Entfernung
+  benannt) — Komponente selbst **unverändert funktionsfähig**.
+- `client.ts`: `createSubproject`/`updateSubproject`/`deleteSubproject`/
+  `listAllSubprojects` mit `@deprecated`-JSDoc markiert (keine neuen Aufrufstellen anlegen) —
+  Funktionen selbst **unverändert funktionsfähig**.
+- `routers/projects.py::list_all_subprojects` und `routers/capacity.py::create_resource_demand`:
+  Docstrings ergänzt, die den Legacy-Status bzw. den dokumentierten Legacy-Pfad
+  (`plan_phase_id = None`) erklären — **keine Verhaltensänderung, keine Validierungssperre**
+  (bewusst kein Blocker in diesem Paket, siehe Pass-2-Dokument Abschnitt 30/B-8-Scope).
+- Vollständige Regression der bestehenden Verifikationsskripte (`check_migrations.py`,
+  B-2–B-7-Skripte) nach diesen Änderungen: alle weiterhin grün.
+
+**Bewusst NICHT umgesetzt (blockiert, bis eine Migrationsausführung freigegeben und
+durchgeführt wurde):**
+
+- `ResourceDemandGrid.tsx` **nicht gelöscht** — bleibt die einzige Bedienoberfläche für
+  bestehende Grobplanungsdaten realer Projekte.
+- Subproject-Verwaltungs-UI in `ProjectPlanningTab.tsx` **nicht entfernt**.
+- `subprojects`-Tabelle/`subproject_id`-Spalten: kein Schema-Drop (war ohnehin nie Teil von
+  B-8, siehe Abschnitt 6b.7 — bleibt dauerhaft compat-only, unabhängig vom UI-Cutover).
+- Finales CONCEPT.md-Update auf durchgängig "implementiert" (statt "Zielverhalten,
+  teilweise Ist-Zustand"): folgt erst, wenn B-8 tatsächlich vollständig abgeschlossen werden
+  kann.
+
+**Ergebnis dieses Durchgangs: B-1–B-7 vollständig implementiert und verifiziert (Backend
+durchgängig, Frontend seit B-6 bedienbar), B-8 vorbereitet, aber mit offenem
+Freigabe-/Ausführungsschritt (B-2-Migration gegen Produktivdaten) als einzigem verbleibenden
+Blocker für den vollständigen Legacy-Cutover.** Kein Code-technisches Risiko, keine neue
+Architekturfrage — reine Frage des Zeitpunkts/der Freigabe für einen produktionswirksamen
+Datenmigrationslauf.
 
 ---
 

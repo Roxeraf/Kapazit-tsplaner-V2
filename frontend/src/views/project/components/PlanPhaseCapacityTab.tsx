@@ -1,13 +1,21 @@
 import { useEffect, useState } from "react";
 import { api } from "../../../api/client";
 import PersonPicker from "../../../components/PersonPicker";
-import type { AdminResourceRole, CandidatePerson, PhaseMetricsOut, ResourceAssignment, ResourceDemand } from "../../../types";
+import type {
+  AdminResourceRole,
+  CandidatePerson,
+  PhaseMetricsOut,
+  PlanPhaseAssignmentSummary,
+  ResourceAssignment,
+  ResourceDemand,
+} from "../../../types";
 
 const MONAT_NAMEN = ["Jan", "Feb", "Mrz", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
 
 // Periode ("Apr 26") aus forecast_start ableiten - ResourceDemand ist im Backend immer
-// periodengebunden (constants.parse_period), auch wenn die Kapazitäts-UX pro Phase nur eine
-// einzelne Rolle-FTE-Zeile zeigen will. Für Phasen ohne Termin: laufender Monat.
+// periodengebunden (constants.parse_period), auch wenn die optionale Rollen-Aufschlüsselung
+// pro Phase nur eine einzelne Rolle-FTE-Zeile zeigen will. Für Phasen ohne Termin: laufender
+// Monat.
 function defaultPeriod(forecastStart: string | null): string {
   const d = forecastStart ? new Date(forecastStart + "T00:00:00") : new Date();
   if (Number.isNaN(d.getTime())) return `${MONAT_NAMEN[new Date().getMonth()]} ${String(new Date().getFullYear()).slice(2)}`;
@@ -16,6 +24,96 @@ function defaultPeriod(forecastStart: string | null): string {
 
 function fmtFte(v: number | null | undefined): string {
   return v == null ? "—" : `${v.toFixed(2)} FTE`;
+}
+
+// P18/B-6 (CONCEPT.md Abschnitt 5): Direct Assignment UX - primärer Weg, eine Person
+// zuzuordnen, OHNE vorher eine Rolle wählen zu müssen. Zeigt die verfügbare Kapazität der
+// gewählten Person über den GESAMTEN Phasenzeitraum (Abschnitt 6b.11,
+// compute_person_capacity_for_range), nicht nur einen Monats-Bucket.
+function AssignPersonForm({
+  planPhaseId,
+  forecastStart,
+  forecastEnd,
+  onAssigned,
+  onCancel,
+}: {
+  planPhaseId: number;
+  forecastStart: string | null;
+  forecastEnd: string | null;
+  onAssigned: () => void;
+  onCancel: () => void;
+}) {
+  const [candidates, setCandidates] = useState<CandidatePerson[]>([]);
+  const [personId, setPersonId] = useState<number | null>(null);
+  const [fte, setFte] = useState(0.2);
+  const [availableFte, setAvailableFte] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getPlanPhaseAssignmentCandidates(planPhaseId).then(setCandidates).catch(() => setCandidates([]));
+  }, [planPhaseId]);
+
+  useEffect(() => {
+    setAvailableFte(null);
+    if (personId == null || !forecastStart || !forecastEnd) return;
+    api
+      .getPersonCapacityRange(personId, forecastStart, forecastEnd)
+      .then((c) => setAvailableFte(c.available_fte))
+      .catch(() => setAvailableFte(null));
+  }, [personId, forecastStart, forecastEnd]);
+
+  const handleAssign = async () => {
+    if (personId == null) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.assignPersonToPlanPhase(planPhaseId, { person_id: personId, fte });
+      onAssigned();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const restDanach = availableFte != null ? availableFte - fte : null;
+
+  return (
+    <div style={{ marginTop: "0.5rem", padding: "0.6rem", background: "#f7f9fc", borderRadius: "0.4rem" }}>
+      {error && <p style={{ color: "var(--rot)", fontSize: "0.78rem" }}>{error}</p>}
+      <div className="field-row" style={{ marginTop: 0 }}>
+        <label style={{ flex: 1 }}>
+          Person
+          <PersonPicker value={personId} onChange={setPersonId} />
+        </label>
+        <label>
+          FTE
+          <input type="number" min={0.05} max={2} step={0.05} value={fte} onChange={(e) => setFte(Number(e.target.value))} style={{ width: "4.5rem" }} />
+        </label>
+      </div>
+      {personId != null && (
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
+          {availableFte == null
+            ? "Verfügbare Kapazität über den Phasenzeitraum unbekannt (kein Zeitraum oder keine Kapazitätsdaten)."
+            : `Verfügbar: ${availableFte.toFixed(2)} FTE · Rest danach: ${restDanach!.toFixed(2)} FTE`}
+        </p>
+      )}
+      {candidates.length > 0 && (
+        <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0.3rem 0 0" }}>
+          Vorschläge: {candidates.slice(0, 5).map((c) => `${c.display_name} (${c.available_fte.toFixed(2)})`).join(", ")}
+        </p>
+      )}
+      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+        <button type="button" className="btn" disabled={personId == null || saving} onClick={handleAssign}>
+          {saving ? "Speichert …" : "Zuweisen"}
+        </button>
+        <button type="button" className="btn secondary" onClick={onCancel}>
+          Abbrechen
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function DemandAssignments({ demand, onChanged }: { demand: ResourceDemand; onChanged: () => void }) {
@@ -89,15 +187,17 @@ function DemandAssignments({ demand, onChanged }: { demand: ResourceDemand; onCh
   );
 }
 
-// P11 (PlanPhase Workspace, Tab "Kapazität"): Plan-FTE + Planstunden als Kopfzeile, darunter
-// die Rollen-Aufschlüsselung (ResourceDemand, plan_phase_id-gefiltert) inkl. Personenbesetzung
-// (ResourceAssignment) - in schlichter Fachsprache statt Backend-Begriffen. Reine
-// Wiederverwendung bestehender Endpoints (routers/capacity.py), keine neuen.
+// P11/P18-B6 (PlanPhase Workspace, Tab "Kapazität"): Plan-FTE + Planstunden als Kopfzeile,
+// darunter PRIMÄR die direkte Personenbesetzung ohne Rollen-Zwang (Abschnitt 5/6b.4/6b.10) -
+// "Bedarf/Besetzt/Offen". Die Rollen-Aufschlüsselung (ResourceDemand) bleibt als expliziter,
+// eingeklappter Zusatzabschnitt "Rollen aufschlüsseln" bestehen (optional, Abschnitt 6b.4) -
+// niemals Voraussetzung für eine normale Personenzuweisung.
 export default function PlanPhaseCapacityTab({
   projectId,
   planPhaseId,
   planFte,
   forecastStart,
+  forecastEnd,
   demands,
   metrics,
   onChanged,
@@ -106,19 +206,40 @@ export default function PlanPhaseCapacityTab({
   planPhaseId: number;
   planFte: number | null;
   forecastStart: string | null;
+  forecastEnd: string | null;
   demands: ResourceDemand[];
   metrics: PhaseMetricsOut;
   onChanged: () => void;
 }) {
+  const [summary, setSummary] = useState<PlanPhaseAssignmentSummary | null>(null);
+  const [showAssignForm, setShowAssignForm] = useState(false);
+  const [showRoleBreakdown, setShowRoleBreakdown] = useState(demands.length > 0);
   const [roles, setRoles] = useState<AdminResourceRole[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [addRoleId, setAddRoleId] = useState("");
   const [addFte, setAddFte] = useState(0.2);
   const [error, setError] = useState<string | null>(null);
 
+  const refreshSummary = () => {
+    api.getPlanPhaseAssignmentSummary(planPhaseId).then(setSummary).catch(() => setSummary(null));
+  };
+
+  useEffect(refreshSummary, [planPhaseId]);
   useEffect(() => {
     api.listResourceRoles().then(setRoles).catch(() => setRoles([]));
   }, []);
+
+  const handleAssigned = () => {
+    setShowAssignForm(false);
+    refreshSummary();
+    onChanged();
+  };
+
+  const handleUnassign = async (personId: number) => {
+    await api.unassignPersonFromPlanPhase(planPhaseId, personId);
+    refreshSummary();
+    onChanged();
+  };
 
   const handleAddDemand = async () => {
     if (!addRoleId) return;
@@ -144,22 +265,21 @@ export default function PlanPhaseCapacityTab({
   };
 
   // P14.2 (Reconciliation sichtbar): plan_fte bleibt führend (CONCEPT.md Abschnitt 3/6) - wenn
-  // die Rollen-Aufschlüsselung mehr FTE summiert als geplant, wird das nicht automatisch
-  // korrigiert, sondern klar erklärt statt eine verwirrende negative Zahl zu zeigen.
-  const openFte = metrics.reconciliation.open_fte;
-  const overAllocated = openFte != null && openFte < 0;
+  // die optionale Rollen-Aufschlüsselung mehr FTE summiert als geplant, wird das nicht
+  // automatisch korrigiert, sondern klar erklärt statt eine verwirrende negative Zahl zu zeigen.
+  const breakdownOpenFte = metrics.reconciliation.open_fte;
+  const breakdownOverAllocated = breakdownOpenFte != null && breakdownOpenFte < 0;
+
+  const assignmentOpenFte = summary?.open_fte ?? null;
+  const overassigned = assignmentOpenFte != null && assignmentOpenFte < 0;
 
   return (
     <div>
       <div className="card" style={{ marginBottom: "0.75rem" }}>
-        <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Phasenaufwand</h4>
-        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 0 }}>
-          Der Aufwand dieser einen Phase - unabhängig von der projektweiten Monatsansicht "Projektkapazität nach
-          Monat" weiter oben im Planung-Tab (zwei getrennte Achsen, keine doppelte Pflege).
-        </p>
+        <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Kapazität</h4>
         <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem" }}>
           <div>
-            <strong>Plan-Aufwand:</strong> {fmtFte(planFte)}
+            <strong>Geplanter Ressourcenbedarf:</strong> {fmtFte(planFte)}
           </div>
           <div>
             <strong>Planstunden:</strong> {metrics.plan_hours == null ? "—" : `${metrics.plan_hours} h`}
@@ -167,77 +287,161 @@ export default function PlanPhaseCapacityTab({
         </div>
       </div>
 
-      <div className="card">
-        <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Aufschlüsselung</h4>
-        {demands.length === 0 ? (
-          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Rollen-Aufschlüsselung.</p>
-        ) : (
-          demands.map((d) => (
-            <div key={d.id} style={{ marginBottom: "0.5rem", paddingBottom: "0.4rem", borderBottom: "1px solid var(--border)" }}>
-              <div className="toolbar">
-                <button
-                  type="button"
-                  onClick={() => setExpandedId(expandedId === d.id ? null : d.id)}
-                  style={{ border: "none", background: "none", cursor: "pointer", textAlign: "left", padding: 0, fontSize: "0.88rem", fontWeight: 600, color: "var(--navy)" }}
-                >
-                  {expandedId === d.id ? "▾" : "▸"} {d.resource_role_name}
-                </button>
-                <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", fontSize: "0.85rem" }}>
-                  <span>Bedarf {d.fte.toFixed(2)} FTE</span>
-                  <span style={{ color: d.allocation_gap > 0 ? "var(--rot)" : "var(--gruen)" }}>
-                    Besetzt {d.assigned_fte.toFixed(2)}
-                    {d.allocation_gap > 0 && ` · noch unbesetzt ${d.allocation_gap.toFixed(2)}`}
-                  </span>
-                  <button type="button" onClick={() => handleDeleteDemand(d.id)} style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}>
-                    ×
-                  </button>
-                </div>
-              </div>
-              {expandedId === d.id && <DemandAssignments demand={d} onChanged={onChanged} />}
-            </div>
-          ))
-        )}
-
-        <div style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>
-              <strong>Aufgeschlüsselt:</strong> {fmtFte(metrics.reconciliation.breakdown_fte)}
-            </span>
-            {!overAllocated && (
-              <span>
-                <strong>Noch nicht aufgeschlüsselt:</strong> {fmtFte(openFte)}
-              </span>
-            )}
-          </div>
-          {overAllocated && (
-            <p style={{ color: "var(--rot)", margin: "0.3rem 0 0", fontSize: "0.82rem" }}>
-              Aufgeschlüsselter Bedarf liegt {Math.abs(openFte!).toFixed(2)} FTE über dem geplanten
-              Phasenaufwand. Plan-FTE bleibt führend.
-            </p>
+      <div className="card" style={{ marginBottom: "0.75rem" }}>
+        <div className="toolbar">
+          <h4 style={{ color: "var(--navy)", margin: 0 }}>Personenbesetzung</h4>
+          {!showAssignForm && (
+            <button type="button" className="btn secondary" style={{ fontSize: "0.78rem" }} onClick={() => setShowAssignForm(true)}>
+              + Mitarbeiter zuweisen
+            </button>
           )}
         </div>
 
-        {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
-        <div className="field-row" style={{ marginTop: "0.6rem" }}>
-          <label>
-            Rolle hinzufügen
-            <select value={addRoleId} onChange={(e) => setAddRoleId(e.target.value)}>
-              <option value="">— wählen —</option>
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            FTE
-            <input type="number" min={0.1} step={0.1} value={addFte} onChange={(e) => setAddFte(Number(e.target.value))} style={{ width: "4.5rem" }} />
-          </label>
-          <button type="button" className="btn secondary" style={{ alignSelf: "flex-end" }} disabled={!addRoleId} onClick={handleAddDemand}>
-            + Hinzufügen
-          </button>
-        </div>
+        {summary == null ? (
+          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Lädt …</p>
+        ) : summary.assignments.length === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.4rem" }}>Noch niemand zugeordnet.</p>
+        ) : (
+          <div style={{ marginTop: "0.4rem" }}>
+            {summary.assignments.map((a) => (
+              <div key={a.person_id} className="toolbar" style={{ fontSize: "0.85rem", padding: "0.15rem 0" }}>
+                <span>
+                  {a.person_name} — {a.fte.toFixed(2)} FTE
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleUnassign(a.person_id)}
+                  style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showAssignForm && (
+          <AssignPersonForm
+            planPhaseId={planPhaseId}
+            forecastStart={forecastStart}
+            forecastEnd={forecastEnd}
+            onAssigned={handleAssigned}
+            onCancel={() => setShowAssignForm(false)}
+          />
+        )}
+
+        {summary != null && (
+          <div
+            style={{
+              marginTop: "0.6rem",
+              paddingTop: "0.5rem",
+              borderTop: "1px solid var(--border)",
+              display: "flex",
+              gap: "1rem",
+              flexWrap: "wrap",
+              fontSize: "0.85rem",
+            }}
+          >
+            <span>
+              <strong>Bedarf:</strong> {fmtFte(summary.plan_fte)}
+            </span>
+            <span>
+              <strong>Besetzt:</strong> {summary.assigned_fte.toFixed(2)}
+            </span>
+            <span style={{ color: overassigned ? "var(--rot)" : undefined }}>
+              <strong>{overassigned ? "Überbesetzt:" : "Offen:"}</strong>{" "}
+              {assignmentOpenFte == null ? "—" : Math.abs(assignmentOpenFte).toFixed(2)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <button
+          type="button"
+          onClick={() => setShowRoleBreakdown((v) => !v)}
+          style={{ border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: "0.88rem", fontWeight: 600, color: "var(--navy)" }}
+        >
+          {showRoleBreakdown ? "▾" : "▸"} Rollen aufschlüsseln (optional)
+        </button>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.3rem 0 0" }}>
+          Nie Voraussetzung für eine direkte Personenzuweisung - nur zur optionalen
+          Rollen-/Skill-Aufschlüsselung des Bedarfs.
+        </p>
+
+        {showRoleBreakdown && (
+          <div style={{ marginTop: "0.5rem" }}>
+            {demands.length === 0 ? (
+              <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Rollen-Aufschlüsselung.</p>
+            ) : (
+              demands.map((d) => (
+                <div key={d.id} style={{ marginBottom: "0.5rem", paddingBottom: "0.4rem", borderBottom: "1px solid var(--border)" }}>
+                  <div className="toolbar">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(expandedId === d.id ? null : d.id)}
+                      style={{ border: "none", background: "none", cursor: "pointer", textAlign: "left", padding: 0, fontSize: "0.88rem", fontWeight: 600, color: "var(--navy)" }}
+                    >
+                      {expandedId === d.id ? "▾" : "▸"} {d.resource_role_name}
+                    </button>
+                    <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", fontSize: "0.85rem" }}>
+                      <span>Bedarf {d.fte.toFixed(2)} FTE</span>
+                      <span style={{ color: d.allocation_gap > 0 ? "var(--rot)" : "var(--gruen)" }}>
+                        Besetzt {d.assigned_fte.toFixed(2)}
+                        {d.allocation_gap > 0 && ` · noch unbesetzt ${d.allocation_gap.toFixed(2)}`}
+                      </span>
+                      <button type="button" onClick={() => handleDeleteDemand(d.id)} style={{ border: "none", background: "none", color: "var(--rot)", cursor: "pointer" }}>
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                  {expandedId === d.id && <DemandAssignments demand={d} onChanged={onChanged} />}
+                </div>
+              ))
+            )}
+
+            <div style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>
+                  <strong>Aufgeschlüsselt:</strong> {fmtFte(metrics.reconciliation.breakdown_fte)}
+                </span>
+                {!breakdownOverAllocated && (
+                  <span>
+                    <strong>Noch nicht aufgeschlüsselt:</strong> {fmtFte(breakdownOpenFte)}
+                  </span>
+                )}
+              </div>
+              {breakdownOverAllocated && (
+                <p style={{ color: "var(--rot)", margin: "0.3rem 0 0", fontSize: "0.82rem" }}>
+                  Aufgeschlüsselter Bedarf liegt {Math.abs(breakdownOpenFte!).toFixed(2)} FTE über dem geplanten
+                  Ressourcenbedarf. Geplanter Ressourcenbedarf bleibt führend.
+                </p>
+              )}
+            </div>
+
+            {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
+            <div className="field-row" style={{ marginTop: "0.6rem" }}>
+              <label>
+                Rolle hinzufügen
+                <select value={addRoleId} onChange={(e) => setAddRoleId(e.target.value)}>
+                  <option value="">— wählen —</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                FTE
+                <input type="number" min={0.1} step={0.1} value={addFte} onChange={(e) => setAddFte(Number(e.target.value))} style={{ width: "4.5rem" }} />
+              </label>
+              <button type="button" className="btn secondary" style={{ alignSelf: "flex-end" }} disabled={!addRoleId} onClick={handleAddDemand}>
+                + Hinzufügen
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

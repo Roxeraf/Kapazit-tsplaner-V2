@@ -20,6 +20,10 @@ router = APIRouter(prefix="/projects", tags=["baselines"])
 # plan_fte seit P11 (Planungs-/Kapazitätskonsolidierung) mit eingefroren, da plan_fte die
 # Source of Truth für geplanten Aufwand ist - ein Planstand ohne plan_fte könnte historischen
 # Aufwand nicht rekonstruieren.
+# P18/B-7 (CONCEPT.md Abschnitt 6b.14): parent_phase_id/reihenfolge (PlanPhase) und
+# plan_phase_id (Milestone) zusätzlich eingefroren, damit ein Planstand künftig auch den
+# PlanPhase-Baum rekonstruieren kann (Kind neu hinzugekommen/entfernt, Parent geändert,
+# Phase verschoben) - additiv, keine Schemaänderung nötig (BaselineEntry ist generisch genug).
 _SNAPSHOT_FIELDS: dict[str, list[str]] = {
     "plan_phase": [
         "phase_type",
@@ -29,8 +33,10 @@ _SNAPSHOT_FIELDS: dict[str, list[str]] = {
         "forecast_end",
         "plan_fte",
         "status",
+        "parent_phase_id",
+        "reihenfolge",
     ],
-    "milestone": ["name", "baseline_date", "forecast_date", "status"],
+    "milestone": ["name", "baseline_date", "forecast_date", "status", "plan_phase_id"],
 }
 
 

@@ -30,6 +30,14 @@ zusätzlich:
    ensure_role_deletable() (routers/capacity.py, ehem. Audit-Defekt #3) blockiert die
    Systemrolle "Ohne Rolle" (409), lässt eine normale Rolle aber unangetastet.
 
+P19.2 (Kapazität-Tab Round-Trip-Reduktion) zusätzlich:
+
+10. GET /plan-phases/{id} (PlanPhaseDetail) bettet additiv assignment_summary ein, identisch
+    zum eigenständigen GET .../assignment-summary-Endpoint (der weiterhin unverändert besteht).
+11. ResourceDemandOut.assignments (auf resource_demands sowohl im Detail als auch im
+    eigenständigen /resource-demands-Endpoint) liefert dieselben ResourceAssignments, die
+    vorher nur über einen eigenen Call pro Demand erreichbar waren (N+1-Fix).
+
 Aufruf: python backend/scripts/test_direct_assignment_and_capacity_range.py
 Exit-Code 0 bei Erfolg, sonst 1.
 """
@@ -181,6 +189,30 @@ def main() -> None:
     ]
     if len(demands_for_phase_after) != 1:
         _fail("Idempotenz Carrier-Demand", f"erwartet weiterhin 1 Demand: {demands_for_phase_after}")
+
+    print("4b/6  P19.2: PlanPhaseDetail bettet assignment_summary + resource_demands[].assignments ein ...")
+    carrier_demand = demands_for_phase_after[0]
+    if {a["person_id"] for a in carrier_demand.get("assignments", [])} != {dominik["id"], max_["id"]}:
+        _fail(
+            "ResourceDemandOut.assignments (N+1-Fix)",
+            f"erwartet Dominik+Max eingebettet in der Carrier-Demand, bekommen: {carrier_demand}",
+        )
+    detail = client.get(f"/projects/plan-phases/{phase_id}").json()
+    embedded_summary = detail.get("assignment_summary")
+    standalone_summary = client.get(f"/projects/plan-phases/{phase_id}/assignment-summary").json()
+    if embedded_summary != standalone_summary:
+        _fail(
+            "PlanPhaseDetail.assignment_summary",
+            f"weicht vom eigenständigen assignment-summary-Endpoint ab: {embedded_summary} vs {standalone_summary}",
+        )
+    if embedded_summary["assigned_fte"] != 0.5 or embedded_summary["open_fte"] != -0.1:
+        _fail("PlanPhaseDetail.assignment_summary", f"erwartet assigned_fte=0.5/open_fte=-0.1: {embedded_summary}")
+    detail_carrier_demand = next(d for d in detail["resource_demands"] if d["id"] == carrier_demand["id"])
+    if {a["person_id"] for a in detail_carrier_demand["assignments"]} != {dominik["id"], max_["id"]}:
+        _fail(
+            "PlanPhaseDetail.resource_demands[].assignments",
+            f"weicht vom eigenständigen resource-demands-Endpoint ab: {detail_carrier_demand}",
+        )
 
     print("5/6  Direkte Zuordnung auf einer Parent-Phase wird abgelehnt ...")
     child_resp = client.post(

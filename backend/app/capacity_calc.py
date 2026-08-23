@@ -199,6 +199,39 @@ def compute_project_monthly_capacity(
     return {period: totals.get(period, 0.0) for period in periods}
 
 
+def compute_project_monthly_capacity_breakdown(
+    db: Session, project_id: int, periods: list[str] | None = None
+) -> dict[str, list[tuple[int, str, float]]]:
+    """Per-Phase-Aufschlüsselung von compute_project_monthly_capacity (P19.7, CONCEPT.md
+    Abschnitt 6b.6/Auftrag Abschnitt 20): identische Quelle und derselbe
+    monthly_distribution()-Aufruf je Leaf-PlanPhase wie oben - hier nur zusätzlich nach
+    beitragender Phase aufgeschlüsselt statt sofort aufsummiert, für die
+    Monats-Drilldown-Darstellung im Planning-Tab ("Oktober: Pflichtenheft 48h, Konfiguration
+    67h, Gesamt 115h"). Kein neuer Berechnungsweg, keine zweite Stundenformel - reine
+    Darstellungs-Erweiterung. Rückgabe: Periode -> Liste von (plan_phase_id, phase_type,
+    Stunden), nur Phasen mit > 0 Stunden in diesem Monat (eine Parent-Phase trägt wie oben nie
+    bei, da plan_fte=None -> monthly_distribution() liefert {})."""
+    from . import phase_metrics_calc
+
+    phases = db.query(models.PlanPhase).filter(models.PlanPhase.project_id == project_id).all()
+    breakdown: dict[str, list[tuple[int, str, float]]] = {}
+    for phase in phases:
+        distribution = phase_metrics_calc.monthly_distribution(
+            phase.plan_fte, phase.forecast_start, phase.forecast_end
+        )
+        for period, hours in distribution.items():
+            if periods is not None and period not in periods:
+                continue
+            rounded = round(hours, 2)
+            if rounded == 0.0:
+                continue
+            breakdown.setdefault(period, []).append((phase.id, phase.phase_type, rounded))
+    if periods is not None:
+        for period in periods:
+            breakdown.setdefault(period, [])
+    return breakdown
+
+
 def hours_to_fte_equivalent(hours: float, period: str) -> float:
     """Stunden -> FTE-Äquivalent für einen Monats-Bucket (Abschnitt 6a.6: "Stunden /
     (Werktage_Monat × 8)"), z.B. für die UI-Rückrechnung einer Projektkapazität-Zeile oder um

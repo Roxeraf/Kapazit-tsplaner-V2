@@ -157,6 +157,10 @@ export interface Comment {
   phase_code: PhaseCode | null;
   text: string;
   erstellt_am: string;
+  // Gesetzt = Antwort auf einen anderen Kommentar (Discussion Threading, siehe CONCEPT.md
+  // Abschnitt 8). Backend erlaubt beliebige Tiefe, die UI begrenzt die Darstellung auf eine
+  // Verschachtelungsebene (siehe NotesSection.tsx).
+  parent_id: number | null;
   plan_phase_id: number | null;
   tags: string[];
   documents: Document[];
@@ -602,6 +606,31 @@ export function planPhaseDepth(phases: PlanPhase[], phaseId: number): number {
   return depth;
 }
 
+// P19.6 (Planstand-UX): alle Nachfahren-IDs einer Phase (rekursiv über parent_phase_id) - für
+// den phasenscoped Planstand-Vergleich bei Parent-Phasen (Deviations der ganzen Unterphasen-
+// Gruppe zählen als "seit Planstand geändert" für die Parent-Phase). Enthält NICHT die Phase
+// selbst. Bricht bei einem Zyklus defensiv ab (sollte durch das Backend nie erreichbar sein).
+export function planPhaseDescendantIds(phases: PlanPhase[], phaseId: number): Set<number> {
+  const childrenByParent = new Map<number, PlanPhase[]>();
+  for (const p of phases) {
+    if (p.parent_phase_id == null) continue;
+    const list = childrenByParent.get(p.parent_phase_id) ?? [];
+    list.push(p);
+    childrenByParent.set(p.parent_phase_id, list);
+  }
+  const result = new Set<number>();
+  const stack = [phaseId];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (const child of childrenByParent.get(current) ?? []) {
+      if (result.has(child.id)) continue;
+      result.add(child.id);
+      stack.push(child.id);
+    }
+  }
+  return result;
+}
+
 export interface PlanPhase {
   id: number;
   project_id: number;
@@ -658,9 +687,16 @@ export interface PlanPhaseDetail extends PlanPhase {
   blockers: Blocker[];
   decisions: Decision[];
   resource_demands: ResourceDemand[];
+  // P19.5 (additiv): Milestones dieser Phase (plan_phase_id-FK), damit der PlanPhase-Workspace
+  // sie ohne zusätzlichen Round-Trip anzeigen kann. Nicht rekursiv (nur diese Phase selbst).
+  milestones: Milestone[];
   metrics: PhaseMetricsOut;
   // P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI.
   children: PlanPhase[];
+  // P19.2 (Kapazität-Tab Round-Trip-Reduktion): dieselbe Bedarf/Besetzt/Offen-Auswertung wie
+  // GET .../assignment-summary, additiv eingebettet - der eigenständige Endpoint bleibt
+  // bestehen. Frontend bevorzugt diesen eingebetteten Wert, wenn vorhanden.
+  assignment_summary: PlanPhaseAssignmentSummary;
 }
 
 // P18/B-4 (CONCEPT.md Abschnitt 6b.10): Bedarf/Besetzt/Offen einer Leaf-PlanPhase - UI-
@@ -694,11 +730,20 @@ export interface PlanPhaseSubtreeImpact {
   resource_assignments_affected: number;
 }
 
+// P19.7: Beitrag einer einzelnen Leaf-PlanPhase zu Projektkapazität(Monat) - für die
+// Monats-Drilldown-Darstellung ("Oktober: Pflichtenheft 48h, Konfiguration 67h, Gesamt 115h").
+export interface ProjectMonthlyCapacityPhaseContribution {
+  plan_phase_id: number;
+  phase_type: string;
+  hours: number;
+}
+
 // P18/B-5 (CONCEPT.md Abschnitt 6b.6): read-only Auswertung, kein Eingabefeld.
 export interface ProjectMonthlyCapacityEntry {
   period: string;
   hours: number;
   fte_equivalent: number;
+  by_phase: ProjectMonthlyCapacityPhaseContribution[];
 }
 
 // P18/B-4 (CONCEPT.md Abschnitt 6b.5/6b.11): Available Capacity über einen Datumsbereich statt
@@ -814,6 +859,10 @@ export interface ResourceDemand {
   aktualisiert_am: string;
   assigned_fte: number;
   allocation_gap: number;
+  // P19.2 (Kapazität-Tab N+1-Fix): die ResourceAssignments dieses Demands additiv eingebettet -
+  // löst das N+1-Muster auf (vorher: pro aufgeklapptem Demand ein eigener listResourceAssignments-
+  // Call). Der eigenständige Endpoint bleibt bestehen (z.B. für gezielten Refresh nach Mutation).
+  assignments: ResourceAssignment[];
 }
 
 export interface ResourceAssignment {

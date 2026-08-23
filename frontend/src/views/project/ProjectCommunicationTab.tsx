@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import NotesSection from "../../components/NotesSection";
+import { ENTITY_TYPE_TO_COMMUNICATION_SECTION } from "../../entityTypeMeta";
 import type { Blocker, Comment, Decision, EntityType, MeetingMinutes, Risk, Task } from "../../types";
 import ActivityFeed from "./components/ActivityFeed";
 import BlockerList from "./components/BlockerList";
@@ -13,21 +15,32 @@ import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
 type Section = "aktivitaet" | "diskussionen" | "entscheidungen" | "risiken" | "meetingprotokolle" | "aufgaben" | "blocker";
 
-// Bildet ActivityItem.entity_type auf die passende Sub-Ansicht ab (Phase 26.4).
-const ENTITY_TYPE_TO_SECTION: Partial<Record<EntityType, Section>> = {
-  comment: "diskussionen",
-  decision: "entscheidungen",
-  risk: "risiken",
-  meeting_minutes: "meetingprotokolle",
-  task: "aufgaben",
-  blocker: "blocker",
-};
+const SECTION_VALUES: Section[] = ["aktivitaet", "diskussionen", "entscheidungen", "risiken", "meetingprotokolle", "aufgaben", "blocker"];
+
+function isSection(value: string | null): value is Section {
+  return value != null && (SECTION_VALUES as string[]).includes(value);
+}
 
 const ACTIVITY_ENTITY_TYPES: EntityType[] = ["comment", "decision", "risk", "meeting_minutes", "task", "blocker"];
 
 export default function ProjectCommunicationTab() {
   const { project } = useProjectWorkspace();
-  const [section, setSection] = useState<Section>("aktivitaet");
+  // P19.4 (Tag-Dossier-Drilldown): erlaubt externe Navigation direkt in eine Sub-Ansicht
+  // (z.B. "?section=aufgaben" von TagDossierPanel.tsx aus) - ohne Query-Param unverändert
+  // "aktivitaet" wie bisher.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [section, setSectionState] = useState<Section>(() => {
+    const fromQuery = searchParams.get("section");
+    return isSection(fromQuery) ? fromQuery : "aktivitaet";
+  });
+  const setSection = (next: Section) => {
+    setSectionState(next);
+    if (searchParams.has("section")) {
+      const params = new URLSearchParams(searchParams);
+      params.delete("section");
+      setSearchParams(params, { replace: true });
+    }
+  };
   const [comments, setComments] = useState<Comment[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
@@ -61,12 +74,13 @@ export default function ProjectCommunicationTab() {
 
   const handleAddNote = async (
     subprojectId: number | null,
-    input: { text: string; tags: string[]; files: File[] },
+    input: { text: string; tags: string[]; files: File[]; parentId?: number | null },
   ) => {
     const comment = await api.createComment(project.id, {
       subproject_id: subprojectId,
       text: input.text,
       tags: input.tags,
+      parent_id: input.parentId ?? null,
     });
     for (const file of input.files) {
       await api.uploadDocument(project.id, file, { entityType: "comment", entityId: comment.id });
@@ -161,8 +175,8 @@ export default function ProjectCommunicationTab() {
           projectId={project.id}
           filterTypes={ACTIVITY_ENTITY_TYPES}
           onOpenSection={(type) => {
-            const target = ENTITY_TYPE_TO_SECTION[type];
-            if (target) setSection(target);
+            const target = ENTITY_TYPE_TO_COMMUNICATION_SECTION[type];
+            if (isSection(target ?? null)) setSection(target as Section);
           }}
           onChanged={() => {
             refreshComments();
@@ -184,6 +198,14 @@ export default function ProjectCommunicationTab() {
               notes={filteredComments.filter((c) => c.subproject_id === null && c.monat === null && c.phase_code === null)}
               onAdd={(input) => handleAddNote(null, input)}
               onDelete={handleDeleteComment}
+              projectId={project.id}
+              onChanged={() => {
+                refreshTasks();
+                refreshDecisions();
+                refreshRisks();
+                refreshBlockers();
+                bumpActivity();
+              }}
             />
           </div>
           {project.subprojects.map((sp) => (
@@ -193,6 +215,14 @@ export default function ProjectCommunicationTab() {
                 notes={filteredComments.filter((c) => c.subproject_id === sp.id && c.monat === null && c.phase_code === null)}
                 onAdd={(input) => handleAddNote(sp.id, input)}
                 onDelete={handleDeleteComment}
+                projectId={project.id}
+                onChanged={() => {
+                  refreshTasks();
+                  refreshDecisions();
+                  refreshRisks();
+                  refreshBlockers();
+                  bumpActivity();
+                }}
               />
             </div>
           ))}

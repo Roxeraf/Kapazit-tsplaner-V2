@@ -1,8 +1,44 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import { ENTITY_TYPE_META } from "../entityTypeMeta";
+import { ENTITY_TYPE_META, ENTITY_TYPE_TO_COMMUNICATION_SECTION } from "../entityTypeMeta";
 import { useTagDossier } from "../tagDossier";
-import type { TagDossier } from "../types";
+import type { ActivityItem, TagDossier } from "../types";
+
+// P19.4 (Tag-Dossier-Drilldown): "Aktuelle Lage"-Items sind entity_type/entity_id-Paare ohne
+// eigenes plan_phase_id-Feld (siehe ActivityItemOut, backend/app/schemas.py) - für Typen, die
+// selbst eine plan_phase_id tragen können (task/blocker/decision/comment/milestone), wird sie
+// hier über den jeweils schon vorhandenen Listen-Endpoint aufgelöst (kein neuer Endpoint,
+// P19_PLANPHASE_WORKSPACE_UX_AUDIT.md Abschnitt 24 P19.4 "Backend: keine"). plan_phase selbst
+// ist trivial - die entity_id IST die Phasen-ID.
+async function resolvePlanPhaseId(projectId: number, item: ActivityItem): Promise<number | null> {
+  switch (item.entity_type) {
+    case "plan_phase":
+      return item.entity_id;
+    case "milestone": {
+      const list = await api.listMilestones(projectId);
+      return list.find((m) => m.id === item.entity_id)?.plan_phase_id ?? null;
+    }
+    case "task": {
+      const list = await api.listTasks(projectId);
+      return list.find((t) => t.id === item.entity_id)?.plan_phase_id ?? null;
+    }
+    case "blocker": {
+      const list = await api.listBlockers(projectId);
+      return list.find((b) => b.id === item.entity_id)?.plan_phase_id ?? null;
+    }
+    case "decision": {
+      const list = await api.listDecisions(projectId);
+      return list.find((d) => d.id === item.entity_id)?.plan_phase_id ?? null;
+    }
+    case "comment": {
+      const list = await api.listComments(projectId);
+      return list.find((c) => c.id === item.entity_id)?.plan_phase_id ?? null;
+    }
+    default:
+      return null;
+  }
+}
 
 // Phase 26.5: Sidepanel, das sich bei Klick auf einen Tag (TagChip.tsx) öffnet und ein
 // dynamisches Dossier zeigt (Counts je Entitätstyp, Entitäten, jüngste Aktivität) statt nur
@@ -12,6 +48,8 @@ export default function TagDossierPanel({ projectId }: { projectId?: number }) {
   const [dossier, setDossier] = useState<TagDossier | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addDraft, setAddDraft] = useState("");
+  const [navigatingKey, setNavigatingKey] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!isOpen || openTags.length === 0) {
@@ -25,6 +63,35 @@ export default function TagDossierPanel({ projectId }: { projectId?: number }) {
   }, [isOpen, openTags, mode, projectId]);
 
   if (!isOpen) return null;
+
+  // P19.4: öffnet die referenzierte Entität - plan_phase-gebundene Entitäten öffnen den
+  // PlanPhase-Workspace (wie im Auftrag gefordert), alles andere nutzt dieselbe
+  // Tab-Wechsel-Navigation, die im Kommunikation-Tab bereits für Activity-Feed-Items existiert
+  // (ENTITY_TYPE_TO_COMMUNICATION_SECTION, siehe ProjectCommunicationTab.tsx/entityTypeMeta.ts).
+  const openItem = async (item: ActivityItem) => {
+    if (projectId == null) return;
+    const key = `${item.entity_type}-${item.entity_id}`;
+    setNavigatingKey(key);
+    try {
+      const planPhaseId = await resolvePlanPhaseId(projectId, item);
+      close();
+      if (planPhaseId != null) {
+        navigate(`/projekte/${projectId}/planung?openPhase=${planPhaseId}`);
+        return;
+      }
+      const section = ENTITY_TYPE_TO_COMMUNICATION_SECTION[item.entity_type];
+      if (section) {
+        navigate(`/projekte/${projectId}/kommunikation?section=${section}`);
+        return;
+      }
+      // baseline_snapshot (projektweit, keine eigene Detailansicht) landet in der Planung, wo
+      // BaselineList.tsx lebt; document taucht in "Aktuelle Lage" ohnehin nicht auf.
+      navigate(`/projekte/${projectId}/planung`);
+    } catch (e) {
+      setError(String(e));
+      setNavigatingKey((k) => (k === key ? null : k));
+    }
+  };
 
   return (
     <div
@@ -129,9 +196,32 @@ export default function TagDossierPanel({ projectId }: { projectId?: number }) {
               <h4 style={{ color: "var(--navy)", marginBottom: "0.4rem" }}>Aktuelle Lage</h4>
               {dossier.activity.slice(0, 10).map((item) => {
                 const meta = ENTITY_TYPE_META[item.entity_type];
-                return (
-                  <div key={`${item.entity_type}-${item.entity_id}`} style={{ fontSize: "0.85rem", padding: "0.2rem 0" }}>
-                    {meta?.icon ?? "•"} {item.label ?? `${meta?.label ?? item.entity_type} #${item.entity_id}`}
+                const key = `${item.entity_type}-${item.entity_id}`;
+                const label = item.label ?? `${meta?.label ?? item.entity_type} #${item.entity_id}`;
+                return projectId != null ? (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => openItem(item)}
+                    disabled={navigatingKey === key}
+                    title="Öffnen"
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      border: "none",
+                      background: "none",
+                      padding: "0.2rem 0",
+                      fontSize: "0.85rem",
+                      color: "inherit",
+                      cursor: navigatingKey === key ? "default" : "pointer",
+                    }}
+                  >
+                    {meta?.icon ?? "•"} {label} {navigatingKey === key && "…"}
+                  </button>
+                ) : (
+                  <div key={key} style={{ fontSize: "0.85rem", padding: "0.2rem 0" }}>
+                    {meta?.icon ?? "•"} {label}
                   </div>
                 );
               })}

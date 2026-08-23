@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../../../api/client";
 import TagChip from "../../../components/TagChip";
 import usePeopleMap from "../../../hooks/usePeopleMap";
@@ -34,12 +35,28 @@ export default function PlanPhaseList({ projectId }: { projectId: number }) {
   const [createParentId, setCreateParentId] = useState<number | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set());
   const people = usePeopleMap();
+  // P19.4 (Tag-Dossier-Drilldown): erlaubt externe Navigation direkt in den Workspace einer
+  // Phase (z.B. "?openPhase=<id>" von TagDossierPanel.tsx aus) - der Query-Param wird nach dem
+  // Öffnen entfernt, damit ein erneuter Besuch der Planung ohne Query-Param nicht wieder
+  // automatisch denselben Drawer öffnet.
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const refresh = () => {
     api.listPlanPhases(projectId).then(setPhases).catch((e) => setError(String(e)));
   };
 
   useEffect(refresh, [projectId]);
+
+  useEffect(() => {
+    const raw = searchParams.get("openPhase");
+    if (!raw) return;
+    const id = Number(raw);
+    if (Number.isFinite(id)) setOpenPhaseId(id);
+    const params = new URLSearchParams(searchParams);
+    params.delete("openPhase");
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const handleDeleted = () => {
     setToDelete(null);
@@ -220,6 +237,7 @@ export default function PlanPhaseList({ projectId }: { projectId: number }) {
         allPhases={phases}
         onClose={() => setOpenPhaseId(null)}
         onChanged={refresh}
+        onNavigate={setOpenPhaseId}
       />
     </div>
   );

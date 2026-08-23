@@ -436,7 +436,7 @@ B-2 nicht produktiv angewendet ist, bleiben bestehende, unmigrierte Projekte aus
 
 ### 6.1 Kernidee
 
-`PlanPhase` wird die **einzige** Planungseinheit — für Kapazität **und** für Strukturierung
+`PlanPhase` ist die **einzige** operative Planungseinheit — für Kapazität **und** für Strukturierung
 (löst damit gleichzeitig die Grob-/Feinplanungs-Frage aus Abschnitt 6a **und** die
 Subproject-Frage aus Abschnitt 5.4 ab). `PlanPhase` bekommt ein neues, additives, nullable Feld
 `parent_phase_id` (self-referencing FK). Eine Phase **ohne** Kinder ("Leaf") trägt operative
@@ -535,8 +535,17 @@ verfügbar.
 **Verbindliche Governance-Regeln für die interne System-Rolle "Ohne Rolle" (Korrektur/Ergänzung
 gegenüber dem ursprünglichen Entwurf):**
 
-- Sie ist eine interne Systemrolle, **nicht löschbar** (Admin-UI blendet den Löschen-Button für
-  diese Rolle aus bzw. das Backend lehnt den Löschversuch ab).
+- Sie ist eine interne Systemrolle, **nicht löschbar** — fachliche Invariante, unabhängig vom
+  aktuellen technischen Enforcement-Stand. **Aktueller Code (verifiziert, Abschnitt 16.15 Punkt
+  5):** Es existiert aktuell **kein** `DELETE /resource-roles/{id}`-Endpoint überhaupt (jeder
+  Aufruf liefert `405`, für alle Rollen, nicht nur "Ohne Rolle") — die Invariante ist damit
+  heute bereits **faktisch** durchgesetzt, aber nicht durch einen gezielten Guard, sondern
+  durch das Fehlen jedes Löschpfads. Ein zentraler Domain-Helper
+  (`ensure_role_deletable(role)`, `routers/capacity.py`) kapselt die Regel bereits
+  (`is_system_role == True → 409`) und **muss** von einem künftigen Lösch-Endpoint
+  aufgerufen werden, sobald einer eingeführt wird — bis dahin ist er ungenutzter,
+  aber getesteter Code (kein künstlicher Endpoint wurde nur für den Guard ergänzt, siehe
+  Abschnitt 16.15 Punkt 5).
 - Sie wird im **normalen Rollen-Picker ausgeblendet** — Projektleiter:innen wählen sie nie
   aktiv aus, sie entsteht ausschließlich transparent im Hintergrund beim direkten
   "Mitarbeiter zuweisen"-Flow.

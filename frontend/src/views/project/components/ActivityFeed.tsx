@@ -3,24 +3,8 @@ import { api } from "../../../api/client";
 import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
 import { ENTITY_TYPE_META as TYPE_META } from "../../../entityTypeMeta";
+import { FOLLOW_UP_ACTIONS, useFollowUpAction } from "../../../hooks/useFollowUpAction";
 import type { ActivityItem, EntityType } from "../../../types";
-
-// Kontextuelle "aus diesem Objekt erstellen"-Aktionen je Quelltyp (Phase 26.4). Jede Aktion
-// legt zuerst die Folge-Entität über den bestehenden Create-Endpoint an, danach eine
-// EntityRelation (relation_type "resulted_in") - keine neuen Backend-Endpoints nötig.
-const FOLLOW_UP_ACTIONS: Partial<Record<EntityType, { target: EntityType; label: string }[]>> = {
-  comment: [
-    { target: "decision", label: "+ Entscheidung" },
-    { target: "task", label: "+ Aufgabe" },
-    { target: "risk", label: "+ Risiko" },
-    { target: "blocker", label: "+ Blocker" },
-  ],
-  decision: [
-    { target: "task", label: "+ Folgeaufgabe" },
-    { target: "blocker", label: "+ Blocker" },
-  ],
-  blocker: [{ target: "task", label: "+ Aufgabe" }],
-};
 
 function formatRelative(iso: string): string {
   const d = new Date(iso);
@@ -32,36 +16,16 @@ function formatRelative(iso: string): string {
   return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-// P16.3 (Collaboration & Knowledge Experience): "Aus Objekt erstellen" übernimmt plan_phase_id
-// vom Ursprung, falls das Feed im Phasenkontext läuft und der Zieltyp die Spalte hat (Risk hat
-// bewusst keine plan_phase_id, siehe CONCEPT.md Abschnitt 4/8 - kein Fehler, kein Fallback).
-async function createFollowUpEntity(
-  projectId: number,
-  target: EntityType,
-  titel: string,
-  tags: string[],
-  planPhaseId: number | undefined,
-) {
-  switch (target) {
-    case "decision":
-      return api.createDecision(projectId, { titel, tags, plan_phase_id: planPhaseId ?? null });
-    case "task":
-      return api.createTask(projectId, { titel, tags, plan_phase_id: planPhaseId ?? null });
-    case "risk":
-      return api.createRisk(projectId, { titel, tags });
-    case "blocker":
-      return api.createBlocker(projectId, { title: titel, tags, plan_phase_id: planPhaseId ?? null });
-    default:
-      throw new Error(`Unbekannter Zieltyp: ${target}`);
-  }
-}
-
 export default function ActivityFeed({
   projectId,
   filterTypes,
   onOpenSection,
   onChanged,
   planPhaseId,
+  // P19.3 (Tag-Vorschlag bei Folgeobjekten): zusätzlich zu den Tags des Ursprungs-Items werden
+  // die Tags der aktuellen Phase vorgeschlagen, falls der Feed im Phasenkontext läuft (siehe
+  // CONCEPT.md Abschnitt 8 Beispiel "#Schnittstelle #Kunde von der Phase + #API vom Kommentar").
+  phaseTags = [],
   refreshToken,
 }: {
   projectId: number;
@@ -74,17 +38,12 @@ export default function ActivityFeed({
   refreshToken?: number;
   onChanged: () => void;
   planPhaseId?: number;
+  phaseTags?: string[];
 }) {
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [typeFilter, setTypeFilter] = useState<EntityType | null>(null);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<{ item: ActivityItem; target: EntityType } | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
-  // P12.4 (Tag-Vorschläge bei Folgeobjekten): Tags des Ursprungs werden vorausgewählt, aber nur
-  // als Vorschlag - der User kann sie abwählen oder weitere hinzufügen. Keine harte Vererbung.
-  const [draftTags, setDraftTags] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
 
   const refresh = () => {
     const fetcher = planPhaseId
@@ -94,6 +53,11 @@ export default function ActivityFeed({
   };
 
   useEffect(refresh, [projectId, planPhaseId, refreshToken]);
+
+  const followUp = useFollowUpAction(projectId, planPhaseId, () => {
+    refresh();
+    onChanged();
+  });
 
   const availableTags = useMemo(() => {
     const tags = new Set<string>();
@@ -116,41 +80,11 @@ export default function ActivityFeed({
     setTagFilter((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
 
+  // P19.3: Tag-Vorschlag ist die Union aus Item- und Phasen-Tags (dedupliziert), weiterhin nur
+  // ein Vorschlag - keine harte Vererbung.
   const startFollowUp = (item: ActivityItem, target: EntityType) => {
-    setPendingAction({ item, target });
-    setDraftTitle("");
-    setDraftTags([...item.tags]);
-  };
-
-  const submitFollowUp = async () => {
-    if (!pendingAction || !draftTitle.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const created = await createFollowUpEntity(
-        projectId,
-        pendingAction.target,
-        draftTitle.trim(),
-        draftTags,
-        planPhaseId,
-      );
-      await api.createEntityRelation({
-        source_entity_type: pendingAction.item.entity_type,
-        source_entity_id: pendingAction.item.entity_id,
-        target_entity_type: pendingAction.target,
-        target_entity_id: (created as { id: number }).id,
-        relation_type: "resulted_in",
-      });
-      setPendingAction(null);
-      setDraftTitle("");
-      setDraftTags([]);
-      refresh();
-      onChanged();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
+    const suggested = Array.from(new Set([...item.tags, ...phaseTags]));
+    followUp.start({ entity_type: item.entity_type, entity_id: item.entity_id }, target, suggested);
   };
 
   const markBlockerResolved = async (item: ActivityItem) => {
@@ -161,7 +95,7 @@ export default function ActivityFeed({
 
   return (
     <div>
-      {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
+      {(error || followUp.error) && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error ?? followUp.error}</p>}
       <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
         <button type="button" className={typeFilter === null ? "btn" : "btn secondary"} onClick={() => setTypeFilter(null)}>
           Alle
@@ -252,28 +186,28 @@ export default function ActivityFeed({
                   )}
                 </div>
               )}
-              {pendingAction && pendingAction.item.entity_type === item.entity_type && pendingAction.item.entity_id === item.entity_id && (
+              {followUp.pending && followUp.pending.source.entity_type === item.entity_type && followUp.pending.source.entity_id === item.entity_id && (
                 <div style={{ marginTop: "0.4rem", padding: "0.5rem", background: "#f8fafc", borderRadius: "4px" }}>
                   <input
                     autoFocus
-                    value={draftTitle}
-                    onChange={(e) => setDraftTitle(e.target.value)}
-                    placeholder={`Titel für ${TYPE_META[pendingAction.target].label}`}
+                    value={followUp.draftTitle}
+                    onChange={(e) => followUp.setDraftTitle(e.target.value)}
+                    placeholder={`Titel für ${TYPE_META[followUp.pending.target].label}`}
                     style={{ width: "100%" }}
                   />
                   <div style={{ marginTop: "0.4rem" }}>
-                    {item.tags.length > 0 && (
+                    {followUp.draftTags.length > 0 && (
                       <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                        Tags aus {meta.label} vorgeschlagen — abwählbar, weitere ergänzbar:
+                        Tags aus {meta.label}{phaseTags.length > 0 ? " + Phase" : ""} vorgeschlagen — abwählbar, weitere ergänzbar:
                       </span>
                     )}
-                    <TagInput value={draftTags} onChange={setDraftTags} />
+                    <TagInput value={followUp.draftTags} onChange={followUp.setDraftTags} />
                   </div>
                   <div className="field-row" style={{ marginTop: "0.5rem" }}>
-                    <button type="button" className="btn secondary" disabled={saving || !draftTitle.trim()} onClick={submitFollowUp}>
+                    <button type="button" className="btn secondary" disabled={followUp.saving || !followUp.draftTitle.trim()} onClick={followUp.submit}>
                       Erstellen
                     </button>
-                    <button type="button" className="btn secondary" onClick={() => setPendingAction(null)}>
+                    <button type="button" className="btn secondary" onClick={followUp.cancel}>
                       Abbrechen
                     </button>
                   </div>

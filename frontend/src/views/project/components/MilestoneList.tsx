@@ -27,9 +27,39 @@ function fmtDate(iso: string | null): string {
 // Bearbeitung erfolgt über "Bearbeiten", nicht über sechs dauerhaft offene Eingabefelder pro
 // Karte. Kein neues Drawer-Bauteil (Milestone ist einfach genug für Inline-Expand statt eines
 // eigenen Workspace, siehe CONCEPT.md Abschnitt 0 "keine neue Grob-/Feinplanungsarchitektur").
-export default function MilestoneList({ projectId }: { projectId: number }) {
-  const [milestones, setMilestones] = useState<Milestone[]>([]);
-  const [phases, setPhases] = useState<PlanPhase[]>([]);
+//
+// P19.5 (P19_PLANPHASE_WORKSPACE_UX_AUDIT.md Abschnitt 3.12/14): dieselbe Komponente wird jetzt
+// zusätzlich als kompakte "Meilensteine dieser Phase"-Karte im PlanPhaseWorkspace gemountet
+// (Wiederverwendung, kein Duplikat, keine zweite Milestone-Engine). Dafür optional:
+// - `planPhaseId`: filtert die Anzeige auf genau diese Phase und wird als Default für neue
+//   Milestones vorbelegt (weiterhin änderbar im Anlage-Formular).
+// - `milestones`/`allPhases`: bereits geladene Daten (z.B. aus PlanPhaseDetail bzw. der schon
+//   im Workspace vorhandenen `allPhases`-Prop) - wenn gesetzt, verzichtet die Komponente auf
+//   ihren eigenen Fetch und spart so den sonst nötigen zusätzlichen Round-Trip.
+// - `title`/`addLabel`/`emptyText`: Beschriftungs-Overrides für den phasenscoped Kontext
+//   ("Meilensteine" statt "Milestones", siehe Auftragstext). ProjectPlanningTab.tsx ruft die
+//   Komponente unverändert ohne diese Props auf - Verhalten dort bleibt exakt wie zuvor.
+export default function MilestoneList({
+  projectId,
+  planPhaseId,
+  milestones: milestonesProp,
+  allPhases: allPhasesProp,
+  onChanged,
+  title = "Milestones",
+  addLabel = "+ Milestone hinzufügen",
+  emptyText = "Noch keine Milestones geplant.",
+}: {
+  projectId: number;
+  planPhaseId?: number;
+  milestones?: Milestone[];
+  allPhases?: PlanPhase[];
+  onChanged?: () => void;
+  title?: string;
+  addLabel?: string;
+  emptyText?: string;
+}) {
+  const [milestones, setMilestones] = useState<Milestone[]>(milestonesProp ?? []);
+  const [phases, setPhases] = useState<PlanPhase[]>(allPhasesProp ?? []);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Milestone | null>(null);
   const [correctingId, setCorrectingId] = useState<number | null>(null);
@@ -38,18 +68,43 @@ export default function MilestoneList({ projectId }: { projectId: number }) {
   const people = usePeopleMap();
 
   const [name, setName] = useState("");
-  const [planPhaseId, setPlanPhaseId] = useState("");
+  const [formPlanPhaseId, setFormPlanPhaseId] = useState(planPhaseId != null ? String(planPhaseId) : "");
   const [ownerPersonId, setOwnerPersonId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
-  const refresh = () => {
+  // Wenn der Aufrufer bereits geladene Daten übergibt (Workspace-Fall), diese übernehmen statt
+  // selbst zu fetchen. Ohne `milestones`/`allPhases`-Prop (ProjectPlanningTab-Fall) unverändert
+  // ein eigener Fetch beim Mount bzw. nach jeder Mutation.
+  const fetchMilestones = () => {
+    if (milestonesProp !== undefined) return;
     api.listMilestones(projectId).then(setMilestones).catch((e) => setError(String(e)));
+  };
+  const fetchPhases = () => {
+    if (allPhasesProp !== undefined) return;
     api.listPlanPhases(projectId).then(setPhases).catch(() => setPhases([]));
   };
 
-  useEffect(refresh, [projectId]);
+  useEffect(() => {
+    fetchMilestones();
+    fetchPhases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  useEffect(() => {
+    if (milestonesProp !== undefined) setMilestones(milestonesProp);
+  }, [milestonesProp]);
+
+  useEffect(() => {
+    if (allPhasesProp !== undefined) setPhases(allPhasesProp);
+  }, [allPhasesProp]);
+
+  const refresh = () => {
+    fetchMilestones();
+    fetchPhases();
+    onChanged?.();
+  };
 
   const handleAdd = async () => {
     if (!name.trim()) return;
@@ -58,7 +113,7 @@ export default function MilestoneList({ projectId }: { projectId: number }) {
     try {
       const milestone = await api.createMilestone(projectId, {
         name: name.trim(),
-        plan_phase_id: planPhaseId ? Number(planPhaseId) : null,
+        plan_phase_id: formPlanPhaseId ? Number(formPlanPhaseId) : null,
         owner_person_id: ownerPersonId,
         tags,
       });
@@ -66,7 +121,7 @@ export default function MilestoneList({ projectId }: { projectId: number }) {
         await api.uploadDocument(projectId, file, { entityType: "milestone", entityId: milestone.id });
       }
       setName("");
-      setPlanPhaseId("");
+      setFormPlanPhaseId(planPhaseId != null ? String(planPhaseId) : "");
       setOwnerPersonId(null);
       setTags([]);
       setFiles([]);
@@ -98,20 +153,22 @@ export default function MilestoneList({ projectId }: { projectId: number }) {
   const planPhaseName = (id: number | null) =>
     id === null ? null : phases.find((p) => p.id === id)?.phase_type ?? "Unbekannte Phase";
 
+  const visibleMilestones = planPhaseId != null ? milestones.filter((m) => m.plan_phase_id === planPhaseId) : milestones;
+
   return (
     <div>
       <div className="toolbar" style={{ marginBottom: "0.5rem" }}>
-        <h3 style={{ color: "var(--navy)", margin: 0 }}>Milestones</h3>
+        <h3 style={{ color: "var(--navy)", margin: 0 }}>{title}</h3>
         <button type="button" className="btn" onClick={() => setShowCreate((v) => !v)}>
-          {showCreate ? "Abbrechen" : "+ Milestone hinzufügen"}
+          {showCreate ? "Abbrechen" : addLabel}
         </button>
       </div>
       {error && <p style={{ color: "var(--rot)", fontSize: "0.8rem" }}>{error}</p>}
 
-      {milestones.length === 0 ? (
-        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Milestones geplant.</p>
+      {visibleMilestones.length === 0 ? (
+        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>{emptyText}</p>
       ) : (
-        milestones.map((m) => (
+        visibleMilestones.map((m) => (
           <div key={m.id} className="card" style={{ marginBottom: "0.5rem", padding: "0.6rem 0.85rem", fontSize: "0.88rem" }}>
             <div className="toolbar" style={{ cursor: "pointer" }} onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}>
               <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>
@@ -258,7 +315,7 @@ export default function MilestoneList({ projectId }: { projectId: number }) {
             <div className="field-row" style={{ marginTop: 0 }}>
               <label>
                 Übergeordnete Phase
-                <select value={planPhaseId} onChange={(e) => setPlanPhaseId(e.target.value)}>
+                <select value={formPlanPhaseId} onChange={(e) => setFormPlanPhaseId(e.target.value)}>
                   <option value="">Projektweit</option>
                   {phases.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -275,7 +332,7 @@ export default function MilestoneList({ projectId }: { projectId: number }) {
             <TagInput value={tags} onChange={setTags} />
             <AttachmentPicker files={files} onChange={setFiles} />
             <button type="button" className="btn secondary" style={{ alignSelf: "flex-start" }} disabled={saving} onClick={handleAdd}>
-              + Milestone hinzufügen
+              {addLabel}
             </button>
           </div>
         </div>

@@ -35,6 +35,8 @@ export default function DecisionList({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Decision | null>(null);
+  // P19.4 (Tag-Nachbearbeitung), analog TaskList.tsx/MilestoneList.tsx.
+  const [editingTagsId, setEditingTagsId] = useState<number | null>(null);
   const people = usePeopleMap();
 
   const handleAdd = async () => {
@@ -67,6 +69,11 @@ export default function DecisionList({
 
   const handleStatusChange = async (decision: Decision, status: DecisionStatus) => {
     await api.updateDecision(decision.id, { status });
+    onChanged();
+  };
+
+  const handleTagsChange = async (decision: Decision, tags: string[]) => {
+    await api.updateDecision(decision.id, { tags });
     onChanged();
   };
 
@@ -111,11 +118,31 @@ export default function DecisionList({
                   `${d.entschieden_am ? " von " : "Entschieden von "}${people.get(d.entschieden_von_person_id) ?? "…"}`}
               </p>
             )}
-            {d.tags.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
+            {editingTagsId === d.id ? (
+              <div style={{ margin: "0.3rem 0" }}>
+                <TagInput value={d.tags} onChange={(tags) => handleTagsChange(d, tags)} />
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ fontSize: "0.72rem", padding: "0.05rem 0.4rem", marginTop: "0.3rem" }}
+                  onClick={() => setEditingTagsId(null)}
+                >
+                  Fertig
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", alignItems: "center", margin: "0.3rem 0" }}>
                 {d.tags.map((t) => (
                   <TagChip key={t} name={t} />
                 ))}
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ fontSize: "0.7rem", padding: "0.05rem 0.4rem" }}
+                  onClick={() => setEditingTagsId(d.id)}
+                >
+                  Tags bearbeiten
+                </button>
               </div>
             )}
             <AttachmentList documents={d.documents} />

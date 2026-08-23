@@ -47,6 +47,8 @@ export default function BlockerList({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Blocker | null>(null);
+  // P19.4 (Tag-Nachbearbeitung), analog TaskList.tsx/MilestoneList.tsx.
+  const [editingTagsId, setEditingTagsId] = useState<number | null>(null);
   const people = usePeopleMap();
 
   const handleAdd = async () => {
@@ -88,6 +90,11 @@ export default function BlockerList({
 
   const handleStatusChange = async (blocker: Blocker, status: BlockerStatus) => {
     await api.updateBlocker(blocker.id, { status });
+    onChanged();
+  };
+
+  const handleTagsChange = async (blocker: Blocker, tags: string[]) => {
+    await api.updateBlocker(blocker.id, { tags });
     onChanged();
   };
 
@@ -161,11 +168,31 @@ export default function BlockerList({
                 <strong>Nächste Aktion:</strong> {b.next_action}
               </p>
             )}
-            {b.tags.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", margin: "0.3rem 0" }}>
+            {editingTagsId === b.id ? (
+              <div style={{ margin: "0.3rem 0" }}>
+                <TagInput value={b.tags} onChange={(tags) => handleTagsChange(b, tags)} />
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ fontSize: "0.72rem", padding: "0.05rem 0.4rem", marginTop: "0.3rem" }}
+                  onClick={() => setEditingTagsId(null)}
+                >
+                  Fertig
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", alignItems: "center", margin: "0.3rem 0" }}>
                 {b.tags.map((t) => (
                   <TagChip key={t} name={t} />
                 ))}
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ fontSize: "0.7rem", padding: "0.05rem 0.4rem" }}
+                  onClick={() => setEditingTagsId(b.id)}
+                >
+                  Tags bearbeiten
+                </button>
               </div>
             )}
             <AttachmentList documents={b.documents} />

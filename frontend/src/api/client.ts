@@ -438,6 +438,9 @@ export const api = {
       phase_code?: string | null;
       text: string;
       tags?: string[];
+      // Threading (siehe CONCEPT.md Abschnitt 8) - gesetzt = Antwort auf einen anderen
+      // Kommentar desselben Projekts.
+      parent_id?: number | null;
       plan_phase_id?: number | null;
     },
   ) => request<Comment>(`/projects/${projectId}/comments`, { method: "POST", body: JSON.stringify(payload) }),

@@ -217,6 +217,34 @@ def main() -> None:
           "Namen (kein Roh-ID-Leck), unveränderter Baum bleibt deviation-frei, plan_fte-/"
           "Forecast-Änderungen bleiben unverändert als 'changed' erkennbar.")
 
+    # -----------------------------------------------------------------------
+    # P19.5 (P19_PLANPHASE_WORKSPACE_UX_AUDIT.md Abschnitt 3.12/14/21): additives
+    # PlanPhaseDetail.milestones-Feld - filtert serverseitig auf plan_phase_id, damit der
+    # PlanPhase-Workspace Meilensteine ohne einen zusätzlichen Round-Trip anzeigen kann.
+    # Wiederverwendet leaf/parent/m_leaf/m_parent aus Schritt 1/4 oben.
+    # -----------------------------------------------------------------------
+    print("9/9  PlanPhaseDetail.milestones filtert additiv auf plan_phase_id ...")
+    leaf_detail = client.get(f"/projects/plan-phases/{leaf['id']}").json()
+    leaf_milestone_ids = {m["id"] for m in leaf_detail["milestones"]}
+    if leaf_milestone_ids != {m_leaf.json()["id"]}:
+        _fail("PlanPhaseDetail.milestones (Leaf)", f"erwartet nur {m_leaf.json()['id']}, gefunden: {leaf_milestone_ids}")
+
+    parent_detail = client.get(f"/projects/plan-phases/{parent['id']}").json()
+    parent_milestone_ids = {m["id"] for m in parent_detail["milestones"]}
+    if parent_milestone_ids != {m_parent.json()["id"]}:
+        _fail(
+            "PlanPhaseDetail.milestones (Parent)",
+            f"erwartet nur {m_parent.json()['id']}, gefunden: {parent_milestone_ids}",
+        )
+
+    empty_leaf = _create_phase(project_id, phase_type="Ohne Meilenstein")
+    empty_detail = client.get(f"/projects/plan-phases/{empty_leaf['id']}").json()
+    if empty_detail["milestones"] != []:
+        _fail("PlanPhaseDetail.milestones (leer)", f"erwartet leere Liste, gefunden: {empty_detail['milestones']}")
+
+    print("OK — PlanPhaseDetail.milestones liefert für Leaf und Parent exakt die eigenen "
+          "Meilensteine (nicht rekursiv, keine fremden), leer bei einer Phase ohne Meilenstein.")
+
 
 if __name__ == "__main__":
     try:

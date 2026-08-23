@@ -734,6 +734,21 @@ class ResourceDemandUpdate(BaseModel):
     commitment_level: CommitmentLevel | None = None
 
 
+class ResourceAssignmentCreate(BaseModel):
+    person_id: int
+    fte: float = 0
+
+
+class ResourceAssignmentOut(BaseModel):
+    id: int
+    resource_demand_id: int
+    person_id: int
+    person_name: str
+    fte: float
+    erstellt_am: str
+    aktualisiert_am: str
+
+
 class ResourceDemandOut(BaseModel):
     id: int
     project_id: int
@@ -749,21 +764,11 @@ class ResourceDemandOut(BaseModel):
     # Allocation Gap (Phase 21, Master-MD Abschnitt 22): fte - assigned_fte. Negativ =
     # Unterdeckung (weniger zugeordnet als bedarf), positiv = Überdeckung.
     allocation_gap: float
-
-
-class ResourceAssignmentCreate(BaseModel):
-    person_id: int
-    fte: float = 0
-
-
-class ResourceAssignmentOut(BaseModel):
-    id: int
-    resource_demand_id: int
-    person_id: int
-    person_name: str
-    fte: float
-    erstellt_am: str
-    aktualisiert_am: str
+    # P19.2 (Kapazität-Tab N+1-Fix): die einzelnen ResourceAssignments dieses Demands additiv
+    # mitgeliefert - löst das N+1-Muster auf (vorher: pro aufgeklapptem Demand ein eigener
+    # GET .../assignments-Call). Der eigenständige Endpoint (GET .../assignments) bleibt
+    # bestehen (z.B. für Nach-Mutation-Refresh ohne vollen Detail-Reload).
+    assignments: list[ResourceAssignmentOut] = []
 
 
 class CandidatePersonOut(BaseModel):
@@ -895,15 +900,29 @@ class PersonCapacityOut(BaseModel):
     absence_days: int
 
 
+class ProjectMonthlyCapacityPhaseContribution(BaseModel):
+    """Ein Beitrag einer einzelnen Leaf-PlanPhase zu Projektkapazität(Monat) (P19.7,
+    CONCEPT.md Abschnitt 6b.6/Auftrag Abschnitt 20) - für die Monats-Drilldown-Darstellung
+    im Planning-Tab. Reine Aufschlüsselung derselben Summe aus ProjectMonthlyCapacityEntry.hours,
+    kein zusätzlicher Berechnungsweg."""
+
+    plan_phase_id: int
+    phase_type: str
+    hours: float
+
+
 class ProjectMonthlyCapacityEntry(BaseModel):
     """Ein Monat der abgeleiteten Projektkapazität (P18/B-5, CONCEPT.md Abschnitt 6b.6) -
     reine AUSWERTUNG, kein Eingabefeld: SUM(monthly_distribution(leaf.plan_fte, ...)) über
     alle Leaf-PlanPhases des Projekts. Read-only, UI-Label "Projektkapazität" (nicht
-    "ResourceDemand")."""
+    "ResourceDemand"). by_phase (P19.7) schlüsselt dieselbe Summe additiv nach beitragender
+    Phase auf - rein darstellend, keine Bewertung/Ampel (das ist explizit nicht Teil dieser
+    Auswertung)."""
 
     period: str
     hours: float
     fte_equivalent: float
+    by_phase: list[ProjectMonthlyCapacityPhaseContribution] = []
 
 
 class PersonCapacityRangeOut(BaseModel):
@@ -1552,19 +1571,51 @@ class PhaseMetricsOut(BaseModel):
     reconciliation: ReconciliationOut
 
 
+class PlanPhaseAssignedPersonOut(BaseModel):
+    # Eine Zeile je Person (über alle ResourceDemands dieser Phase aggregiert - Abschnitt
+    # 6b.10), nicht je ResourceAssignment-Datensatz.
+    person_id: int
+    person_name: str
+    fte: float
+
+
+class PlanPhaseAssignmentSummaryOut(BaseModel):
+    """Bedarf/Besetzt/Offen einer Leaf-PlanPhase (P18/B-4, CONCEPT.md Abschnitt 6b.10) - UI-
+    Vokabular: "Geplanter Ressourcenbedarf"/"Besetzung"/"Offen", NICHT "ResourceDemand". Vor
+    P19.2 nur über einen eigenen Endpoint (GET .../assignment-summary) erreichbar - ab P19.2
+    zusätzlich additiv in PlanPhaseDetail eingebettet (siehe dort), der eigenständige Endpoint
+    bleibt unverändert bestehen (andere Aufrufer)."""
+
+    plan_phase_id: int
+    plan_fte: float | None
+    assigned_fte: float
+    open_fte: float | None
+    assignments: list[PlanPhaseAssignedPersonOut]
+
+
 class PlanPhaseDetail(PlanPhaseOut):
-    # Aggregierte Detailansicht einer PlanPhase. Eingebettet werden nur Entitäten mit
-    # plan_phase_id-FK (Comment/Task/Blocker/Decision/ResourceDemand). Milestone hat seit
-    # P18/B-1 ebenfalls einen plan_phase_id-FK, wird hier aber (wie BaselineSnapshot) bewusst
-    # NICHT eingebettet - ein eigener Einbettungs-Task ist kein B-3-Scope.
+    # Aggregierte Detailansicht einer PlanPhase. Eingebettet werden Entitäten mit
+    # plan_phase_id-FK (Comment/Task/Blocker/Decision/ResourceDemand/Milestone).
+    # BaselineSnapshot wird weiterhin bewusst NICHT eingebettet (kein Snapshot-vs-Snapshot-
+    # Vergleich hier, siehe P19.6 - der Planstand-Vergleich läuft client-seitig gegen den
+    # bestehenden /baselines/{id}/deviations-Endpoint).
     comments: list[CommentOut] = []
     tasks: list[TaskOut] = []
     blockers: list[BlockerOut] = []
     decisions: list[DecisionOut] = []
     resource_demands: list[ResourceDemandOut] = []
+    # P19.5 (additiv): Milestones dieser Phase (plan_phase_id-FK, seit P18/B-7), damit der
+    # PlanPhase-Workspace sie ohne einen zusätzlichen Round-Trip anzeigen kann (Gap 2 aus
+    # P19_PLANPHASE_WORKSPACE_UX_AUDIT.md). Bewusst nicht rekursiv (nur diese Phase selbst,
+    # keine Nachfahren-Milestones).
+    milestones: list[MilestoneOut] = []
     metrics: PhaseMetricsOut
     # P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI (B-6). Leer bei einer Leaf.
     children: list[PlanPhaseOut] = []
+    # P19.2 (Kapazität-Tab Round-Trip-Reduktion): dieselbe Bedarf/Besetzt/Offen-Auswertung wie
+    # GET .../assignment-summary, additiv mitgeliefert, damit der Kapazität-Tab sie nicht mehr
+    # separat nachladen muss. Der eigenständige Endpoint bleibt bestehen (andere Aufrufer).
+    assignment_summary: PlanPhaseAssignmentSummaryOut
 
 
 class PlanPhaseReparentChildrenRequest(BaseModel):
@@ -1596,25 +1647,6 @@ class PlanPhaseDeleteSubtreeRequest(BaseModel):
     # Nachfahrenzahl aus GET .../subtree-impact übereinstimmen, sonst 422 (Abschnitt 6b.9).
     confirm_phase_type: str
     confirm_descendant_count: int
-
-
-class PlanPhaseAssignedPersonOut(BaseModel):
-    # Eine Zeile je Person (über alle ResourceDemands dieser Phase aggregiert - Abschnitt
-    # 6b.10), nicht je ResourceAssignment-Datensatz.
-    person_id: int
-    person_name: str
-    fte: float
-
-
-class PlanPhaseAssignmentSummaryOut(BaseModel):
-    """Bedarf/Besetzt/Offen einer Leaf-PlanPhase (P18/B-4, CONCEPT.md Abschnitt 6b.10) - UI-
-    Vokabular: "Geplanter Ressourcenbedarf"/"Besetzung"/"Offen", NICHT "ResourceDemand"."""
-
-    plan_phase_id: int
-    plan_fte: float | None
-    assigned_fte: float
-    open_fte: float | None
-    assignments: list[PlanPhaseAssignedPersonOut]
 
 
 class PlanPhaseAssignPersonRequest(BaseModel):

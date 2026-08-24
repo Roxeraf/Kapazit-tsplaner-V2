@@ -19,6 +19,7 @@ import type {
   GapAnalysis,
   JiraAccountMatch,
   JiraComponent,
+  JiraMatchPreview,
   JiraProject,
   JiraProjectStatus,
   JiraStatus,
@@ -49,6 +50,7 @@ import type {
   PlanPhaseStatus,
   PlanPhaseSubtreeImpact,
   PhaseMetricsOut,
+  ProjectActualsCoverage,
   ProjectDetail,
   ProjectMembership,
   ProjectMonthlyCapacityEntry,
@@ -193,6 +195,7 @@ export const api = {
       status: PlanPhaseStatus;
       progress: number | null;
       plan_fte: number | null;
+      jira_label: string | null;
       owner_person_id: number | null;
       owner_team_id: number | null;
       tags: string[];
@@ -220,6 +223,12 @@ export const api = {
     request<PlanPhaseDetail>(`/projects/plan-phases/${planPhaseId}`),
   getPlanPhaseMetrics: (planPhaseId: number) =>
     request<PhaseMetricsOut>(`/projects/plan-phases/${planPhaseId}/metrics`),
+  // P20.5 (Mapping-Preview): rein lesend gegen den Sync-Cache, kein Live-Jira-Call.
+  getPlanPhaseJiraMatches: (planPhaseId: number, label: string) =>
+    request<JiraMatchPreview>(`/projects/plan-phases/${planPhaseId}/jira-matches?label=${encodeURIComponent(label)}`),
+  // P20.3: reine Vertrauens-/Vollständigkeitskennzahl, keine Health-Ampel.
+  getProjectActualsCoverage: (projectId: number) =>
+    request<ProjectActualsCoverage>(`/projects/${projectId}/actuals-coverage`),
   getPlanPhaseActivity: (planPhaseId: number, limit?: number) =>
     request<ActivityItem[]>(
       `/projects/plan-phases/${planPhaseId}/activity${limit ? `?limit=${limit}` : ""}`,

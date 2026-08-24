@@ -648,6 +648,9 @@ export interface PlanPhase {
   status: PlanPhaseStatus;
   progress: number | null;
   plan_fte: number | null;
+  // P20.1 (BD-1A CLOSED): Jira-Label dieser Leaf-Phase für den Worklog-Resolver, nur auf
+  // Leaf-Phasen gepflegt (gleicher Lifecycle wie plan_fte).
+  jira_label: string | null;
   owner_person_id: number | null;
   owner_team_id: number | null;
   erstellt_am: string;
@@ -676,9 +679,35 @@ export interface ReconciliationOut {
 export interface PhaseMetricsOut {
   time_progress_pct: number | null;
   plan_hours: number | null;
-  effort_consumption_pct: number | null; // BD-1: aktuell immer None
-  ist_hours: number | null; // BD-1: aktuell immer None
+  // P20.4 (BD-1 CLOSED): null bleibt "noch nicht zugeordnet" (kein jira_label bzw. kein
+  // gemappter Leaf-Nachfahre) - niemals eine irreführende 0.
+  effort_consumption_pct: number | null;
+  ist_hours: number | null;
+  remaining_plan_hours: number | null;
+  overrun_hours: number | null;
   reconciliation: ReconciliationOut;
+}
+
+// P20.5 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 10) - Mapping-Preview
+// vor dem Speichern eines jira_label, rein lesend gegen den Sync-Cache.
+export interface JiraMatchPreview {
+  matched_issues: number;
+  matched_worklogs: number;
+  total_hours: number;
+  sample_issue_keys: string[];
+  as_of: string | null;
+}
+
+// P20.3 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 19) - reine Vertrauens-/
+// Vollständigkeitskennzahl, keine Health-Ampel. project_ist_total = mapped_total +
+// ambiguous_total + unmapped_total (immer, per Konstruktion).
+export interface ProjectActualsCoverage {
+  project_id: number;
+  project_ist_total: number;
+  mapped_total: number;
+  ambiguous_total: number;
+  unmapped_total: number;
+  coverage_pct: number | null;
 }
 
 export interface PlanPhaseDetail extends PlanPhase {

@@ -777,6 +777,46 @@ def get_plan_phase_metrics(plan_phase_id: int, db: Session = Depends(get_db)):
     return _plan_phase_metrics(db, plan_phase)
 
 
+@router.get("/plan-phases/{plan_phase_id}/jira-matches", response_model=schemas.JiraMatchPreviewOut)
+def get_plan_phase_jira_matches(plan_phase_id: int, label: str, db: Session = Depends(get_db)):
+    """P20.5 (Mapping-Preview, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt
+    10): zeigt vor dem Speichern eines jira_label, was er aktuell treffen würde - rein
+    lesend gegen den bereits vorhandenen Sync-Cache, keine Live-Jira-Abfrage, kein
+    zusätzlicher API-Call. `label` wird gegen `JiraIssueCache.labels` (kommagetrennt)
+    dieses Projekts geprüft, unabhängig davon, ob die Phase das Label bereits gespeichert
+    hat (Preview VOR dem Speichern)."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    issues = (
+        db.query(models.JiraIssueCache)
+        .filter(models.JiraIssueCache.project_id == plan_phase.project_id)
+        .all()
+    )
+    matched = [i for i in issues if label in (i.labels.split(",") if i.labels else [])]
+    matched_keys = [i.jira_issue_key for i in matched]
+
+    matched_worklogs = 0
+    total_hours = 0.0
+    if matched_keys:
+        rows = (
+            db.query(models.JiraWorklogCache)
+            .filter(
+                models.JiraWorklogCache.projekt_mapping == str(plan_phase.project_id),
+                models.JiraWorklogCache.jira_issue_key.in_(matched_keys),
+            )
+            .all()
+        )
+        matched_worklogs = len(rows)
+        total_hours = round(sum(r.stunden for r in rows), 2)
+
+    return schemas.JiraMatchPreviewOut(
+        matched_issues=len(matched),
+        matched_worklogs=matched_worklogs,
+        total_hours=total_hours,
+        sample_issue_keys=matched_keys[:5],
+        as_of=max((i.last_synced_at for i in matched), default=None),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Worklog Phase Overrides (P20.1, BD-1B CLOSED, siehe
 # P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 14/25) - manuelle

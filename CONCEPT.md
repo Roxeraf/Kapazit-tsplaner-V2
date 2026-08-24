@@ -922,11 +922,20 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
 (unverändert seit P19 — P19 ergänzt Inhalte **innerhalb** der Tabs, baut keine neuen):
 
 - **Übersicht** — editierbar: Name, Start/Ende (= "Zeitraum"), Status, Owner, Teilprojekt,
-  Tags, Plan-FTE, alles sofort speichernd (kein Batch-/Grund-Workflow, siehe unten).
-  Read-only/berechnet: Planstunden, Zeitfortschritt, Ist-Aufwand (aktuell "noch nicht
-  eindeutig zugeordnet", BD-1). Sekundär: "Tatsächlicher Verlauf" (Gestartet/Abgeschlossen),
-  mit Aktion "Ist-Daten korrigieren" für die seltene manuelle Nachpflege. Header zeigt seit
-  P19 den vollen Breadcrumb-Pfad von der Wurzel bis zur aktuellen Phase (klickbare Vorfahren,
+  Tags, Plan-FTE, alles sofort speichernd (kein Batch-/Grund-Workflow, siehe unten). Seit
+  P20.5 zusätzlich (nur auf Leaf-Phasen): eine **"Ist-Daten"-Karte** mit Freitext+Datalist-
+  Feld für `jira_label` (Vorschläge aus `GET /jira/projects/{key}/labels`, falls das Projekt
+  über `jira_project_key` verknüpft ist) und einer darunterliegenden **Mapping-Preview**
+  ("2 Issues · 3 Worklogs · 60 h (WMX-100, WMX-101)"), die sich nach jedem Speichern
+  automatisch aktualisiert (`GET .../jira-matches?label=...`, rein lesend gegen den
+  Sync-Cache, keine Live-Jira-Abfrage). Ein Speicherversuch mit einem bereits vergebenen
+  Label wird vom Backend mit `409` abgelehnt und als Fehlertext angezeigt (Abschnitt 16.19,
+  BD-1G). Read-only/berechnet: Planstunden, Zeitfortschritt, **Ist-Aufwand/Aufwandsverbrauch/
+  Verbleibender Planaufwand/Überverbrauch** (seit P20.5 reale Werte aus `PhaseMetricsOut`,
+  siehe Abschnitt 16.22 - `null` bleibt "noch nicht eindeutig zugeordnet", nie eine
+  irreführende 0). Sekundär: "Tatsächlicher Verlauf" (Gestartet/Abgeschlossen), mit Aktion
+  "Ist-Daten korrigieren" für die seltene manuelle Nachpflege. Header zeigt seit P19 den
+  vollen Breadcrumb-Pfad von der Wurzel bis zur aktuellen Phase (klickbare Vorfahren,
   wechselt die im Drawer offene Phase ohne den Drawer zu schließen). Zusätzlich seit P19: eine
   kompakte "Verknüpfte Themen"-Karte (Tags + Entscheidungen-/Blocker-/Dokumente-Counts, aus dem
   bereits geladenen Detail abgeleitet) und, falls ein Planstand existiert, die
@@ -934,7 +943,12 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
 - **Kapazität** — Plan-FTE/Planstunden-Kopfzeile, Personenbesetzung (Primärpfad, visuell
   hervorgehoben) + optionale Rollen-Aufschlüsselung (eingeklappt, sekundär) in Fachsprache
   (siehe Abschnitt 6). Seit P19 liefert `PlanPhaseDetail` Assignment-Summary und die
-  Assignments je Rolle bereits eingebettet (Round-Trip-Reduktion, kein neuer Endpoint).
+  Assignments je Rolle bereits eingebettet (Round-Trip-Reduktion, kein neuer Endpoint). Seit
+  P20.5 zusätzlich eine additive **"Steuerung"-Karte** unterhalb der Kapazität-Kopfzeile:
+  dieselben Phasen-Ist-Rohmetriken wie im Übersicht-Tab, plus eine "Ist-Zuordnung (Projekt)"-
+  Zeile aus der **projektweiten** Coverage (P20.3, `GET /projects/{id}/actuals-coverage`) -
+  bewusst als "(Projekt)" gekennzeichnet, da Coverage keine Phasen-Kennzahl ist. **Keine
+  Ampel** (BD-3 bleibt separat offen).
 - **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-/Planstand-Ereignisse) +
   Kommentare (inkl. Threading über `parent_id` mit einer Einrückungsebene, "aus Objekt
   erstellen" direkt in der Kommentarliste), Aufgaben, Entscheidungen, Blocker im
@@ -1024,7 +1038,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 
 | ID | Frage | Status |
 |---|---|---|
-| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3) und Phase-Metriken-Verdrahtung (P20.4: `PhaseMetricsOut.ist_hours`/`effort_consumption_pct`/`remaining_plan_hours`/`overrun_hours`, Abschnitt 16.19–16.22) sind implementiert. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Noch offen: Workspace-UX/Label-Picker (P20.5), Personen-Drilldown (P20.6), Projekt-Coverage-UI-Anzeige (P20.7) — reine Frontend-/Aggregations-Pakete, keine fachliche Restfrage mehr. |
+| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert inkl. Workspace-UX** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3), Phase-Metriken-Verdrahtung (P20.4) und Plan-vs-Actual-Workspace-UX (P20.5: Label-Picker mit Mapping-Preview im Übersicht-Tab, "Steuerung"-Karte im Kapazität-Tab, Abschnitt 16.19–16.23) sind implementiert und per Playwright-Browserlauf verifiziert. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Noch offen: Personen-Drilldown/Planned-vs-Actual (P20.6), Projekt-Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7) — reine Frontend-/Aggregations-Pakete, keine fachliche Restfrage mehr. |
 | BD-3 | Bewertungs-Thresholds für Phasenmetriken (🟢/🟡/🔴 auf `plan_hours`/`time_progress_pct`/Reconciliation)? | offen — Metriken werden aktuell ohne Ampel gezeigt |
 | BD-4 | Feiertags-Handling für Planstunden (aktuell Mo–Fr ohne Feiertagsabzug) | offen, dokumentierter Scope-Cut, keine stille Baseline-Änderung |
 | BD-5 | `ResourceAssignment` mit Teil-Zeiträumen (Sub-Ranges) statt einer FTE über die ganze Demand-Periode? | offen |
@@ -1060,9 +1074,10 @@ Werktage-Logik ableitbar, keine offene Frage.
 
 ## 15. Deferred Features
 
-- Tempo→PlanPhase-Mapping: **fachlich/backend-seitig vollständig implementiert** (P20.1–P20.4,
-  Abschnitt 16.19–16.22, BD-1 CLOSED) — nur noch Workspace-UX/Personen-Drilldown/
-  Coverage-UI (P20.5–P20.7, reine Frontend-/Anzeige-Pakete) bleiben deferred
+- Tempo→PlanPhase-Mapping: **fachlich vollständig implementiert inkl. Kern-Workspace-UX**
+  (P20.1–P20.5, Abschnitt 16.19–16.23, BD-1 CLOSED) — nur noch Personen-Drilldown/
+  Planned-vs-Actual (P20.6) und die Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7, reine
+  Frontend-/Anzeige-Pakete) bleiben deferred
 - `PlanPhase.progress`-Spalte tatsächlich droppen (Schema-Cleanup erst, wenn alle Consumer
   entfernt sind — kein destruktives Cleanup nur für UX)
 - `phase_control_status`/🟢🟡🔴-Bewertung der Phasenmetriken (BD-3)
@@ -2539,6 +2554,65 @@ Doppelzählung), Überverbrauch (95h Ist bei 80h Plan → 15h Overrun, Rest bei 
 Child 40h → Parent 60h, keine doppelte Speicherung), sowie ein Parent ganz ohne gemappten
 Nachfahren (`null`, nicht `0.0`). Alle zehn Backend-Testskripte (sechs bestehende + vier
 P20-Skripte) grün, OpenAPI-Schema geprüft.
+
+### 16.23 P20.5 — Plan-vs-Actual Workspace UX (dieser Durchgang)
+
+**Auftrag:** fünftes von acht additiven P20-Paketen (abhängig von P20.4, Abschnitt 16.22) —
+macht die seit P20.4 real berechneten Phase-Ist-Metriken und die Mapping-Konfiguration im
+PlanPhase-Workspace tatsächlich sichtbar/editierbar. Erstes Frontend-Paket der P20-Serie.
+
+**Backend (klein, additiv):**
+
+- **Neuer Endpoint `GET /plan-phases/{id}/jira-matches?label=...`** (Mapping-Preview,
+  Auftrag Abschnitt 10/31): rein lesend gegen `JiraIssueCache`/`JiraWorklogCache` (kein
+  Live-Jira-Call), liefert `matched_issues`/`matched_worklogs`/`total_hours`/
+  `sample_issue_keys`/`as_of` (Stand des letzten Syncs). Funktioniert unabhängig davon, ob
+  die Phase das Label bereits gespeichert hat (echte Vorschau vor dem Speichern). Neues
+  Schema `JiraMatchPreviewOut`.
+
+**Frontend (`PlanPhaseWorkspace.tsx`, `PlanPhaseCapacityTab.tsx`):**
+
+- **Übersicht-Tab, neue "Ist-Daten"-Karte** (nur auf Leaf-Phasen, analog zum
+  Plan-FTE-Feld): Freitext+Datalist-Eingabe für `jira_label` (Vorschläge aus dem bereits
+  vorhandenen `GET /jira/projects/{key}/labels`, sofern `project.jira_project_key` gesetzt
+  ist — sonst bleibt das Feld reiner Freitext, kein neuer Jira-Endpoint), sofort speichernd
+  wie jedes andere Übersicht-Feld. Darunter die Mapping-Preview, die sich per `useEffect` auf
+  `detail.jira_label` automatisch nach jedem Speichern aktualisiert.
+- **Übersicht-Tab, "Kennzahlen"-Karte korrigiert:** zeigte vor P20.5 trotz der seit P20.4
+  real berechneten Backend-Werte weiterhin hartkodiert "Ist-Aufwand: Noch nicht eindeutig der
+  Planphase zugeordnet" / "Aufwandsverbrauch: —" (**Bug**, da die JSX nie an `detail.metrics`
+  angepasst worden war) — jetzt zeigt sie die tatsächlichen Werte aus `PhaseMetricsOut`,
+  `null` bleibt weiterhin "Noch nicht eindeutig zugeordnet" statt einer Zahl.
+- **Kapazität-Tab, neue "Steuerung"-Karte** (additiv, unterhalb der bestehenden
+  Kapazität-Kopfzeile): Ist-Aufwand/Aufwandsverbrauch/Zeitfortschritt/Verbleibender
+  Planaufwand/Überverbrauch aus derselben `PhaseMetricsOut`, zusätzlich eine
+  "Ist-Zuordnung (Projekt)"-Zeile aus `GET /projects/{id}/actuals-coverage` (P20.3) — explizit
+  als projektweite, nicht phasenscoped Kennzahl gekennzeichnet, um keine falsche Präzision
+  vorzutäuschen. **Keine Ampel** (BD-3 bleibt unverändert offen).
+- Neue Typen `JiraMatchPreview`/`ProjectActualsCoverage`, `PlanPhase.jira_label`,
+  `PhaseMetricsOut.remaining_plan_hours`/`overrun_hours` in `types.ts`; `api.client.ts` um
+  `getPlanPhaseJiraMatches`/`getProjectActualsCoverage` und `jira_label` im
+  `updatePlanPhase`-Payload ergänzt.
+
+**Bewusst nicht Teil von P20.5:** kein Override-Bearbeitungsdialog (Auftrag Abschnitt 26
+nennt eine `WorklogMappingBadge`-Komponente, aber keines der P20-Pakete weist sie explizit
+zu — als offene, nicht business-kritische UI-Lücke dokumentiert, nicht Teil des P20-Kernauftrags),
+kein Personen-Drilldown (P20.6), keine `ProjectJiraTab.tsx`-Coverage-Zeile (P20.7).
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_jira_match_preview.py`
+(leeres Ergebnis ohne Treffer, korrekte Zählung/Summe über mehrere Issues ohne fremde Labels
+mitzuzählen, Preview unabhängig vom bereits gespeicherten `jira_label`). `npm run build`
+(`tsc -b && vite build`) und `npm run lint` sauber (ein neuer, bewusst unterdrückter
+`exhaustive-deps`-Hinweis, gleiches Muster wie die bereits bestehende Unterdrückung in
+derselben Datei). Zusätzlich ein echter **Playwright-Browserlauf** gegen den laufenden
+Dev-Stack (Backend + Vite, seedende Demo-Daten identisch zu AT1): Übersicht-Tab zeigt Label
++ Live-Mapping-Preview ("2 Issues · 3 Worklogs · 60 h") + korrekte Kennzahlen (80 h Plan,
+60 h Ist, 75 %, 20 h Rest); Kapazität-Tab zeigt dieselben Werte in der neuen
+Steuerung-Karte plus "Ist-Zuordnung (Projekt): 75 % (20 h nicht zugeordnet)"; eine Phase ohne
+`jira_label` zeigt "Noch nicht eindeutig zugeordnet" statt `0 h`; ein Speicherversuch mit
+einem bereits vergebenen Label wird mit `409` abgelehnt und als Fehlertext angezeigt, ohne
+den vorherigen Zustand zu verändern. Keine Browser-Konsolenfehler außer dem erwarteten
+`409`-Netzwerkeintrag selbst. Alle elf Backend-Testskripte grün.
 
 ---
 

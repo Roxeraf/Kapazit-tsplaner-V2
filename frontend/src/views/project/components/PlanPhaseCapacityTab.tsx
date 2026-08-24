@@ -6,6 +6,7 @@ import type {
   CandidatePerson,
   PhaseMetricsOut,
   PlanPhaseAssignmentSummary,
+  ProjectActualsCoverage,
   ResourceDemand,
 } from "../../../types";
 
@@ -223,6 +224,15 @@ export default function PlanPhaseCapacityTab({
   onChanged: () => void;
 }) {
   const [summary, setSummary] = useState<PlanPhaseAssignmentSummary | null>(assignmentSummary ?? null);
+  // P20.5 (Kapazität-Tab-Karte "Steuerung", siehe
+  // P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 26): Projekt-Coverage ist eine
+  // eigene, projektweite Kennzahl (P20.3) - hier nur zusätzlich eingeblendet, damit der
+  // Projektleiter beim Blick auf eine einzelne Phase sofort sieht, wie vollständig das
+  // Mapping im ganzen Projekt gerade ist. Kein Health-Wert.
+  const [coverage, setCoverage] = useState<ProjectActualsCoverage | null>(null);
+  useEffect(() => {
+    api.getProjectActualsCoverage(projectId).then(setCoverage).catch(() => setCoverage(null));
+  }, [projectId]);
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [showRoleBreakdown, setShowRoleBreakdown] = useState(demands.length > 0);
   const [roles, setRoles] = useState<AdminResourceRole[]>([]);
@@ -300,6 +310,46 @@ export default function PlanPhaseCapacityTab({
           <div>
             <strong>Planstunden:</strong> {metrics.plan_hours == null ? "—" : `${metrics.plan_hours} h`}
           </div>
+        </div>
+      </div>
+
+      {/* P20.5 (Steuerung, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 26):
+          Rohmetriken aus PhaseMetricsOut (P20.4) - bewusst KEINE Ampel/Bewertung (BD-3 bleibt
+          separat offen). "Ist-Zuordnung" ist die Projekt-Coverage (P20.3), nicht phasen-
+          scoped - deshalb explizit als "Projekt" gekennzeichnet, um keine falsche Genauigkeit
+          vorzutäuschen. */}
+      <div className="card" style={{ marginBottom: "0.75rem" }}>
+        <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Steuerung</h4>
+        <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem" }}>
+          <div>
+            <strong>Ist-Aufwand:</strong>{" "}
+            {metrics.ist_hours == null ? "Noch nicht eindeutig zugeordnet" : `${metrics.ist_hours} h`}
+          </div>
+          <div>
+            <strong>Aufwandsverbrauch:</strong>{" "}
+            {metrics.effort_consumption_pct == null ? "—" : `${metrics.effort_consumption_pct}%`}
+          </div>
+          <div>
+            <strong>Zeitfortschritt:</strong>{" "}
+            {metrics.time_progress_pct == null ? "—" : `${metrics.time_progress_pct}%`}
+          </div>
+          {metrics.remaining_plan_hours != null && (
+            <div>
+              <strong>Verbleibender Planaufwand:</strong> {metrics.remaining_plan_hours} h
+            </div>
+          )}
+          {metrics.overrun_hours != null && metrics.overrun_hours > 0 && (
+            <div style={{ color: "var(--rot)" }}>
+              <strong>Überverbrauch:</strong> {metrics.overrun_hours} h
+            </div>
+          )}
+          {coverage && coverage.project_ist_total > 0 && (
+            <div style={{ paddingTop: "0.3rem", borderTop: "1px solid var(--border)", color: "var(--text-muted)" }}>
+              <strong>Ist-Zuordnung (Projekt):</strong>{" "}
+              {coverage.coverage_pct == null ? "—" : `${coverage.coverage_pct}%`}
+              {coverage.unmapped_total > 0 && ` (${coverage.unmapped_total} h nicht zugeordnet)`}
+            </div>
+          )}
         </div>
       </div>
 

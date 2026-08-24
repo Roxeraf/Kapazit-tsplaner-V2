@@ -574,6 +574,19 @@ class PlanPhaseOut(BaseModel):
     derived_capacity: float | None = None
 
 
+class JiraMatchPreviewOut(BaseModel):
+    """P20.5 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 10) - Mapping-
+    Preview vor dem Speichern eines jira_label: rein lesend gegen den bereits vorhandenen
+    Sync-Cache (JiraIssueCache/JiraWorklogCache), keine Live-Jira-Abfrage. `as_of` ist der
+    Stand des letzten Syncs (max. `last_synced_at` der Treffer-Issues), `None` ohne Treffer."""
+
+    matched_issues: int
+    matched_worklogs: int
+    total_hours: float
+    sample_issue_keys: list[str]
+    as_of: str | None
+
+
 class WorklogPhaseOverrideCreate(BaseModel):
     """P20.1 (BD-1B CLOSED): manuelle Worklog->PlanPhase-Zuordnung auf Issue-Key-Ebene, siehe
     models.WorklogPhaseOverride. previous_status wird optional mitgegeben, da der Resolver

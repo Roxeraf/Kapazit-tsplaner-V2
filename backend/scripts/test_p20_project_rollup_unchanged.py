@@ -1,13 +1,17 @@
-"""P20.7: Verifiziert, dass Projekt-/Portfolio-Rollup (GET /projects/{id}, GET /gap,
-GET /forecast) durch die Phase-Mapping-Domain (P20.1-P20.6) UNVERÄNDERT bleibt, siehe
-P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 20/22/28 ("Project Actual bleibt
-führend", "Forecast Assessment bleibt unverändert"). Kein pytest im Repo (siehe
+"""P20.7/P20.8: Verifiziert, dass Projekt-/Portfolio-Rollup (GET /projects/{id}, GET /gap,
+GET /forecast, GET /projects/{id}/health) durch die Phase-Mapping-Domain (P20.1-P20.7)
+UNVERÄNDERT bleibt, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 20/22/23/28/33
+("Project Actual bleibt führend", "Forecast Assessment bleibt unverändert", "Health
+Assessment bleibt unverändert", Regressionstest-Vorgabe). Kein pytest im Repo (siehe
 test_planning_phase_tree_api.py als etabliertes Muster):
 
 1. `project.ist` (`GET /projects/{id}`) ist identisch, ob eine Leaf-Phase ein `jira_label`
    trägt oder nicht - Phase-Mapping ist eine zusätzliche Aufschlüsselung derselben
    `jira_worklogs_cache`-Zeilen, kein Ersatz (Abschnitt 20).
-2. Dieselbe Invarianz für `GET /gap` (`ist`/`gap`/`gap_pct`) und `GET /forecast`.
+2. Dieselbe Invarianz für `GET /gap` (`ist`/`gap`/`gap_pct`), `GET /forecast` und
+   `GET /projects/{id}/health` (alle neun Health-Dimensionen, insbesondere `effort` - konsumiert
+   `project_gap()`, nicht die neue Phase-Ist-Quelle, Abschnitt 23) - P20 fügt bewusst
+   keine neue Health-Dimension/Ampel hinzu (BD-3 bleibt separat offen).
 3. Coverage < 100 % (Ambiguous/Unmapped-Anteil vorhanden) ändert an 1./2. nichts - Projekt-
    Ist wird nie aus den Phasen zurückgerechnet.
 
@@ -109,6 +113,7 @@ def main() -> None:
     gap_before = client.get(f"/gap/{project_id}").json()
     forecast_before = client.get("/forecast").json()
     forecast_entry_before = next(f for f in forecast_before if f["project_id"] == project_id)
+    health_before = client.get(f"/projects/{project_id}/health").json()
 
     if project_before["ist"] == {}:
         _fail("Ausgangszustand", "project.ist sollte bereits Buchungen zeigen (Vorbedingung)")
@@ -135,11 +140,12 @@ def main() -> None:
         _fail("Vorbedingung Ambiguous > 0", str(coverage))
     print(f"    Coverage jetzt {coverage['coverage_pct']}% (Ambiguous {coverage['ambiguous_total']}h) - Rollup wird trotzdem geprüft.")
 
-    print("3/3  Projekt-Ist/GAP/Forecast vergleichen - müssen byte-identisch bleiben ...")
+    print("3/3  Projekt-Ist/GAP/Forecast/Health vergleichen - müssen byte-identisch bleiben ...")
     project_after = client.get(f"/projects/{project_id}").json()
     gap_after = client.get(f"/gap/{project_id}").json()
     forecast_after = client.get("/forecast").json()
     forecast_entry_after = next(f for f in forecast_after if f["project_id"] == project_id)
+    health_after = client.get(f"/projects/{project_id}/health").json()
 
     if project_before["ist"] != project_after["ist"]:
         _fail("project.ist verändert", f"vorher={project_before['ist']} nachher={project_after['ist']}")
@@ -148,12 +154,15 @@ def main() -> None:
             _fail(f"GAP-Feld '{key}' verändert", f"vorher={gap_before[key]} nachher={gap_after[key]}")
     if forecast_entry_before != forecast_entry_after:
         _fail("Forecast-Eintrag verändert", f"vorher={forecast_entry_before} nachher={forecast_entry_after}")
+    if health_before != health_after:
+        _fail("Health verändert", f"vorher={health_before} nachher={health_after}")
 
     print(
-        "OK — P20.7: GET /projects/{id} (ist), GET /gap und GET /forecast bleiben byte-"
-        "identisch, obwohl PlanPhase-Mapping (Label, Override, Ambiguous, Unmapped, "
-        "Coverage < 100%) vollständig konfiguriert ist - Projekt-Ist bleibt führend "
-        "(Abschnitt 20), keine Rückrechnung aus den Phasen."
+        "OK — P20.7/P20.8: GET /projects/{id} (ist), GET /gap, GET /forecast und "
+        "GET /projects/{id}/health bleiben byte-identisch, obwohl PlanPhase-Mapping (Label, "
+        "Override, Ambiguous, Unmapped, Coverage < 100%) vollständig konfiguriert ist - "
+        "Projekt-Ist bleibt führend (Abschnitt 20), keine Rückrechnung aus den Phasen, keine "
+        "neue Health-Dimension/Ampel (BD-3 bleibt separat offen)."
     )
 
 

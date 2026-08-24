@@ -1,9 +1,22 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Version:** v0.23 (P18 Finalization — CONCEPT.md als Rebuild-Spezifikation bereinigt,
-realistischer Migrations-Dry-Run bewertet, B-8 weiterhin BLOCKED — siehe Abschnitt 16.17)
+**Version:** v0.24 (P20 — Tempo/Jira→PlanPhase-Mapping vollständig implementiert, BD-1
+CLOSED, siehe Abschnitt 16.19–16.25) **Vorherige Marke:** v0.23 (P18 Finalization —
+CONCEPT.md als Rebuild-Spezifikation bereinigt, realistischer Migrations-Dry-Run bewertet,
+B-8 weiterhin BLOCKED — siehe Abschnitt 16.17)
 **Stand:** Alle in Abschnitt 16 gelisteten Phasen bis P17 sind umgesetzt. **P18 ist fachlich/
-dokumentarisch abgeschlossen bis auf den produktiven Cutover (B-8).** Die P18-Zielarchitektur
+dokumentarisch abgeschlossen bis auf den produktiven Cutover (B-8).** **P19** hat die
+`PlanPhase`-Workspace-UX konsolidiert (Abschnitt 16.18). **P20** hat die zuvor offene
+Business Decision BD-1 (Tempo/Jira-Worklog → PlanPhase-Mapping) in acht additiven Paketen
+vollständig geschlossen — Mapping-Domain (`PlanPhase.jira_label`, `JiraIssueCache`,
+`WorklogPhaseOverride`), deterministischer Resolver (Manual Override → Label-Match →
+Unmapped/Ambiguous), Mapping Coverage, Phase-Ist-Metriken (`ist_hours`/
+`effort_consumption_pct`/`remaining_plan_hours`/`overrun_hours`), Workspace-UX (Label-Picker
++ Mapping-Preview, "Steuerung"-Karte), Personen-Drilldown/Planned-vs-Actual und die
+projektweite Coverage-Anzeige (Details Abschnitt 16.19–16.25) — **ohne** die P18/P19-
+Planungsarchitektur anzutasten: `PlanPhase.plan_fte`/Planstunden bleiben unverändert führend,
+Projekt-Ist (`GET /gap`/`GET /forecast`/`GET .../health`) bleibt byte-identisch (regressions-
+getestet), B-8 bleibt unabhängig davon weiterhin BLOCKED. Die P18-Zielarchitektur
 (`PlanPhase`-only, Abschnitt 6) ist **fachlich final gelockt und gegen Code CONFIRMED
 implementiert** (B-1–B-7, Details Abschnitt 16.7–16.17) und in acht Umsetzungspaketen
 realisiert:
@@ -121,7 +134,8 @@ Das Tool liefert heute zusätzlich:
   nur noch Legacy/Compat bis B-8, siehe Abschnitt 5.4)
 - Beraterkapazität (Plan-FTE, ResourceDemand/-Assignment, Available Capacity)
 - Projektsteuerung (Health, GAP Engine, Cockpit)
-- Tempo-Ist (Jira-Worklogs, projektweit; Phasenebene deferred, siehe BD-1)
+- Tempo-Ist (Jira-Worklogs, projektweit **und** phasenscoped über Label-Resolver + manuellen
+  Override, seit P20, siehe BD-1/Abschnitt 7/16.19–16.25)
 - Zusammenarbeit (Kommentare inkl. Threading, Tasks, Blocker, Decisions, Risks, Meeting
   Minutes, Dokumente)
 - Knowledge Layer (Tags, TagCategories, EntityRelations, Volltextsuche, Wissenskarten)
@@ -185,7 +199,17 @@ darauf.
 - **Zeitfortschritt ist berechnet, nicht manuell** — reiner Datumsanteil (wie viel Prozent
   des geplanten Zeitraums vergangen sind), kein Health-/Fortschrittswert.
 - **Tempo/Jira-Worklogs sind die Ist-Aufwandsquelle**, kein Personio/HR-System. Projekt-Level
-  funktioniert; Phase-Level ist deferred (BD-1).
+  funktioniert seit jeher; Phase-Level ist seit P20 (BD-1 CLOSED, Abschnitt 16.19–16.25)
+  ebenfalls implementiert.
+- **Worklog→PlanPhase-Mapping ist deterministisch, nie datumsbasiert** (BD-1, P20): ein
+  Jira-Issue wird über die feste Prioritätskette **manueller Override → Label-Match →
+  UNMAPPED/AMBIGUOUS** genau einer Leaf-Phase zugerechnet (`worklog_resolver.py`), niemals
+  über `forecast_start`/`forecast_end`. Ein Issue trägt seine Stunden immer in genau einen
+  Topf (gemappt/ambiguous/unmapped) ein — keine Doppelzählung, keine verschwindenden
+  Stunden. Projekt-Ist (`jira_sync.berechne_ist_fte`, `GET /gap`, `GET /forecast`) bleibt
+  davon strukturell unberührt: Phase-Mapping ist eine zusätzliche, rein lesende
+  Aufschlüsselung derselben `jira_worklogs_cache`-Zeilen, nie eine zweite Ist-Quelle
+  (Abschnitt 7, verifiziert per Regressionstest in Abschnitt 16.25).
 - **Tags sind eine Querschnittsschicht** mit generischer `TagLink`-Verknüpfung — kein
   Admin-Zwang zum Anlegen eines neuen Tags im normalen Arbeitsfluss.
 - **`PlanPhase` ist die einzige operative Planungseinheit (P18 Pass 2, Abschnitt 6, final
@@ -787,8 +811,12 @@ implementiert** (P20.4, `app/worklog_actuals.py` + `phase_metrics_calc.py`, Absc
 `PhaseMetricsOut.ist_hours`/`effort_consumption_pct`/`remaining_plan_hours`/`overrun_hours`
 liefern jetzt reale Werte für Leaf-Phasen mit `jira_label` und rekursiv aggregiert für
 Parent-Phasen — `null` bleibt ausschließlich für Phasen ohne Mapping-Konfiguration (nie eine
-Datumsheuristik oder ein Fake-Ist). **BD-1 ist damit vollständig geschlossen** — offen bleibt
-nur noch die Workspace-UX (Label-Picker, Mapping-Preview, Personen-Drilldown; P20.5–P20.7).
+Datumsheuristik oder ein Fake-Ist). **Workspace-UX implementiert** (P20.5, Abschnitt 16.23):
+Label-Picker mit Mapping-Preview im Übersicht-Tab, "Steuerung"-Karte im Kapazität-Tab.
+**Personen-Drilldown/Planned-vs-Actual implementiert** (P20.6, Abschnitt 16.24). **Projekt-
+Coverage-Anzeige implementiert** (P20.7, `ProjectJiraTab.tsx`, Abschnitt 16.25). **BD-1 ist
+damit vollständig geschlossen** — es bleibt keine offene fachliche Frage zu Tempo/Jira→
+PlanPhase-Mapping mehr.
 
 Konfiguration über `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`; ohne diese bleibt der
 Sync deaktiviert (`GET /jira/status`), die übrige Planung funktioniert unabhängig davon.
@@ -1043,7 +1071,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 
 | ID | Frage | Status |
 |---|---|---|
-| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert (P20.1–P20.7)** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3), Phase-Metriken-Verdrahtung (P20.4), Plan-vs-Actual-Workspace-UX (P20.5), Personen-Drilldown/Planned-vs-Actual (P20.6) und Projekt-Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7, Abschnitt 16.19–16.25) sind implementiert und per Playwright-Browserlauf verifiziert; ein dedizierter Regressionstest (`test_p20_project_rollup_unchanged.py`) bestätigt `GET /projects/{id}`/`GET /gap`/`GET /forecast` byte-identisch trotz voll konfigurierter Phase-Mapping-Domain. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Nur noch P20.8 (finale Gesamtregression/CONCEPT-Politur) offen — keine fachliche Restfrage mehr. |
+| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert (P20.1–P20.8)** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3), Phase-Metriken-Verdrahtung (P20.4), Plan-vs-Actual-Workspace-UX (P20.5), Personen-Drilldown/Planned-vs-Actual (P20.6), Projekt-Coverage-Anzeige (P20.7) und finale Gesamtregression + CONCEPT-Konsistenzpass (P20.8, Abschnitt 16.19–16.26) sind implementiert und per Playwright-Browserlauf verifiziert; dedizierte Regressionstests bestätigen `GET /projects/{id}`/`GET /gap`/`GET /forecast`/`GET .../health` byte-identisch trotz voll konfigurierter Phase-Mapping-Domain, alle acht Auftrags-Akzeptanztests (AT1–AT8) sind automatisierte Regressionsskripte. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Keine fachliche Restfrage mehr. |
 | BD-3 | Bewertungs-Thresholds für Phasenmetriken (🟢/🟡/🔴 auf `plan_hours`/`time_progress_pct`/Reconciliation)? | offen — Metriken werden aktuell ohne Ampel gezeigt |
 | BD-4 | Feiertags-Handling für Planstunden (aktuell Mo–Fr ohne Feiertagsabzug) | offen, dokumentierter Scope-Cut, keine stille Baseline-Änderung |
 | BD-5 | `ResourceAssignment` mit Teil-Zeiträumen (Sub-Ranges) statt einer FTE über die ganze Demand-Periode? | offen |
@@ -1079,9 +1107,6 @@ Werktage-Logik ableitbar, keine offene Frage.
 
 ## 15. Deferred Features
 
-- Tempo→PlanPhase-Mapping: **vollständig implementiert (P20.1–P20.7, Abschnitt 16.19–16.25,
-  BD-1 CLOSED)** — nur noch P20.8 (finale Gesamtregression/CONCEPT-Politur, kein neuer
-  Code) bleibt deferred
 - `PlanPhase.progress`-Spalte tatsächlich droppen (Schema-Cleanup erst, wenn alle Consumer
   entfernt sind — kein destruktives Cleanup nur für UX)
 - `phase_control_status`/🟢🟡🔴-Bewertung der Phasenmetriken (BD-3)
@@ -2703,6 +2728,75 @@ dieselbe offene, nicht business-kritische UI-Lücke wie in P20.5 dokumentiert).
 60 h gemappten + 20 h nicht zugeordneten Worklogs korrekt "Gesamt: 80 h", "Zu PlanPhasen
 zugeordnet: 60 h", "Nicht zugeordnet: 20 h", "Coverage: 75 %", keine Konsolenfehler. Alle
 13 Backend-Testskripte grün.
+
+### 16.26 P20.8 — Regression / CONCEPT / E2E (dieser Durchgang, Abschluss von P20)
+
+**Auftrag:** achtes und letztes Paket der P20-Serie (abhängig von P20.1–P20.7, alle
+implementiert) — keine neue Funktionalität, sondern Gesamtregression und CONCEPT.md-
+Konsistenzpass, wie im Auftrag Abschnitt 33/42/52 verlangt ("alle Testfälle als
+automatisierte Tests", "Regressionscheck GET /gap/GET /forecast/health_calc unverändert",
+CONCEPT.md rebuild-safe aktualisieren).
+
+**Regression:**
+
+- **`health_calc`-Lücke geschlossen:** `test_p20_project_rollup_unchanged.py` (P20.7) prüfte
+  bereits `GET /gap`/`GET /forecast` byte-identisch vor/nach voller Phase-Mapping-Konfiguration,
+  aber noch nicht `GET /projects/{id}/health` — jetzt ergänzt (alle neun Health-Dimensionen,
+  insbesondere `effort`, das weiterhin `project_gap()` konsumiert, nicht die neue
+  Phase-Ist-Quelle). Bestätigt: **P20 fügt keine neue Health-Dimension/Ampel hinzu** (BD-3
+  bleibt unverändert offen, Abschnitt 23 des Auftrags).
+- **Alle acht Auftrags-Akzeptanztests (AT1–AT8) sind automatisierte Regressionsskripte**
+  (Auftrag Abschnitt 44–51), verteilt über die P20-Pakete, in denen die jeweilige Fähigkeit
+  entstand — keine nachträgliche Lücke gefunden:
+
+  | Test | Skript | Paket |
+  |---|---|---|
+  | AT1 (Happy Path: 80h Plan, 60h Ist, 75%, 20h Rest) | `test_p20_phase_actual_metrics.py` | P20.4 |
+  | AT2 (Unmapped: Projekt-Ist bleibt vollständig) | `test_p20_actuals_coverage.py` | P20.3 |
+  | AT3 (Ambiguous: keine Doppelzählung) | `test_p20_worklog_resolver.py` / `test_p20_actuals_coverage.py` | P20.2/P20.3 |
+  | AT4 (Manual Override) | `test_p20_jira_phase_mapping.py` / `test_p20_worklog_resolver.py` | P20.1/P20.2 |
+  | AT5 (Parallele Phasen, keine Datumsheuristik) | `test_p20_worklog_resolver.py` | P20.2 |
+  | AT6 (Parent-Aggregation) | `test_p20_phase_actual_metrics.py` / `test_p20_person_actuals.py` | P20.4/P20.6 |
+  | AT7 (Kein Mapping → `null`, nicht `0h`) | `test_p20_phase_actual_metrics.py` | P20.4 |
+  | AT8 (Planned vs. Actual) | `test_p20_person_actuals.py` | P20.6 |
+
+- **Gesamter Backend-Testlauf:** alle 13 Skripte (6 aus P18/P19 + 7 aus P20) grün in einem
+  Durchgang — keine Interferenz zwischen den Paketen, keine Test-Reihenfolge-Abhängigkeit
+  (jedes Skript baut seine eigene Wegwerf-SQLite-DB, siehe Musterkopf jedes Skripts).
+- **Frontend:** `npm run build` (`tsc -b && vite build`) und `npm run lint` sauber über den
+  gesamten P20-Diff (P20.5/P20.6/P20.7 betrafen `PlanPhaseWorkspace.tsx`,
+  `PlanPhaseCapacityTab.tsx`, `ProjectJiraTab.tsx`).
+
+**CONCEPT.md-Konsistenzpass** (Auftrag Abschnitt 52, "rebuild-safe aktualisieren"):
+
+- **Abschnitt 2 (Fachlicher Scope):** "Tempo-Ist (Jira-Worklogs, projektweit; Phasenebene
+  deferred, siehe BD-1)" war seit P20.4 sachlich falsch stehen geblieben — korrigiert auf
+  "projektweit **und** phasenscoped über Label-Resolver + manuellen Override".
+- **Abschnitt 3 (Kernprinzipien):** neuer Grundsatz **"Worklog→PlanPhase-Mapping ist
+  deterministisch, nie datumsbasiert"** ergänzt (Prioritätskette, keine Doppelzählung, keine
+  verschwindenden Stunden, Projekt-Ist bleibt strukturell unberührt) - der alte Grundsatz
+  "Tempo/Jira-Worklogs sind die Ist-Aufwandsquelle ... Phase-Level ist deferred (BD-1)" war
+  seit P20 ebenfalls überholt und wurde korrigiert.
+- **Abschnitt 7 (Ist-Daten/Tempo):** der Implementierungsstand-Absatz wurde nach jedem
+  P20.x-Paket aktualisiert, aber am Ende von P20.4 stehen gelassen ("offen bleibt nur noch
+  die Workspace-UX ... P20.5–P20.7") - jetzt final auf "BD-1 vollständig geschlossen"
+  korrigiert.
+- **Abschnitt 14/15 (Business Decisions/Deferred):** BD-1-Zeile auf P20.1–P20.8 aktualisiert;
+  der Deferred-Features-Eintrag "Tempo→PlanPhase-Mapping" **komplett entfernt** (nichts mehr
+  deferred, kein Grund für eine Zeile in dieser Liste).
+- **Versions-Header:** `v0.23` → `v0.24`, mit einer knappen P20-Zusammenfassung (Mapping-
+  Domain/Resolver/Coverage/Metriken/Workspace-UX/Personen-Drilldown/Projekt-Coverage, keine
+  Änderung an der P18/P19-Planungsarchitektur, Projekt-Ist regressionsgetestet unverändert).
+
+**Nicht Teil von P20 (unverändert, wie im Auftrag mehrfach festgehalten):** keine
+Änderung an `PlanPhase`-only Planning, Derived Monthly Capacity, Resource-Assignment-
+Semantik, Parent/Leaf-Capacity, Gantt, Planstand-Architektur, Tags/Collaboration (Auftrag
+Abschnitt 53); B-8/`ResourceDemandGrid`/Subproject-Legacy-Cutover bleibt unabhängig davon
+weiterhin BLOCKED (Auftrag Abschnitt 54, Abschnitt 16.16/16.17 hier).
+
+**Ergebnis:** BD-1 ist **CLOSED**, alle acht P20-Pakete sind implementiert, getestet
+(automatisiert + Playwright-verifiziert) und dokumentiert. Keine offene fachliche Frage zu
+Tempo/Jira → PlanPhase-Mapping mehr.
 
 ---
 

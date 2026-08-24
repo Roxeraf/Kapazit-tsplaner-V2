@@ -903,7 +903,7 @@ Navigations-Gruppierung, keine Zugriffskontrolle (kein Rollen-/Login-System im R
 | Kommunikation | Diskussionen, Aufgaben, Entscheidungen, Risiken, Meetingprotokolle (projektweit; phasenbezogene Sicht siehe Planung-Tab-Drawer) |
 | Dokumente | Zentrale Dokumentenablage des gesamten Projekts, Suche/Filter, "Verwendet in"-Backlinks |
 | Historie | Automatisches Änderungsprotokoll (Audit), nach Datum/Revision (`batch_id`) gruppiert |
-| Jira | Sync-Status, Ist-FTE-Tabelle, "Jetzt synchronisieren" |
+| Jira | Sync-Status, Ist-FTE-Tabelle, "Jetzt synchronisieren", seit P20.7 zusätzlich eine "Ist-Zuordnung zu PlanPhasen"-Karte (projektweite Mapping Coverage, P20.3) |
 | Einstellungen | **Projektstammdaten** (Name/Kunde/Startmonat/Anzahl Monate, mit Grund-/Batch-Speichern-Workflow), Projektparameter (Status/Projektleiter), Projektteam/Berechtigungen, Jira-Verknüpfung. **Nicht** hier: PlanPhase-Planung, Kapazitätsplanung, Assignments, Planstände, Tag-Verwendung, Kommentare/Tasks/Blocker/Milestones — das bleibt Planungsarbeit im Planung-Tab. |
 
 ### Planung-Tab im Detail
@@ -1043,7 +1043,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 
 | ID | Frage | Status |
 |---|---|---|
-| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert inkl. Workspace-UX und Personen-Drilldown** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3), Phase-Metriken-Verdrahtung (P20.4), Plan-vs-Actual-Workspace-UX (P20.5) und Personen-Drilldown/Planned-vs-Actual (P20.6: `GET .../person-actuals`, "Details ▾" im Kapazität-Tab, Abschnitt 16.19–16.24) sind implementiert und per Playwright-Browserlauf verifiziert. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Noch offen: Projekt-Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7) — reines Frontend-/Anzeige-Paket, keine fachliche Restfrage mehr. |
+| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert (P20.1–P20.7)** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3), Phase-Metriken-Verdrahtung (P20.4), Plan-vs-Actual-Workspace-UX (P20.5), Personen-Drilldown/Planned-vs-Actual (P20.6) und Projekt-Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7, Abschnitt 16.19–16.25) sind implementiert und per Playwright-Browserlauf verifiziert; ein dedizierter Regressionstest (`test_p20_project_rollup_unchanged.py`) bestätigt `GET /projects/{id}`/`GET /gap`/`GET /forecast` byte-identisch trotz voll konfigurierter Phase-Mapping-Domain. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Nur noch P20.8 (finale Gesamtregression/CONCEPT-Politur) offen — keine fachliche Restfrage mehr. |
 | BD-3 | Bewertungs-Thresholds für Phasenmetriken (🟢/🟡/🔴 auf `plan_hours`/`time_progress_pct`/Reconciliation)? | offen — Metriken werden aktuell ohne Ampel gezeigt |
 | BD-4 | Feiertags-Handling für Planstunden (aktuell Mo–Fr ohne Feiertagsabzug) | offen, dokumentierter Scope-Cut, keine stille Baseline-Änderung |
 | BD-5 | `ResourceAssignment` mit Teil-Zeiträumen (Sub-Ranges) statt einer FTE über die ganze Demand-Periode? | offen |
@@ -1079,10 +1079,9 @@ Werktage-Logik ableitbar, keine offene Frage.
 
 ## 15. Deferred Features
 
-- Tempo→PlanPhase-Mapping: **fachlich vollständig implementiert inkl. Workspace-UX und
-  Personen-Drilldown** (P20.1–P20.6, Abschnitt 16.19–16.24, BD-1 CLOSED) — nur noch die
-  Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7, reines Frontend-/Anzeige-Paket) bleibt
-  deferred
+- Tempo→PlanPhase-Mapping: **vollständig implementiert (P20.1–P20.7, Abschnitt 16.19–16.25,
+  BD-1 CLOSED)** — nur noch P20.8 (finale Gesamtregression/CONCEPT-Politur, kein neuer
+  Code) bleibt deferred
 - `PlanPhase.progress`-Spalte tatsächlich droppen (Schema-Cleanup erst, wenn alle Consumer
   entfernt sind — kein destruktives Cleanup nur für UX)
 - `phase_control_status`/🟢🟡🔴-Bewertung der Phasenmetriken (BD-3)
@@ -2667,6 +2666,43 @@ getrennten Zeilen) und ein unbekannter Jira-Account (Account-ID als Anzeigename,
 Browserlauf: "Details ▾" aufgeklappt zeigt Dominik (32h), Anna ("nicht eingeplant", 8h),
 "Eingeplant, bisher kein Ist: Max", "Davon durch nicht eingeplante Ressourcen: 8h" - exakt
 wie im seedenden Testszenario, keine Konsolenfehler. Alle zwölf Backend-Testskripte grün.
+
+### 16.25 P20.7 — Project/Portfolio Rollup & Coverage UI (dieser Durchgang)
+
+**Auftrag:** siebtes von acht additiven P20-Paketen (abhängig von P20.3, Abschnitt 16.21) -
+zeigt die seit P20.3 berechnete Mapping Coverage im projektweiten Jira-Tab, und verifiziert
+explizit, dass das Projekt-Rollup (`GET /projects/{id}`, `GET /gap`, `GET /forecast`) durch
+die gesamte Phase-Mapping-Domain unverändert bleibt (Auftrag Abschnitt 20/22).
+
+**Frontend (`ProjectJiraTab.tsx`):** neue Karte "Ist-Zuordnung zu PlanPhasen" unterhalb der
+bestehenden "Ist-FTE"-Tabelle, nur sichtbar bei `project_ist_total > 0`. Zeigt Gesamt/Zu
+PlanPhasen zugeordnet/Nicht eindeutig zugeordnet (nur falls > 0)/Nicht zugeordnet/Coverage,
+lädt (neu) bei jedem `reload()` (z. B. nach "Jetzt synchronisieren"). Kein neuer Endpoint -
+derselbe `GET /projects/{id}/actuals-coverage` (P20.3) wie in der Kapazität-Tab-Karte
+"Steuerung" (P20.5). Bewusst keine Health-Ampel/Bewertung, nur ein Hinweistext, dass die
+Kennzahl die Zuordnungs-Vollständigkeit misst, nicht den Projektfortschritt.
+
+**Regressionsverifikation (neues Testskript
+`backend/scripts/test_p20_project_rollup_unchanged.py`):** baut ein Projekt mit vollständig
+konfigurierter Phase-Mapping-Domain (zwei gelabelte Leaf-Phasen, ein Issue mit zwei
+widersprüchlichen Phase-Labels → `AMBIGUOUS`, ein komplett unzugeordnetes Issue, ein Override
+für ein noch ungesynctes Issue) und vergleicht `GET /projects/{id}.ist`, `GET /gap/{id}`
+(alle Felder) und den `GET /forecast`-Eintrag dieses Projekts vor und nach Aktivierung dieser
+Konfiguration - **byte-identisch**, obwohl die resultierende Coverage bei 53 % liegt
+(Ambiguous > 0). Bestätigt experimentell, was seit P20.1 architektonisch geplant war:
+Phase-Mapping ist eine zusätzliche, rein lesende Aufschlüsselung derselben
+`jira_worklogs_cache`-Zeilen, niemals eine zweite Ist-Quelle oder ein Ersatz für
+`jira_sync.berechne_ist_fte` (Abschnitt 20).
+
+**Bewusst nicht Teil von P20.7:** keine Portfolio-weite Drilldown-Ebene (Projekt → Phase →
+Personen) über mehrere Projekte hinweg - laut Auftrag Abschnitt 21 explizit **kein** P20-Paket,
+mögliche spätere Folgearbeit. Kein Override-Bearbeitungsdialog im Coverage-Card (weiterhin
+dieselbe offene, nicht business-kritische UI-Lücke wie in P20.5 dokumentiert).
+
+**Verifikation:** `npm run build`/`lint` sauber. Playwright-Browserlauf: Jira-Tab zeigt bei
+60 h gemappten + 20 h nicht zugeordneten Worklogs korrekt "Gesamt: 80 h", "Zu PlanPhasen
+zugeordnet: 60 h", "Nicht zugeordnet: 20 h", "Coverage: 75 %", keine Konsolenfehler. Alle
+13 Backend-Testskripte grün.
 
 ---
 

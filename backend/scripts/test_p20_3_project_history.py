@@ -284,6 +284,60 @@ def main() -> None:
     if not deleted_asg or deleted_asg[0]["entity_label"] != "Christian Cron":
         _fail("Assignment delete history", f"{deleted_asg}")
 
+    print("4b/12  UI-Pfad /assign-person historisiert ...")
+    ui_person = _create_person("Max Mustermann")
+    ui_phase = _create_phase(
+        project_id,
+        phase_type="UI-Besetzung",
+        forecast_start="2026-11-21",
+        forecast_end="2026-11-28",
+        plan_fte=0.5,
+    )
+    before_ui = _count(project_id)
+    resp = client.post(
+        f"/projects/plan-phases/{ui_phase['id']}/assign-person",
+        json={"person_id": ui_person, "fte": 0.3},
+    )
+    if resp.status_code != 200:
+        _fail("assign-person", f"{resp.status_code}: {resp.text}")
+    ui_created = [
+        r
+        for r in _rows(project_id)
+        if r.get("entity_type") == "resource_assignment"
+        and r.get("action") == "created"
+        and r.get("entity_label") == "Max Mustermann"
+    ]
+    if not ui_created:
+        _fail("assign-person history", f"kein Create nach UI-Pfad: count {before_ui} -> {_count(project_id)}")
+    resp = client.post(
+        f"/projects/plan-phases/{ui_phase['id']}/assign-person",
+        json={"person_id": ui_person, "fte": 0.5},
+    )
+    if resp.status_code != 200:
+        _fail("assign-person upsert", f"{resp.status_code}: {resp.text}")
+    ui_fte = [
+        r
+        for r in _rows(project_id)
+        if r.get("entity_type") == "resource_assignment"
+        and r["feld"] == "fte"
+        and r["action"] == "updated"
+        and r.get("entity_label") == "Max Mustermann"
+    ]
+    if not ui_fte or ui_fte[0]["alter_wert"] != "0.3" or ui_fte[0]["neuer_wert"] != "0.5":
+        _fail("assign-person FTE history", f"{ui_fte}")
+    resp = client.delete(f"/projects/plan-phases/{ui_phase['id']}/assign-person/{ui_person}")
+    if resp.status_code != 200:
+        _fail("unassign-person", f"{resp.status_code}: {resp.text}")
+    ui_deleted = [
+        r
+        for r in _rows(project_id)
+        if r.get("entity_type") == "resource_assignment"
+        and r.get("action") == "deleted"
+        and r.get("entity_label") == "Max Mustermann"
+    ]
+    if not ui_deleted:
+        _fail("unassign-person history", "Delete-Eintrag fehlt")
+
     print("5/12  Milestone create/update/delete ...")
     resp = client.post(
         f"/projects/{project_id}/milestones",

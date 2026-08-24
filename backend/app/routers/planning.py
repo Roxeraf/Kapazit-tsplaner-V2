@@ -1380,7 +1380,38 @@ def assign_person_to_plan_phase(
     if person is None:
         raise HTTPException(status_code=404, detail="Person nicht gefunden")
 
-    _upsert_direct_assignment(db, plan_phase, payload.person_id, payload.fte)
+    previous = (
+        db.query(models.ResourceAssignment)
+        .filter(
+            models.ResourceAssignment.plan_phase_id == plan_phase.id,
+            models.ResourceAssignment.person_id == payload.person_id,
+        )
+        .first()
+    )
+    old_fte = previous.fte if previous is not None else None
+    assignment = _upsert_direct_assignment(db, plan_phase, payload.person_id, payload.fte)
+    db.flush()
+    if previous is None:
+        history.record_created(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="resource_assignment",
+            entity_id=assignment.id,
+            entity_label=person.display_name,
+            fields={"fte": assignment.fte, "person_id": person.id},
+            plan_phase_id=plan_phase.id,
+        )
+    else:
+        history.record_updated(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="resource_assignment",
+            entity_id=assignment.id,
+            entity_label=person.display_name,
+            old={"fte": old_fte, "person_id": person.id},
+            new={"fte": assignment.fte, "person_id": person.id},
+            plan_phase_id=plan_phase.id,
+        )
     db.commit()
     db.refresh(plan_phase)
     return _plan_phase_assignment_summary(db, plan_phase)
@@ -1392,7 +1423,36 @@ def assign_person_to_plan_phase(
 )
 def unassign_person_from_plan_phase(plan_phase_id: int, person_id: int, db: Session = Depends(get_db)):
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    existing = (
+        db.query(models.ResourceAssignment)
+        .filter(
+            models.ResourceAssignment.plan_phase_id == plan_phase_id,
+            models.ResourceAssignment.person_id == person_id,
+        )
+        .first()
+    )
+    person = db.get(models.Person, person_id)
+    if existing is not None:
+        history.record_deleted(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="resource_assignment",
+            entity_id=existing.id,
+            entity_label=person.display_name if person else f"Person #{person_id}",
+            fields=history.snapshot(existing, "resource_assignment"),
+            plan_phase_id=plan_phase.id,
+        )
     if _delete_person_assignment(db, plan_phase_id, person_id):
+        if existing is None:
+            history.record_deleted(
+                db,
+                project_id=plan_phase.project_id,
+                entity_type="resource_assignment",
+                entity_id=person_id,
+                entity_label=person.display_name if person else f"Person #{person_id}",
+                fields={"fte": None, "person_id": person_id},
+                plan_phase_id=plan_phase.id,
+            )
         db.commit()
     return _plan_phase_assignment_summary(db, plan_phase)
 

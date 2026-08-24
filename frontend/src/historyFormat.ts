@@ -191,7 +191,7 @@ export function revisionTitle(entries: PlanHistoryEntry[]): string {
 }
 
 export function detailRows(entries: PlanHistoryEntry[]): PlanHistoryEntry[] {
-  const details = entries.filter((e) => e.feld !== EVENT_FIELD);
+  const details = entries.filter((e) => e.feld !== EVENT_FIELD && e.feld !== "person_id");
   return details.length > 0 ? details : entries.filter((e) => e.feld === EVENT_FIELD && (e.alter_wert || e.neuer_wert));
 }
 

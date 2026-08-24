@@ -134,6 +134,9 @@ Direkte Assignments (`plan_phase_id` + `person_id` + `fte`):
 - Delete: Personenlabel gesichert.
 - FTE-No-Op erzeugt keinen zweiten Eintrag.
 
+Schreibpfade: REST-CRUD `.../plan-phases/{id}/assignments` **und** der UI-Pfad
+`POST/DELETE .../plan-phases/{id}/assign-person` (P20.3 Nachzug, derselbe `history.py`-Write).
+
 `plan_fte` und Assignment-FTE bleiben getrennte Source-of-Truth-Felder. Derived monthly
 capacity / Planstunden / Portfolio-Werte werden nicht zusätzlich geschrieben.
 
@@ -330,13 +333,24 @@ Kein neues Vitest/Jest-Framework.
 
 ## 21. Playwright Journey
 
-Geforderte Browser-Journey (Projekt öffnen → Planung ohne Planstände → Phase anlegen →
-Zeitraum/`plan_fte` → Zuweisung → Milestone → Historie-Tab → Filter → Expand → keine
-JSON-Dumps → keine Console Errors).
+Kein Playwright-Framework als neue Projektdependency. Verifikation gegen den echten Stack
+(Frontend `http://127.0.0.1:5173`, Backend `http://127.0.0.1:8000`, Wegwerf-SQLite).
 
-Umsetzung und Ergebnis stehen im Abschluss der Implementierung (Agent-Validierung). Ein
-Playwright-Framework wurde **nicht** als neue Projektdependency eingeführt; die Journey
-läuft gegen den echten Stack analog P20.1/P20.2.
+| Check | Ergebnis |
+|---|---|
+| App öffnen, Projekt anlegen | **PASS** — „P20.3 History Demo“, Kunde Acme |
+| Planung ohne Planstände | **PASS** — kein „Planstände“, kein „+ Planstand festhalten“, kein „Mit aktuellem Plan vergleichen“, kein V1 |
+| Phase-Create-Modal | **PARTIALLY_VERIFIED** — Modal öffnet; Speichern blieb in der Browser-Automatisierung deaktiviert, weil US-Datumsstrings (`11/13/2026`) das HTML-`type=date`-Feld nicht füllten (`canSave` false). Kein Produkt-Bug, kein Console-Error. Phase „Konfiguration“ danach über `POST /plan-phases` angelegt. |
+| Zeitraum / plan_fte ändern | **PASS** — Drawer Übersicht/Kapazität; Ende und Plan-FTE 0,60 → 0,80 in der Historie |
+| Mitarbeiter zuweisen | **PASS** nach Fix des UI-Pfads `POST /plan-phases/{id}/assign-person` (History hing zuvor nur am REST-CRUD `/assignments`). Historie: „Christian Cron zugewiesen“, 0,20 FTE. Filter **Team** zeigt den Eintrag. |
+| Milestone Datum | **PASS** — Go-Live 15.12.2026 → 18.12.2026, Titel „Milestone ‚Go-Live‘ verschoben“ |
+| Historie-Tab zentral, keine Extra-Aktion | **PASS** |
+| Filter Alle/Planung/Kapazität/Team/Zusammenarbeit | **PASS** — View-Filter; Team = Assignment; Kapazität = Plan-FTE; Zusammenarbeit leer ohne Collaboration-Events |
+| Expand: deutsche Labels, Alt/Neu, kein JSON | **PASS** (Plan-FTE, Ende, Datum, FTE) |
+| Kein Planstand-Button, keine History-Edit/Delete | **PASS** |
+| Console | **PASS** — keine Application-Errors (nur React-DevTools-Hinweis) |
+
+Zwischenstand-Artefakt der Datums-Automatisierung: eine History-Zeile mit Rohwert `202026-11-11` (getipptes US-Datum). Endzustand der Phase ist `forecast_end=2026-11-20`.
 
 ## 22. Remaining Legacy
 

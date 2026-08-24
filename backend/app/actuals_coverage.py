@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from . import models, worklog_resolver
+from . import worklog_actuals, worklog_resolver
 from .worklog_resolver import ResolutionStatus
 
 
@@ -33,29 +33,17 @@ class ProjectCoverage:
     coverage_pct: float | None
 
 
-def _hours_by_issue(db: Session, project_id: int) -> dict[str, float]:
-    """Stunden je Issue-Key aus dem bestehenden, unveränderten Worklog-Cache (Abschnitt 20:
-    Projekt-Ist bleibt exakt diese Summe, niemals nur die gemappten Stunden)."""
-    rows = (
-        db.query(models.JiraWorklogCache.jira_issue_key, models.JiraWorklogCache.stunden)
-        .filter(models.JiraWorklogCache.projekt_mapping == str(project_id))
-        .all()
-    )
-    hours: dict[str, float] = {}
-    for issue_key, stunden in rows:
-        hours[issue_key] = hours.get(issue_key, 0.0) + stunden
-    return hours
-
-
 def project_coverage(db: Session, project_id: int) -> ProjectCoverage:
-    hours_by_issue = _hours_by_issue(db, project_id)
-    project_ist_total = round(sum(hours_by_issue.values()), 2)
+    # P20.4 (worklog_actuals.py): dieselbe Worklog-Cache-Abfrage wird auch für die
+    # Phase-Ist-Aggregation gebraucht - hier zentral gehalten, keine zweite Definition.
+    issue_hours = worklog_actuals.hours_by_issue(db, project_id)
+    project_ist_total = round(sum(issue_hours.values()), 2)
 
     resolution = worklog_resolver.resolve_project_issues(db, project_id)
 
     mapped_total = 0.0
     ambiguous_total = 0.0
-    for issue_key, hours in hours_by_issue.items():
+    for issue_key, hours in issue_hours.items():
         # Kein Resolver-Ergebnis (Issue noch nicht im jira_issue_cache, z.B. weil es beim
         # letzten Sync nicht mehr traf) oder explizit UNMAPPED -> zählt in keinem der beiden
         # Töpfe, landet unten automatisch im Unmapped-Rest (Stunden verschwinden nie).

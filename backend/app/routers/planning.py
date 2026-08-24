@@ -9,7 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import capacity_calc, constants, entity_links, models, phase_metrics_calc, planning_calc, schemas
+from .. import (
+    capacity_calc,
+    constants,
+    entity_links,
+    models,
+    phase_metrics_calc,
+    planning_calc,
+    schemas,
+    worklog_actuals,
+)
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["planning"])
@@ -340,11 +349,21 @@ def _plan_phase_metrics(db: Session, p: models.PlanPhase) -> schemas.PhaseMetric
     ) or 0.0
     ph = phase_metrics_calc.plan_hours(p.plan_fte, p.forecast_start, p.forecast_end)
     recon = phase_metrics_calc.reconcile(p.plan_fte, breakdown_sum)
+    # P20.4 (BD-1 CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 15/16):
+    # Parent-Ist ist IMMER die rekursive Summe ihrer Leaf-Nachfahren, nie eine eigene Quelle
+    # (analog planning_calc.derive_parent_capacity für plan_fte).
+    ist = (
+        worklog_actuals.parent_ist_hours(db, p.id)
+        if planning_calc.has_children(db, p.id)
+        else worklog_actuals.leaf_ist_hours(db, p)
+    )
     return schemas.PhaseMetricsOut(
         time_progress_pct=phase_metrics_calc.time_progress(p.forecast_start, p.forecast_end),
         plan_hours=ph,
-        effort_consumption_pct=phase_metrics_calc.effort_consumption(None, ph),  # BD-1: immer None
-        ist_hours=None,  # BD-1: keine Ist-Stunden-Quelle auf PlanPhase-Ebene
+        effort_consumption_pct=phase_metrics_calc.effort_consumption(ist, ph),
+        ist_hours=ist,
+        remaining_plan_hours=phase_metrics_calc.remaining_plan_hours(ist, ph),
+        overrun_hours=phase_metrics_calc.overrun_hours(ist, ph),
         reconciliation=schemas.ReconciliationOut(
             headline_fte=recon["headline_fte"],
             breakdown_fte=recon["breakdown_fte"],

@@ -1608,8 +1608,13 @@ class PhaseMetricsOut(BaseModel):
     # Rohmetriken nur - keine control_status/Ampel-Logik (folgt erst nach BD-3).
     time_progress_pct: float | None
     plan_hours: float | None
-    effort_consumption_pct: float | None  # BD-1: aktuell immer None (keine Ist-Stunden-Quelle)
-    ist_hours: float | None  # BD-1: aktuell immer None
+    # P20.4 (BD-1 CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 16):
+    # null bleibt "noch nicht zugeordnet" (kein jira_label bzw. kein Leaf-Nachfahre mit
+    # jira_label) - niemals eine irreführende 0.
+    effort_consumption_pct: float | None
+    ist_hours: float | None
+    remaining_plan_hours: float | None = None
+    overrun_hours: float | None = None
     reconciliation: ReconciliationOut
 
 

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import TagChip from "../../components/TagChip";
-import { describeEntry, formatTimestamp } from "../../components/HistoryPanel";
+import { formatTimestamp } from "../../components/HistoryPanel";
+import { groupHistory, revisionTitle } from "../../historyFormat";
 import {
   HEALTH_DIMENSION_LABELS,
   HEALTH_STATUS_COLOR,
@@ -216,12 +217,17 @@ export default function ProjectOverviewTab() {
             <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Noch keine Änderungen protokolliert.</p>
           ) : (
             <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: "0.85rem" }}>
-              {history.slice(0, 5).map((entry) => (
-                <li key={entry.id} style={{ padding: "0.25rem 0", borderBottom: "1px solid var(--border)" }}>
-                  {describeEntry(entry)}
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>{formatTimestamp(entry.geaendert_am)}</div>
-                </li>
-              ))}
+              {groupHistory(history)
+                .flatMap((g) => g.revisions)
+                .slice(0, 5)
+                .map((rev) => (
+                  <li key={rev.key} style={{ padding: "0.25rem 0", borderBottom: "1px solid var(--border)" }}>
+                    {revisionTitle(rev.entries)}
+                    <div style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>
+                      {formatTimestamp(rev.timestamp)}
+                    </div>
+                  </li>
+                ))}
             </ul>
           )}
           <p style={{ marginTop: "0.5rem" }}>

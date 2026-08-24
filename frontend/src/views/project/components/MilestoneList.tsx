@@ -19,7 +19,7 @@ function fmtDate(iso: string | null): string {
 
 // P11 (Planungs-/Kapazitätskonsolidierung): dieselbe UX-Regel wie bei PlanPhase - normal ist
 // EIN Datumsfeld ("Datum" = forecast_date, der aktuelle Plan). baseline_date ist compat-only
-// und wird im Normalflow nicht mehr angezeigt (siehe BaselineList für Planstände).
+// und wird im Normalflow nicht mehr angezeigt.
 // actual_date bleibt sekundär, read-only mit expliziter Korrektur-Aktion, analog
 // PlanPhaseWorkspace "Tatsächlicher Verlauf".
 // P15.1/15.2 (Milestone UX Completion): analog zur PlanPhase-Liste (P11) ist die Karte im

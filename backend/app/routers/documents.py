@@ -4,10 +4,60 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from .. import documents_storage, entity_links, models, schemas
+from .. import documents_storage, entity_links, history, models, schemas
 from ..database import get_db
 
 router = APIRouter(tags=["documents"])
+
+# Nur Verknüpfungen mit Projekt/Phase (und Milestone als Planungsobjekt) gehören in die
+# Projekthistorie. Anhänge an Kommentare/Tasks sind Collaboration, kein eigener Audit-Eintrag.
+_HISTORY_DOCUMENT_LINK_TYPES = {"plan_phase", "milestone"}
+
+
+def _historize_document_link(
+    db: Session,
+    *,
+    document: models.Document,
+    entity_type: str | None,
+    entity_id: int | None,
+    action: str,
+    link_id: int | None = None,
+) -> None:
+    if entity_type is None:
+        history.record_rows(
+            db,
+            project_id=document.project_id,
+            entity_type="document_link",
+            action=action,
+            changes=[(history.EVENT_FIELD, None if action == history.ACTION_CREATED else document.dateiname, document.dateiname if action == history.ACTION_CREATED else None)],
+            entity_id=document.id,
+            entity_label=document.dateiname,
+        )
+        return
+    if entity_type not in _HISTORY_DOCUMENT_LINK_TYPES:
+        return
+    label = f"{document.dateiname} → {entity_type}"
+    plan_phase_id = entity_id if entity_type == "plan_phase" else None
+    if action == history.ACTION_CREATED:
+        history.record_created(
+            db,
+            project_id=document.project_id,
+            entity_type="document_link",
+            entity_id=link_id or document.id,
+            entity_label=label,
+            fields={"document_id": document.id, "entity_type": entity_type, "entity_id": entity_id},
+            plan_phase_id=plan_phase_id,
+        )
+    else:
+        history.record_deleted(
+            db,
+            project_id=document.project_id,
+            entity_type="document_link",
+            entity_id=link_id or document.id,
+            entity_label=label,
+            fields={"document_id": document.id, "entity_type": entity_type, "entity_id": entity_id},
+            plan_phase_id=plan_phase_id,
+        )
 
 
 def _get_document_or_404(db: Session, document_id: int) -> models.Document:
@@ -53,7 +103,15 @@ def upload_document(
     if tags:
         entity_links.sync_tags(db, "document", document.id, [t.strip() for t in tags.split(",")])
     if entity_type is not None and entity_id is not None:
-        entity_links.create_document_link(db, document.id, entity_type, entity_id)
+        link = entity_links.create_document_link(db, document.id, entity_type, entity_id)
+        _historize_document_link(
+            db, document=document, entity_type=entity_type, entity_id=entity_id,
+            action=history.ACTION_CREATED, link_id=link.id,
+        )
+    else:
+        _historize_document_link(
+            db, document=document, entity_type=None, entity_id=None, action=history.ACTION_CREATED
+        )
 
     db.commit()
     db.refresh(document)
@@ -112,6 +170,14 @@ def create_document_link(payload: schemas.DocumentLinkCreate, db: Session = Depe
     Re-Upload) - z.B. eine Datei aus dem Dokumente-Tab an ein zusätzliches Risiko hängen."""
     document = _get_document_or_404(db, payload.document_id)
     link = entity_links.create_document_link(db, document.id, payload.entity_type, payload.entity_id)
+    _historize_document_link(
+        db,
+        document=document,
+        entity_type=payload.entity_type,
+        entity_id=payload.entity_id,
+        action=history.ACTION_CREATED,
+        link_id=link.id,
+    )
     db.commit()
     return schemas.DocumentLinkOut(
         id=link.id, document_id=link.document_id, entity_type=link.entity_type, entity_id=link.entity_id,
@@ -126,6 +192,16 @@ def delete_document_link(link_id: int, db: Session = Depends(get_db)):
     link = db.get(models.DocumentLink, link_id)
     if link is None:
         raise HTTPException(status_code=404, detail="Verknüpfung nicht gefunden")
+    document = db.get(models.Document, link.document_id)
+    if document is not None:
+        _historize_document_link(
+            db,
+            document=document,
+            entity_type=link.entity_type,
+            entity_id=link.entity_id,
+            action=history.ACTION_DELETED,
+            link_id=link.id,
+        )
     db.delete(link)
     db.commit()
 

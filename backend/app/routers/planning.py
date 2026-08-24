@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from .. import (
     capacity_calc,
     entity_links,
+    history,
     models,
     phase_metrics_calc,
     planning_calc,
@@ -122,30 +123,33 @@ def _maybe_historize_parent_fte(db: Session, parent: models.PlanPhase) -> None:
     jira_label folgt demselben Lifecycle wie plan_fte - wird hier mit historisiert/zurückgesetzt,
     kein zweiter Code-Pfad an den drei Aufrufstellen (create_plan_phase, update_plan_phase,
     reparent_children)."""
+    batch_id = history.new_batch_id()
     if parent.plan_fte is not None:
-        db.add(
-            models.PlanHistory(
-                project_id=parent.project_id,
-                plan_phase_id=parent.id,
-                bereich="phase_struktur",
-                feld="plan_fte",
-                alter_wert=str(parent.plan_fte),
-                neuer_wert=None,
-                geaendert_am=_now(),
-            )
+        history.record_rows(
+            db,
+            project_id=parent.project_id,
+            entity_type="plan_phase",
+            action=history.ACTION_UPDATED,
+            changes=[("plan_fte", parent.plan_fte, None)],
+            entity_id=parent.id,
+            entity_label=parent.phase_type,
+            plan_phase_id=parent.id,
+            batch_id=batch_id,
+            bereich="phase_struktur",
         )
         parent.plan_fte = None
     if parent.jira_label is not None:
-        db.add(
-            models.PlanHistory(
-                project_id=parent.project_id,
-                plan_phase_id=parent.id,
-                bereich="phase_struktur",
-                feld="jira_label",
-                alter_wert=parent.jira_label,
-                neuer_wert=None,
-                geaendert_am=_now(),
-            )
+        history.record_rows(
+            db,
+            project_id=parent.project_id,
+            entity_type="plan_phase",
+            action=history.ACTION_UPDATED,
+            changes=[("jira_label", parent.jira_label, None)],
+            entity_id=parent.id,
+            entity_label=parent.phase_type,
+            plan_phase_id=parent.id,
+            batch_id=batch_id,
+            bereich="phase_struktur",
         )
         parent.jira_label = None
 
@@ -514,6 +518,15 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
     )
     db.add(plan_phase)
     db.flush()
+    created_batch = history.record_created(
+        db,
+        project_id=project_id,
+        entity_type="plan_phase",
+        entity_id=plan_phase.id,
+        entity_label=plan_phase.phase_type,
+        fields=history.snapshot(plan_phase, "plan_phase"),
+        plan_phase_id=plan_phase.id,
+    )
     if payload.parent_phase_id is not None:
         # P18/B-3 (Abschnitt 6b.1a): das ist das erste Kind der übergeordneten Phase (oder
         # eines von mehreren) - _maybe_historize_parent_fte ist idempotent (No-Op, sobald
@@ -522,6 +535,17 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
         _maybe_historize_parent_fte(db, parent)
     if payload.tags:
         entity_links.sync_tags(db, "plan_phase", plan_phase.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=project_id,
+            entity_type="plan_phase",
+            entity_id=plan_phase.id,
+            entity_label=plan_phase.phase_type,
+            old_tags=[],
+            new_tags=payload.tags,
+            plan_phase_id=plan_phase.id,
+            batch_id=created_batch,
+        )
     db.commit()
     db.refresh(plan_phase)
     return _plan_phase_out(db, plan_phase)
@@ -544,15 +568,40 @@ def update_plan_phase(plan_phase_id: int, payload: schemas.PlanPhaseUpdate, db: 
         _check_jira_label_conflict(
             db, plan_phase.project_id, plan_phase_id=plan_phase.id, jira_label=changes["jira_label"]
         )
+    old = history.snapshot(plan_phase, "plan_phase")
+    old_tags = entity_links.tags_for(db, "plan_phase", plan_phase.id)
+    batch_id = history.new_batch_id()
     if changes:
         for field, value in changes.items():
             setattr(plan_phase, field, value)
         plan_phase.aktualisiert_am = _now()
+    history.record_updated(
+        db,
+        project_id=plan_phase.project_id,
+        entity_type="plan_phase",
+        entity_id=plan_phase.id,
+        entity_label=plan_phase.phase_type,
+        old=old,
+        new=history.snapshot(plan_phase, "plan_phase"),
+        plan_phase_id=plan_phase.id,
+        batch_id=batch_id,
+    )
     if "parent_phase_id" in changes and new_parent_id is not None:
         parent = db.get(models.PlanPhase, new_parent_id)
         _maybe_historize_parent_fte(db, parent)
     if payload.tags is not None:
         entity_links.sync_tags(db, "plan_phase", plan_phase.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="plan_phase",
+            entity_id=plan_phase.id,
+            entity_label=plan_phase.phase_type,
+            old_tags=old_tags,
+            new_tags=payload.tags,
+            plan_phase_id=plan_phase.id,
+            batch_id=batch_id,
+        )
     db.commit()
     db.refresh(plan_phase)
     return _plan_phase_out(db, plan_phase)
@@ -580,6 +629,15 @@ def delete_plan_phase(plan_phase_id: int, db: Session = Depends(get_db)):
     # P20.1G (Delete Stabilization): Root-Cause-Fix - VOR dem eigentlichen db.delete() alle
     # ResourceAssignment/ResourceDemand/WorklogPhaseOverride-Zeilen dieser Phase aufräumen
     # (siehe capacity_calc.cleanup_phase_resource_dependencies-Docstring).
+    history.record_deleted(
+        db,
+        project_id=plan_phase.project_id,
+        entity_type="plan_phase",
+        entity_id=plan_phase.id,
+        entity_label=plan_phase.phase_type,
+        fields=history.snapshot(plan_phase, "plan_phase"),
+        plan_phase_id=None,
+    )
     capacity_calc.cleanup_phase_resource_dependencies(db, [plan_phase_id])
     entity_links.delete_links_for_entity(db, "plan_phase", plan_phase_id)
     entity_links.delete_relations_for_entity(db, "plan_phase", plan_phase_id)
@@ -619,9 +677,22 @@ def reparent_children(
             db, plan_phase.project_id, plan_phase_id=child.id, parent_phase_id=payload.new_parent_phase_id
         )
     now = _now()
+    batch_id = history.new_batch_id()
     for child in children:
+        old_parent = child.parent_phase_id
         child.parent_phase_id = payload.new_parent_phase_id
         child.aktualisiert_am = now
+        history.record_updated(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="plan_phase",
+            entity_id=child.id,
+            entity_label=child.phase_type,
+            old={"parent_phase_id": old_parent},
+            new={"parent_phase_id": payload.new_parent_phase_id},
+            plan_phase_id=child.id,
+            batch_id=batch_id,
+        )
     if payload.new_parent_phase_id is not None:
         new_parent = db.get(models.PlanPhase, payload.new_parent_phase_id)
         _maybe_historize_parent_fte(db, new_parent)
@@ -770,16 +841,16 @@ def delete_subtree(
     # Audit-Eintrag (Abschnitt 6b.9: auditierbar, wer wann welchen Zweig gelöscht hat).
     # plan_phase_id bleibt bewusst None - die referenzierten Phasen existieren gleich nicht
     # mehr, der Alt-Wert hält die Information stattdessen im Klartext fest.
-    db.add(
-        models.PlanHistory(
-            project_id=plan_phase.project_id,
-            plan_phase_id=None,
-            bereich="phase_subtree_delete",
-            feld="phase_type",
-            alter_wert=f"{plan_phase.phase_type} (+{descendant_count} Unterphasen)",
-            neuer_wert=None,
-            geaendert_am=now,
-        )
+    history.record_deleted(
+        db,
+        project_id=plan_phase.project_id,
+        entity_type="plan_phase",
+        entity_id=plan_phase.id,
+        entity_label=f"{plan_phase.phase_type} (+{descendant_count} Unterphasen)",
+        fields=history.snapshot(plan_phase, "plan_phase"),
+        plan_phase_id=None,
+        timestamp=now,
+        bereich="phase_subtree_delete",
     )
 
     # Nachfahren-Phasen tiefste Ebene zuerst löschen (parent_phase_id-FK hat kein
@@ -1036,12 +1107,40 @@ def create_worklog_override(
     if override is None:
         override = models.WorklogPhaseOverride(jira_issue_key=payload.jira_issue_key)
         db.add(override)
+        is_create = True
+        old = None
+    else:
+        is_create = False
+        old = history.snapshot(override, "worklog_override")
     override.project_id = plan_phase.project_id
     override.plan_phase_id = plan_phase_id
     override.previous_status = payload.previous_status
     override.note = payload.note
     override.created_by_person_id = payload.created_by_person_id
     override.created_at = now
+    db.flush()
+    label = payload.jira_issue_key
+    if is_create:
+        history.record_created(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="worklog_override",
+            entity_id=override.id,
+            entity_label=label,
+            fields=history.snapshot(override, "worklog_override"),
+            plan_phase_id=plan_phase_id,
+        )
+    else:
+        history.record_updated(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="worklog_override",
+            entity_id=override.id,
+            entity_label=label,
+            old=old or {},
+            new=history.snapshot(override, "worklog_override"),
+            plan_phase_id=plan_phase_id,
+        )
     db.commit()
     db.refresh(override)
     return _worklog_phase_override_out(override)
@@ -1060,6 +1159,15 @@ def delete_worklog_override(plan_phase_id: int, jira_issue_key: str, db: Session
     )
     if override is None:
         raise HTTPException(status_code=404, detail="Override nicht gefunden")
+    history.record_deleted(
+        db,
+        project_id=override.project_id,
+        entity_type="worklog_override",
+        entity_id=override.id,
+        entity_label=override.jira_issue_key,
+        fields=history.snapshot(override, "worklog_override"),
+        plan_phase_id=plan_phase_id,
+    )
     db.delete(override)
     db.commit()
 
@@ -1347,7 +1455,38 @@ def create_plan_phase_direct_assignment(
     if person is None:
         raise HTTPException(status_code=404, detail="Person nicht gefunden")
 
+    previous = (
+        db.query(models.ResourceAssignment)
+        .filter(
+            models.ResourceAssignment.plan_phase_id == plan_phase.id,
+            models.ResourceAssignment.person_id == payload.person_id,
+        )
+        .first()
+    )
+    old_fte = previous.fte if previous is not None else None
     assignment = _upsert_direct_assignment(db, plan_phase, payload.person_id, payload.fte)
+    db.flush()
+    if previous is None:
+        history.record_created(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="resource_assignment",
+            entity_id=assignment.id,
+            entity_label=person.display_name,
+            fields={"fte": assignment.fte, "person_id": person.id},
+            plan_phase_id=plan_phase.id,
+        )
+    else:
+        history.record_updated(
+            db,
+            project_id=plan_phase.project_id,
+            entity_type="resource_assignment",
+            entity_id=assignment.id,
+            entity_label=person.display_name,
+            old={"fte": old_fte, "person_id": person.id},
+            new={"fte": assignment.fte, "person_id": person.id},
+            plan_phase_id=plan_phase.id,
+        )
     db.commit()
     db.refresh(assignment)
     return schemas.ResourceAssignmentOut(
@@ -1388,8 +1527,20 @@ def update_plan_phase_direct_assignment(
     if plan_phase.project_id != project_id:
         raise HTTPException(status_code=404, detail="Planphase gehört nicht zu diesem Projekt")
     assignment = _get_direct_assignment_or_404(db, plan_phase_id, assignment_id)
+    old = history.snapshot(assignment, "resource_assignment")
     assignment.fte = payload.fte
     assignment.aktualisiert_am = _now()
+    person = db.get(models.Person, assignment.person_id)
+    history.record_updated(
+        db,
+        project_id=plan_phase.project_id,
+        entity_type="resource_assignment",
+        entity_id=assignment.id,
+        entity_label=person.display_name if person else f"Person #{assignment.person_id}",
+        old=old,
+        new=history.snapshot(assignment, "resource_assignment"),
+        plan_phase_id=plan_phase.id,
+    )
     db.commit()
     db.refresh(assignment)
     person = db.get(models.Person, assignment.person_id)
@@ -1413,6 +1564,16 @@ def delete_plan_phase_direct_assignment(
     if plan_phase.project_id != project_id:
         raise HTTPException(status_code=404, detail="Planphase gehört nicht zu diesem Projekt")
     assignment = _get_direct_assignment_or_404(db, plan_phase_id, assignment_id)
+    person = db.get(models.Person, assignment.person_id)
+    history.record_deleted(
+        db,
+        project_id=plan_phase.project_id,
+        entity_type="resource_assignment",
+        entity_id=assignment.id,
+        entity_label=person.display_name if person else f"Person #{assignment.person_id}",
+        fields=history.snapshot(assignment, "resource_assignment"),
+        plan_phase_id=plan_phase.id,
+    )
     db.delete(assignment)
     db.commit()
 
@@ -1550,8 +1711,28 @@ def create_milestone(project_id: int, payload: schemas.MilestoneCreate, db: Sess
     )
     db.add(milestone)
     db.flush()
+    created_batch = history.record_created(
+        db,
+        project_id=project_id,
+        entity_type="milestone",
+        entity_id=milestone.id,
+        entity_label=milestone.name,
+        fields=history.snapshot(milestone, "milestone"),
+        plan_phase_id=milestone.plan_phase_id,
+    )
     if payload.tags:
         entity_links.sync_tags(db, "milestone", milestone.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=project_id,
+            entity_type="milestone",
+            entity_id=milestone.id,
+            entity_label=milestone.name,
+            old_tags=[],
+            new_tags=payload.tags,
+            plan_phase_id=milestone.plan_phase_id,
+            batch_id=created_batch,
+        )
     db.commit()
     db.refresh(milestone)
     return _milestone_out(db, milestone)
@@ -1566,12 +1747,37 @@ def update_milestone(milestone_id: int, payload: schemas.MilestoneUpdate, db: Se
     if "plan_phase_id" in changes:
         _check_milestone_plan_phase(db, milestone.project_id, changes["plan_phase_id"])
     _check_owner(db, changes.get("owner_person_id"), changes.get("owner_team_id"))
+    old = history.snapshot(milestone, "milestone")
+    old_tags = entity_links.tags_for(db, "milestone", milestone.id)
+    batch_id = history.new_batch_id()
     if changes:
         for field, value in changes.items():
             setattr(milestone, field, value)
         milestone.aktualisiert_am = _now()
+    history.record_updated(
+        db,
+        project_id=milestone.project_id,
+        entity_type="milestone",
+        entity_id=milestone.id,
+        entity_label=milestone.name,
+        old=old,
+        new=history.snapshot(milestone, "milestone"),
+        plan_phase_id=milestone.plan_phase_id,
+        batch_id=batch_id,
+    )
     if payload.tags is not None:
         entity_links.sync_tags(db, "milestone", milestone.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=milestone.project_id,
+            entity_type="milestone",
+            entity_id=milestone.id,
+            entity_label=milestone.name,
+            old_tags=old_tags,
+            new_tags=payload.tags,
+            plan_phase_id=milestone.plan_phase_id,
+            batch_id=batch_id,
+        )
     db.commit()
     db.refresh(milestone)
     return _milestone_out(db, milestone)
@@ -1580,6 +1786,15 @@ def update_milestone(milestone_id: int, payload: schemas.MilestoneUpdate, db: Se
 @router.delete("/milestones/{milestone_id}", status_code=204)
 def delete_milestone(milestone_id: int, db: Session = Depends(get_db)):
     milestone = _get_milestone_or_404(db, milestone_id)
+    history.record_deleted(
+        db,
+        project_id=milestone.project_id,
+        entity_type="milestone",
+        entity_id=milestone.id,
+        entity_label=milestone.name,
+        fields=history.snapshot(milestone, "milestone"),
+        plan_phase_id=milestone.plan_phase_id,
+    )
     entity_links.delete_links_for_entity(db, "milestone", milestone_id)
     entity_links.delete_relations_for_entity(db, "milestone", milestone_id)
     db.delete(milestone)

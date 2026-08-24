@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import entity_links, models, schemas
+from .. import entity_links, history, models, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["communication"])
@@ -188,8 +188,28 @@ def create_decision(project_id: int, payload: schemas.DecisionCreate, db: Sessio
     )
     db.add(decision)
     db.flush()
+    created_batch = history.record_created(
+        db,
+        project_id=project_id,
+        entity_type="decision",
+        entity_id=decision.id,
+        entity_label=decision.titel,
+        fields=history.snapshot(decision, "decision"),
+        plan_phase_id=decision.plan_phase_id,
+    )
     if payload.tags:
         entity_links.sync_tags(db, "decision", decision.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=project_id,
+            entity_type="decision",
+            entity_id=decision.id,
+            entity_label=decision.titel,
+            old_tags=[],
+            new_tags=payload.tags,
+            plan_phase_id=decision.plan_phase_id,
+            batch_id=created_batch,
+        )
     db.commit()
     db.refresh(decision)
     return _decision_out(db, decision)
@@ -201,10 +221,35 @@ def update_decision(decision_id: int, payload: schemas.DecisionUpdate, db: Sessi
     changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
     if "entschieden_von_person_id" in changes:
         _validate_person_id(db, changes["entschieden_von_person_id"], "entschieden_von_person_id")
+    old = history.snapshot(decision, "decision")
+    old_tags = entity_links.tags_for(db, "decision", decision.id)
+    batch_id = history.new_batch_id()
     for field, value in changes.items():
         setattr(decision, field, value)
+    history.record_updated(
+        db,
+        project_id=decision.project_id,
+        entity_type="decision",
+        entity_id=decision.id,
+        entity_label=decision.titel,
+        old=old,
+        new=history.snapshot(decision, "decision"),
+        plan_phase_id=decision.plan_phase_id,
+        batch_id=batch_id,
+    )
     if payload.tags is not None:
         entity_links.sync_tags(db, "decision", decision.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=decision.project_id,
+            entity_type="decision",
+            entity_id=decision.id,
+            entity_label=decision.titel,
+            old_tags=old_tags,
+            new_tags=payload.tags,
+            plan_phase_id=decision.plan_phase_id,
+            batch_id=batch_id,
+        )
     db.commit()
     db.refresh(decision)
     return _decision_out(db, decision)
@@ -213,6 +258,15 @@ def update_decision(decision_id: int, payload: schemas.DecisionUpdate, db: Sessi
 @router.delete("/decisions/{decision_id}", status_code=204)
 def delete_decision(decision_id: int, db: Session = Depends(get_db)):
     decision = _get_decision_or_404(db, decision_id)
+    history.record_deleted(
+        db,
+        project_id=decision.project_id,
+        entity_type="decision",
+        entity_id=decision.id,
+        entity_label=decision.titel,
+        fields=history.snapshot(decision, "decision"),
+        plan_phase_id=decision.plan_phase_id,
+    )
     entity_links.delete_links_for_entity(db, "decision", decision_id)
     entity_links.delete_relations_for_entity(db, "decision", decision_id)
     db.delete(decision)
@@ -382,8 +436,28 @@ def create_task(project_id: int, payload: schemas.TaskCreate, db: Session = Depe
     )
     db.add(task)
     db.flush()
+    created_batch = history.record_created(
+        db,
+        project_id=project_id,
+        entity_type="task",
+        entity_id=task.id,
+        entity_label=task.titel,
+        fields=history.snapshot(task, "task"),
+        plan_phase_id=task.plan_phase_id,
+    )
     if payload.tags:
         entity_links.sync_tags(db, "task", task.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=project_id,
+            entity_type="task",
+            entity_id=task.id,
+            entity_label=task.titel,
+            old_tags=[],
+            new_tags=payload.tags,
+            plan_phase_id=task.plan_phase_id,
+            batch_id=created_batch,
+        )
     db.commit()
     db.refresh(task)
     return _task_out(db, task)
@@ -395,12 +469,37 @@ def update_task(task_id: int, payload: schemas.TaskUpdate, db: Session = Depends
     changes = payload.model_dump(exclude_unset=True, exclude={"tags"})
     if "zustaendig_person_id" in changes:
         _validate_person_id(db, changes["zustaendig_person_id"], "zustaendig_person_id")
+    old = history.snapshot(task, "task")
+    old_tags = entity_links.tags_for(db, "task", task.id)
+    batch_id = history.new_batch_id()
     if changes:
         for field, value in changes.items():
             setattr(task, field, value)
         task.aktualisiert_am = _now()
+    history.record_updated(
+        db,
+        project_id=task.project_id,
+        entity_type="task",
+        entity_id=task.id,
+        entity_label=task.titel,
+        old=old,
+        new=history.snapshot(task, "task"),
+        plan_phase_id=task.plan_phase_id,
+        batch_id=batch_id,
+    )
     if payload.tags is not None:
         entity_links.sync_tags(db, "task", task.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=task.project_id,
+            entity_type="task",
+            entity_id=task.id,
+            entity_label=task.titel,
+            old_tags=old_tags,
+            new_tags=payload.tags,
+            plan_phase_id=task.plan_phase_id,
+            batch_id=batch_id,
+        )
     db.commit()
     db.refresh(task)
     return _task_out(db, task)
@@ -409,6 +508,15 @@ def update_task(task_id: int, payload: schemas.TaskUpdate, db: Session = Depends
 @router.delete("/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = _get_task_or_404(db, task_id)
+    history.record_deleted(
+        db,
+        project_id=task.project_id,
+        entity_type="task",
+        entity_id=task.id,
+        entity_label=task.titel,
+        fields=history.snapshot(task, "task"),
+        plan_phase_id=task.plan_phase_id,
+    )
     entity_links.delete_links_for_entity(db, "task", task_id)
     entity_links.delete_relations_for_entity(db, "task", task_id)
     db.delete(task)
@@ -459,8 +567,28 @@ def create_blocker(project_id: int, payload: schemas.BlockerCreate, db: Session 
     )
     db.add(blocker)
     db.flush()
+    created_batch = history.record_created(
+        db,
+        project_id=project_id,
+        entity_type="blocker",
+        entity_id=blocker.id,
+        entity_label=blocker.title,
+        fields=history.snapshot(blocker, "blocker"),
+        plan_phase_id=blocker.plan_phase_id,
+    )
     if payload.tags:
         entity_links.sync_tags(db, "blocker", blocker.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=project_id,
+            entity_type="blocker",
+            entity_id=blocker.id,
+            entity_label=blocker.title,
+            old_tags=[],
+            new_tags=payload.tags,
+            plan_phase_id=blocker.plan_phase_id,
+            batch_id=created_batch,
+        )
     db.commit()
     db.refresh(blocker)
     return _blocker_out(db, blocker)
@@ -476,12 +604,37 @@ def update_blocker(blocker_id: int, payload: schemas.BlockerUpdate, db: Session 
     if "owner_team_id" in changes and changes["owner_team_id"] is not None:
         if db.get(models.Team, changes["owner_team_id"]) is None:
             raise HTTPException(status_code=404, detail="Team (owner_team_id) nicht gefunden")
+    old = history.snapshot(blocker, "blocker")
+    old_tags = entity_links.tags_for(db, "blocker", blocker.id)
+    batch_id = history.new_batch_id()
     if changes:
         for field, value in changes.items():
             setattr(blocker, field, value)
         blocker.aktualisiert_am = _now()
+    history.record_updated(
+        db,
+        project_id=blocker.project_id,
+        entity_type="blocker",
+        entity_id=blocker.id,
+        entity_label=blocker.title,
+        old=old,
+        new=history.snapshot(blocker, "blocker"),
+        plan_phase_id=blocker.plan_phase_id,
+        batch_id=batch_id,
+    )
     if payload.tags is not None:
         entity_links.sync_tags(db, "blocker", blocker.id, payload.tags)
+        history.record_tag_diff(
+            db,
+            project_id=blocker.project_id,
+            entity_type="blocker",
+            entity_id=blocker.id,
+            entity_label=blocker.title,
+            old_tags=old_tags,
+            new_tags=payload.tags,
+            plan_phase_id=blocker.plan_phase_id,
+            batch_id=batch_id,
+        )
     db.commit()
     db.refresh(blocker)
     return _blocker_out(db, blocker)
@@ -490,6 +643,15 @@ def update_blocker(blocker_id: int, payload: schemas.BlockerUpdate, db: Session 
 @router.delete("/blockers/{blocker_id}", status_code=204)
 def delete_blocker(blocker_id: int, db: Session = Depends(get_db)):
     blocker = _get_blocker_or_404(db, blocker_id)
+    history.record_deleted(
+        db,
+        project_id=blocker.project_id,
+        entity_type="blocker",
+        entity_id=blocker.id,
+        entity_label=blocker.title,
+        fields=history.snapshot(blocker, "blocker"),
+        plan_phase_id=blocker.plan_phase_id,
+    )
     entity_links.delete_links_for_entity(db, "blocker", blocker_id)
     entity_links.delete_relations_for_entity(db, "blocker", blocker_id)
     db.delete(blocker)
@@ -497,10 +659,10 @@ def delete_blocker(blocker_id: int, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# Activity Feed (Phase 16, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 32) - reine
-# chronologische Aggregation, keine neue Tabelle. Nutzt dieselbe Zeitstempel-Registry wie
-# die Tag-Dossiers aus Phase 24 (entity_links.ACTIVITY_ENTITY_TYPES/timestamp_for) - "document"
-# fehlt bewusst (Dateien sind keine Aktivität).
+# Activity Feed (Phase 16) - chronologische Aggregation bestehender Collaboration-Entitäten,
+# keine Audit-Tabelle. P20.3: History (PlanHistory) ist der unveränderliche Audit Trail;
+# Activity bleibt die Zusammenarbeits-Sicht. baseline_snapshot ist seit P20.3 nicht mehr
+# im Activity-Vokabular.
 # ---------------------------------------------------------------------------
 
 
@@ -531,9 +693,8 @@ def get_plan_phase_activity(plan_phase_id: int, limit: int = 50, db: Session = D
     """Phasenbezogener Activity Feed - wie get_project_activity, aber eingeschränkt auf
     Entitäten mit plan_phase_id == plan_phase_id. milestone hat seit P18/B-7 ebenfalls eine
     plan_phase_id-Spalte und wird hier daher korrekt mitgeliefert. Entitätstypen ohne
-    plan_phase_id-Spalte (plan_phase/risk/meeting_minutes/baseline_snapshot - Planstände sind
-    projektweit, nicht phasenscoped, siehe P19.6) liefern hier nichts (siehe
-    list_entity_summaries)."""
+    plan_phase_id-Spalte (plan_phase/risk/meeting_minutes) liefern hier nichts.
+    P20.3: baseline_snapshot ist nicht mehr im Activity-Vokabular."""
     plan_phase = db.get(models.PlanPhase, plan_phase_id)
     if plan_phase is None:
         raise HTTPException(status_code=404, detail="Planphase nicht gefunden")

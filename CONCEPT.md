@@ -1,8 +1,10 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Version:** v0.25 (P20.2 — Regression Recovery: App-Start auf echtem PostgreSQL und
+**Version:** v0.26 (P20.3 — Automatic Project History: Planstände sind kein Benutzerkonzept
+mehr, jede fachlich relevante Änderung wird automatisch historisiert, siehe Abschnitt 5.3/16.29)
+**Vorherige Marken:** v0.25 (P20.2 — Regression Recovery: App-Start auf echtem PostgreSQL und
 3-Ebenen-`delete-subtree` repariert, beide Root Causes auf SQLite strukturell unauffindbar
-gewesen, siehe Abschnitt 16.28) **Vorherige Marken:** v0.24 (P20 — Tempo/Jira→PlanPhase-Mapping
+gewesen, siehe Abschnitt 16.28); v0.24 (P20 — Tempo/Jira→PlanPhase-Mapping
 vollständig implementiert, BD-1 CLOSED, siehe Abschnitt 16.19–16.25); P20.1 (PlanPhase
 Simplification, direkte `ResourceAssignment`-Domäne ohne Rollenzwang, Delete Stabilization —
 siehe Abschnitt 16.27, im ursprünglichen v0.24-Header nicht separat vermerkt); v0.23 (P18
@@ -53,8 +55,11 @@ technisch relevant, solange `plan_phase_id = NULL`-Zeilen nicht migriert sind. *
 noch ausstehenden realistischen Migrations-Dry-Runs gegen echte Produktivdaten** (externe
 Vorbedingung, Abschnitt 16.17), nicht mehr wegen offener Code-Defekte.
 **Führende Modelle (aktuelle Source of Truth):** `PlanPhase`, `Milestone`,
-`BaselineSnapshot`/`BaselineEntry`, `ResourceDemand`/`ResourceAssignment`, `Person` +
-`ResourceProfile`. Die ursprünglichen Excel-abgeleiteten Parallelmodelle (`GanttPhase`/
+`ResourceAssignment` (direkt an der Leaf-`PlanPhase`), `Person` + `ResourceProfile`.
+`PlanHistory` ist der automatische, unveränderliche Audit Trail (P20.3, Abschnitt 5.3) —
+kein Benutzerkonzept und keine zweite Planungsebene. `BaselineSnapshot`/`BaselineEntry`
+bleiben als **Legacy/Compatibility** im Schema (Bestandsdaten, Controlling-Consumer), sind
+aber kein Bestandteil des normalen Userflows. `ResourceDemand` ist Legacy/Compat seit P20.1. Die ursprünglichen Excel-abgeleiteten Parallelmodelle (`GanttPhase`/
 `ProjectGanttPhase`, `FtePlan`/`ProjectFtePlan`, `TeamMember`, `Assignment`) sind seit Phase
 26.9 **entfernt** (mit Datenkonvertierung, nicht Drop-and-Pray — siehe Abschnitt 17.3).
 **Ablösung von:** Excel/VBA-Kapazitätsplaner (`PowerPointGenerator`, siehe [`legacy/`](legacy/))
@@ -134,7 +139,7 @@ Das Tool liefert heute zusätzlich:
 
 ## 2. Fachlicher Scope
 
-- Projektplanung (PlanPhase-Baum, Milestone, Planstände, Gantt-Visualisierung; Teilprojekte
+- Projektplanung (PlanPhase-Baum, Milestone, automatische Project History, Gantt-Visualisierung; Teilprojekte
   nur noch Legacy/Compat bis B-8, siehe Abschnitt 5.4)
 - Beraterkapazität (Plan-FTE, ResourceDemand/-Assignment, Available Capacity)
 - Projektsteuerung (Health, GAP Engine, Cockpit)
@@ -179,11 +184,12 @@ darauf.
 - **"Aktueller Plan" = `PlanPhase.forecast_start`/`forecast_end` intern.** In der normalen UI
   heißen diese Felder schlicht "Start"/"Ende". "Forecast" ist ein technischer Begriff, der im
   normalen Planungsworkflow nicht prominent sichtbar ist.
-- **Planstand = `BaselineSnapshot`.** Ein Planstand ist ein benannter, eingefrorener
-  historischer Stand des damaligen Plans — keine kontinuierlich editierbaren
-  `baseline_start`/`baseline_end`-Felder im Tagesgeschäft. Die Baseline-Felder auf
-  `PlanPhase`/`Milestone` existieren aus Kompatibilitätsgründen weiter, bestimmen aber nicht
-  die normale UX.
+- **Project History = `PlanHistory`.** Jede fachlich relevante Änderung an einem Projekt oder
+  einer projektbezogenen Entität wird **automatisch** historisiert. Es gibt im normalen
+  Produkt kein Benutzerkonzept "Planstand", kein "Planstand festhalten", keine Versionen
+  V1/V2 und keine Einstellung, welche Änderungen protokolliert werden. Der User plant, das
+  System dokumentiert. `BaselineSnapshot`/`BaselineEntry` bleiben als Legacy/Compatibility
+  im Schema (Abschnitt 5.3).
 - **Actual = tatsächlicher Verlauf.** `actual_start`/`actual_end` sind fachlich sinnvoll,
   aber sekundär: read-only in der normalen Übersicht, editierbar nur über eine explizite
   Korrektur-Aktion ("Ist-Daten korrigieren").
@@ -261,10 +267,11 @@ weiterhin `plan_phase_id = NULL`-Demands/`subprojects` parallel zum neuen Baum.
 | Tabelle | Zweck |
 |---|---|
 | `projects` | Projektstammdaten (Name, Kunde, Startmonat, Anzahl Monate, Status, Jira-Verknüpfung, `projektleiter_person_id`) |
-| `subprojects` | Teilprojekte (reine Gruppierung für Phasen/Milestones, kein eigenes Jira-Mapping). **Fachlich durch hierarchische `PlanPhase` (`parent_phase_id`) abgelöst** (Abschnitt 6.7, P18/B-2 IMPLEMENTIERT) — Tabelle/Router/Schemas bleiben bewusst compat-only bestehen (kein Drop-and-Pray), Backend-Endpoints sind explizit `@deprecated` dokumentiert. Frontend nutzt sie noch aktiv in `ProjectPlanningTab.tsx` (CRUD), `ProjectHistoryTab.tsx` (Historie) und `ProjectCommunicationTab.tsx` (Kommentar-Gruppierung) — Entfernung ist B-8-Scope, blockiert bis zur produktiven Migration (Abschnitt 16.15). |
+| `subprojects` | Teilprojekte (reine Gruppierung für Phasen/Milestones, kein eigenes Jira-Mapping). **Fachlich durch hierarchische `PlanPhase` (`parent_phase_id`) abgelöst** (Abschnitt 6.7, P18/B-2 IMPLEMENTIERT) — Tabelle/Router/Schemas bleiben bewusst compat-only bestehen (kein Drop-and-Pray), Backend-Endpoints sind explizit `@deprecated` dokumentiert. Frontend nutzt sie noch in `ProjectCommunicationTab.tsx` (Kommentar-Gruppierung) und `export.py`; Teilprojekt-CRUD liegt seit P20.1 unter Administration. Der Tab Historie ist seit P20.3 die projektweite Audit-Ansicht, keine Teilprojekt-Historie. Entfernung ist B-8-Scope (Abschnitt 16.15). |
 | `plan_phases` | **Die** Planungseinheit — tagegenau, siehe Abschnitt 5. **Hierarchisch** (P18/B-1 IMPLEMENTIERT): `parent_phase_id` (self-referencing, nullable, max. 3 Ebenen, backend-validiert) und `reihenfolge` (int). Leaf/Parent-Baum operativ über `routers/planning.py`/`planning_calc.py` (B-3, IMPLEMENTIERT). Zusätzlich `jira_label` (nullable, P20.1 IMPLEMENTIERT, Abschnitt 16.19) — Jira-Label für den Worklog-Resolver, nur auf Leaf-Phasen gepflegt, gleicher Lifecycle wie `plan_fte` (wird beim Parent-Übergang serverseitig auf `NULL` gesetzt und historisiert), Konfliktprüfung verhindert identische Werte auf zwei Leaf-Phasen desselben Projekts (409). |
 | `milestones` | Eigenständige Milestone-Entität. `plan_phase_id` (nullable, zeigt auf Leaf **oder** Parent) ist die primäre Verknüpfung (P18/B-7 IMPLEMENTIERT) — löst `subproject_id` operativ ab; `subproject_id` bleibt compat-only im Schema, aber nicht mehr in der UI (`MilestoneList.tsx` zeigt nur noch "Übergeordnete Phase"). |
-| `baseline_snapshots` / `baseline_entries` | Planstände (eingefrorene Feldwerte je PlanPhase/Milestone). `_SNAPSHOT_FIELDS` umfasst `parent_phase_id`/`reihenfolge` (PlanPhase) und `plan_phase_id` (Milestone) (P18/B-7 IMPLEMENTIERT, Abschnitt 6.13/16.15) — Deviation-Erkennung deckt Parent-Wechsel/Zeitraum/`plan_fte` ab **und erkennt seit P18.1 (Abschnitt 16.16) zusätzlich strukturelle Baum-Änderungen**: "Phase hinzugefügt" (`type="added"`) und "Phase entfernt" (`type="removed"`, Name aus dem eingefrorenen `phase_type` rekonstruiert, kein `#<id>`-Roh-Fallback) werden beide erkannt und im Frontend (`BaselineList.tsx`) als eigene Zeilen dargestellt — der frühere Gap (Abschnitt 16.15) ist behoben. |
+| `baseline_snapshots` / `baseline_entries` | **Legacy/Compatibility (P20.3).** Eingefrorene Feldwerte je PlanPhase/Milestone, kein normales Userkonzept mehr. APIs (`/baselines`, Deviations) und Controlling-Consumer (`baseline_calc`) bleiben für Bestandsdaten erhalten. Neue Nachvollziehbarkeit läuft über `plan_history`. |
+| `plan_history` | Automatischer, unveränderlicher Audit Trail fachlich relevanter Source-of-Truth-Änderungen (P20.3). Schreibpfad: `app/history.py`. Gruppiert über `batch_id`. Additive Identifikation `entity_type`/`entity_id`/`entity_label`/`action`/`actor_person_id` (Actor nullable — kein Auth-System). |
 | `resource_roles`, `skills`, `person_skills` | Rollen-/Skill-Vokabular für Kapazitätsplanung. Interne, per Migration geseedete System-Rolle "Ohne Rolle" (`is_system_role`, P18/B-1 IMPLEMENTIERT) — im normalen Picker ausgeblendet, aus Rollenauswertungen ausgeblendet (P18/B-4/B-5 IMPLEMENTIERT). **Bekannter Gap:** es existiert aktuell kein `DELETE`-Endpoint für `resource_roles` überhaupt — die dokumentierte "nicht löschbar"-Regel ist damit faktisch, aber nicht durch einen Backend-Guard erzwungen (Abschnitt 16.15). |
 | `resource_demands` | Bedarf (Rolle × Periode × FTE, optional `plan_phase_id`). Für **neue**, Baum-basierte Planung ist `plan_phase_id` immer gesetzt (direkte Personenzuordnung erzeugt automatisch eine `ResourceDemand` mit der System-Rolle, P18/B-4 IMPLEMENTIERT) — `plan_phase_id = NULL` (projektweite Grobplanung) bleibt für **bestehende, unmigrierte** Projekte weiterhin ein gültiger, aktiver Zustand (Abschnitt L6.1 (Historie 17.8)), bis B-2 produktiv ausgeführt wurde. |
 | `resource_assignments` | Personenbesetzung eines `ResourceDemand` |
@@ -282,7 +289,6 @@ weiterhin `plan_phase_id = NULL`-Demands/`subprojects` parallel zum neuen Baum.
 | `jira_issue_cache` | Issue-Metadaten (Labels/Component/Summary) aus demselben Sync-Suchergebnis wie `jira_worklogs_cache` (P20.1 IMPLEMENTIERT, Abschnitt 16.19) — Grundlage für den Worklog→PlanPhase-Resolver (P20.2, noch nicht implementiert). Upsert per Issue-Key bei jedem `POST /jira/sync`, kein zusätzlicher Jira-API-Call. |
 | `worklog_phase_overrides` | Manuelle Worklog→PlanPhase-Korrektur auf Issue-Key-Ebene (P20.1 IMPLEMENTIERT, BD-1B CLOSED, Abschnitt 16.19) — höchste Priorität im künftigen Resolver, ändert nie Jira/Tempo-Originaldaten. CRUD über `/projects/plan-phases/{id}/worklog-overrides`. |
 | `gap_snapshots` | Modell existiert, wird aktuell nicht befüllt — GAP Engine rechnet live (siehe Abschnitt 9) |
-| `plan_history` | Änderungsprotokoll (Audit-Trail), gruppiert über `batch_id`. Additives Feld `plan_phase_id` (nullable, P18/B-1/B-3 IMPLEMENTIERT) — historisiert automatisch den `plan_fte`-Wert einer Phase, wenn sie durch das erste Kind zur Parent-Phase wird (Abschnitt 6.1a), verifiziert per Live-Testlauf (Abschnitt 16.15). |
 
 Entfernt (Phase 26.9, siehe Abschnitt 17.3): `gantt_phases`, `project_gantt_phases`,
 `fte_plan`, `project_fte_plan`, `team_members`, `assignments`, `projects.projektleiter`
@@ -311,7 +317,8 @@ neuen Drawer) und ist mit P11 behoben (siehe Abschnitt 16.1).
 
 - **Start/Ende** = `forecast_start`/`forecast_end` technisch, in der UI schlicht "Zeitraum"
   bzw. "Start"/"Ende".
-- **Baseline** = Planstand-Konzept (Abschnitt 5.3), keine normalen Tagesfelder.
+- **Baseline-Felder** (`baseline_start`/`baseline_end`) sind compat-only, keine normalen
+  Tagesfelder und kein Userkonzept "Planstand" (Abschnitt 5.3).
 - **Actual** = "Tatsächlicher Verlauf", sekundär/read-only mit expliziter Korrektur-Aktion.
   Statuswechsel setzen `actual_start`/`actual_end` aktuell **nicht** automatisch — das wurde
   geprüft und bewusst zurückgestellt, um bestehende Ist-Daten nicht unkontrolliert zu
@@ -346,36 +353,55 @@ suggerieren. Zusätzlich `remaining_plan_hours = max(plan_hours - ist_hours, 0)`
 `overrun_hours = max(ist_hours - plan_hours, 0)`, reine Subtraktion ohne Forecast-/
 Burn-Rate-Logik. Es gibt weiterhin bewusst **keine Datumsheuristik** und **kein Fake-Ist**.
 
-### 5.3 Planstand (`BaselineSnapshot`)
+### 5.3 Project History (`PlanHistory`)
 
-Ein Planstand ist ein eingefrorener historischer Stand des damaligen Plans (Beispiele: "V1 —
-Initialplanung", "V2 — nach Kickoff", "V3 — Replanung Change Request"). Der User bearbeitet
-**nicht** kontinuierlich Baseline-Start/-Ende, sondern:
+Die Nachvollziehbarkeit eines Projekts ist **Systemverhalten**, kein konfigurierbares Feature
+und kein manuelles Versionsmanagement.
 
-1. bearbeitet den aktuellen Plan (Start/Ende, wie in 5.1),
-2. hält bei Bedarf explizit einen "Planstand" fest (`POST /projects/{id}/baselines`).
+**Fachliches Prinzip:**
 
-Ein Snapshot friert je `PlanPhase` `phase_type`, `baseline_start`, `baseline_end`,
-`forecast_start`, `forecast_end`, `plan_fte`, `status` ein (plan_fte seit P11 mit dabei —
-vorher fehlte es, ein Planstand konnte historischen Aufwand nicht rekonstruieren), und je
-`Milestone` `name`, `baseline_date`, `forecast_date`, `status`.
+```
+USER ACTION → DOMAIN CHANGE → AUTOMATIC HISTORY ENTRY
+```
 
-Planstand-Vergleich (`GET /projects/baselines/{id}/deviations`) zeigt je eingefrorenem Feld
-`baseline_value → current_value`; für Datumsfelder zusätzlich `delta_days` (z. B. "Ende
-25.08. → 29.08., +4 Tage"), für `plan_fte` die reine Wertdifferenz, die das Frontend selbst
-berechnet (z. B. "0,5 → 0,7, +0,2 FTE"). Snapshot-vs-Snapshot-Vergleich (zwei Planstände
-gegeneinander, nicht nur gegen live) ist deferred (Abschnitt 15).
+Ein Projektleiter erstellt, ändert und löscht PlanPhases, Assignments, Milestones und
+Zusammenarbeitsobjekte ganz normal. Das System schreibt automatisch einen History-Eintrag.
+Es gibt **keine** Benutzeraktion "Planstand festhalten", **keine** Planstand-Benennung,
+**keine** Versionen V1/V2, **keine** Auswahl welche Änderungen historisiert werden, und
+**keine** Einstellung der Art "Planänderungen historisieren".
 
-Planstand anlegen: Name, Grund (optional), Tags. Tags werden über die generische
-`TagLink`-Infrastruktur verwaltet; Baselines sind seit P5 taggbar (Erstellzeit-only, kein
-Update-Endpoint — ein eingefrorener Stand ist unveränderlich).
+Der zentrale Ort in der UI ist der Projekt-Tab **Historie**. Filter (Alle / Planung /
+Kapazität / Team / Zusammenarbeit, optionaler Zeitraum) sind reine View-Filter — sie
+bestimmen nicht, was historisiert wird. History-Einträge sind **immutable**: normale User
+dürfen sie nicht bearbeiten, löschen, umbenennen oder nachträglich manipulieren. History
+bedeutet Nachvollziehen, nicht Zustand wiederherstellen (kein Undo/Redo, kein Time Travel).
 
-Seit P19 zeigt der `PlanPhaseWorkspace` (Übersicht-Tab) zusätzlich eine kompakte
-"Seit Planstand VX (Datum) geändert: …"-Zeile, clientseitig gegen denselben
-Deviation-Endpoint berechnet und auf `entity_id == aktuelle Phase` (bei Parent-Phasen
-zusätzlich ihre Nachfahren) gefiltert — keine neue Snapshot-Engine, kein
-Snapshot-vs-Snapshot-Vergleich, reine Kurzform des ohnehin projektweiten Vergleichs. Siehe
-Abschnitt 16.18.
+Ein History-Eintrag kann mindestens ausdrücken: `project_id`, Zeitstempel, Actor/Person
+soweit im aktuellen Auth-Modell verfügbar (heute: **nullable**, kein Login-/RBAC-System im
+Repo, Abschnitt 8/15), `entity_type`, `entity_id`, `entity_label`, `action`
+(created/updated/deleted), geänderte Felder mit Alt-/Neu-Wert. Mehrere Feldänderungen einer
+Speicheraktion werden über `batch_id` gebündelt.
+
+Historisiert werden Source-of-Truth-Änderungen (Projektstammdaten, PlanPhase, direkte
+ResourceAssignment, Milestone, Tags an projektbezogenen Entitäten, Task/Blocker/Decision,
+Dokumentverknüpfungen mit Projekt/Phase, manuelle Jira-Label-/Worklog-Override-Änderungen).
+**Nicht** historisiert: `updated_at`/`created_at`, Cache-Updates, Jira-Sync-Refresh,
+derived monthly/portfolio capacity, Health-Neuberechnungen, berechnete Planstunden.
+
+**History ≠ Activity.** History ist der Audit Trail von Änderungen. Activity
+(Kommentare, der Activity Feed) ist fachliche Zusammenarbeit. Kommentare werden nicht
+zusätzlich als History-Zeilen gespeichert. Task/Blocker/Decision-Änderungen sind im
+Audit Trail nachvollziehbar; der Communication-Tab bleibt die Collaboration-Oberfläche.
+
+#### Legacy / Compatibility: `BaselineSnapshot` / `BaselineEntry`
+
+Vor P20.3 existierte ein Benutzerkonzept "Planstand": benannte, manuell festgehaltene
+Snapshots (`POST /projects/{id}/baselines`) mit Vergleich gegen den aktuellen Plan. Dieses
+Userkonzept ist **entfernt**. Die Tabellen und APIs bleiben für Bestandsdaten, Exports und
+Controlling (`baseline_calc.compute_deviations`, Portfolio-Baseline-Deviations) erhalten —
+Klassifikation **LEGACY COMPAT**. Es werden keine neuen "Planstand erstellt"-History- oder
+Activity-Ereignisse mehr erzeugt. Destruktives Drop ist ein späterer Cleanup-Auftrag
+(Abschnitt 16.29).
 
 ### 5.4 Teilprojekte (Legacy/IST-Hinweis)
 
@@ -389,12 +415,14 @@ Subproject.
 `subprojects`/`subproject_id` bleiben **compat-only** bestehen (`PlanPhase.subproject_id`/
 `Milestone.subproject_id` weiterhin nullable, `NULL` = projektweit, gesetzt =
 teilprojektbezogen) — kein Drop-and-Pray. Sie sind aber **kein primärer Bedienweg für neue
-Planung** mehr. Noch aktiv genutzt: `ProjectPlanningTab.tsx` (Teilprojekt-CRUD),
-`ProjectHistoryTab.tsx` (Teilprojekt-Historie), `ProjectCommunicationTab.tsx`
-(Kommentar-Gruppierung nach Teilprojekt) und `export.py` (Export-Gruppierung) — diese Pfade
-bleiben bestehen, bis die produktive B-2-Migration ausgeführt und B-8 (Legacy Cutover)
-abgeschlossen ist (Abschnitt 16.15). Router-Endpunkte unter `/subprojects` sind bereits
-`@deprecated` dokumentiert.
+Planung** mehr. Noch aktiv genutzt: `ProjectCommunicationTab.tsx`
+(Kommentar-Gruppierung nach Teilprojekt) und `export.py` (Export-Gruppierung). Der Tab
+**Historie** (`ProjectHistoryTab.tsx`) ist seit P20.3 die zentrale, projektweite Audit-Ansicht
+(`GET /projects/{id}/history`) und keine Teilprojekt-Historie mehr; der deprecated Endpoint
+`GET /subprojects/{id}/history` bleibt als Compat-API. Teilprojekt-CRUD liegt seit P20.1 unter
+`Administration → Legacy-Kapazitätsplanung`. Diese Pfade bleiben bestehen, bis die produktive
+B-2-Migration ausgeführt und B-8 (Legacy Cutover) abgeschlossen ist (Abschnitt 16.15).
+Router-Endpunkte unter `/subprojects` sind bereits `@deprecated` dokumentiert.
 
 ### 5.5 Milestones
 
@@ -517,10 +545,9 @@ wie `entity_type`/`entity_id`). Wird die Phase später wieder zum Leaf (letztes 
 bleibt `plan_fte = NULL` — die UI zeigt denselben leeren Zustand wie bei einer frisch
 angelegten Leaf-Phase ohne Kapazität ("Kein Plan-FTE gesetzt", gültiger Zustand, Testfall B in
 Abschnitt 20 des Implementierungsplans) und verlangt eine bewusste Neu-Eingabe. Zusätzlich
-bleibt jeder vor der Umwandlung explizit festgehaltene **Planstand**
-(`BaselineSnapshot`/`BaselineEntry`, unverändert) als weitere, unabhängige historische Quelle
-bestehen — wer den alten Wert nachvollziehen will, findet ihn im Planstand-Vergleich oder im
-Audit-Trail, nie automatisch reaktiviert im operativen Feld.
+bleibt der zuvor operative Wert im **Audit Trail** (`PlanHistory`, Abschnitt 5.3)
+nachvollziehbar — nie automatisch reaktiviert im operativen Feld. `BaselineSnapshot`/
+`BaselineEntry` sind Legacy/Compatibility und kein Bestandteil des normalen Userflows.
 
 Bewertete Alternativen: **Variante B** (Wert physisch erhalten, aber über eine separate
 Confirmation-State-Logik als "nicht gültig" markieren) wurde geprüft und verworfen — sie
@@ -762,16 +789,32 @@ Grundsatzentscheidung gültig und werden 1:1 übernommen: die Formel für `plan_
 bleibt führend, keine automatische Synchronisierung aus der Rollen-Aufschlüsselung"
 (Abschnitt 3).
 
-### 6.14 Planstand-Strategie
+### 6.14 Project History (verbindlich)
 
-Ein Planstand muss künftig den `PlanPhase`-Baum rekonstruieren können: Kind neu hinzugekommen,
-Kind entfernt, Parent geändert, Phase verschoben, `plan_fte` geändert. Der bestehende generische
-`BaselineEntry`-Mechanismus (`entity_type`/`entity_id`/`field`/`value`) reicht dafür aus — er
-wird um die zusätzlichen eingefrorenen Felder `parent_phase_id` und `reihenfolge` (PlanPhase)
-sowie `plan_phase_id` (Milestone) erweitert, keine Schemaänderung nötig (Details:
-[`P18_ARCHITECTURE_RECONCILIATION_PASS2.md`](P18_ARCHITECTURE_RECONCILIATION_PASS2.md)
-Abschnitt 16). Eine separate Grobplanung wird nicht mehr eingefroren — es gibt nach der
-Migration nur noch `PlanPhase`-Felder.
+Jede fachlich relevante Änderung an einem Projekt oder einer projektbezogenen Entität wird
+**automatisch** historisiert.
+
+```text
+USER ACTION → DOMAIN CHANGE → AUTOMATIC HISTORY ENTRY
+```
+
+Es gibt im normalen Produkt **kein** Benutzerkonzept „Planstand“. Ein Projektleiter erstellt,
+benennt, wählt oder vergleicht keine Planstände. Es gibt keine Einstellung „Änderungen
+historisieren“ und keine Feature-Flags für fachlich notwendige Audit-History.
+
+`PlanHistory` ist der unveränderliche, projektbezogene Audit Trail. Der Tab **Historie** ist
+die zentrale Oberfläche. Create/Update/Delete werden verständlich formuliert (nicht als
+Null→Wert-Noise). Mehrere Felder einer Speichern-Aktion werden über `batch_id` gebündelt.
+Kommentare bleiben Collaboration (`Activity`), kein doppelter History-Eintrag.
+
+Actor/`Person` wird nur erfasst, wenn ein verlässlicher Auth-Kontext existiert. Das System hat
+bewusst kein Login/RBAC; `actor_person_id` bleibt daher nullable (P20.3, Abschnitt 8/15).
+
+`BaselineSnapshot` / `BaselineEntry` sind **kein** Userkonzept mehr. Die Tabellen und APIs
+bleiben als Legacy/Compatibility bestehen (Controlling-Abweichung, Bestandsdaten). Keine
+destruktive Migration in P20.3. Der frühere Snapshot-Mechanismus (`parent_phase_id`/
+`reihenfolge`/`plan_phase_id` in `BaselineEntry`) bleibt technisch erhalten, wird aber nicht
+mehr im normalen Planungsworkflow angeboten.
 
 ### 6.15 Legacy / Pending Cutover
 
@@ -941,15 +984,14 @@ Bedarf/Besetzt/Offen(/Überbesetzt), sowie die unveränderte "Steuerung"-Karte (
 Aufwandsverbrauch, Zeitfortschritt, Planned-vs-Actual — Abschnitt 10, keine Ampellogik).
 
 **PlanPhase-Workspace-Vereinfachung (`PlanPhaseWorkspace.tsx`):** aus dem normalen
-Übersicht-Tab entfernt: die permanente "Seit Planstand VX geändert"-Zeile (gehört auf
-Projektebene: Projekt → Planstände → Vergleich, `BaselineList`/`ProjectHistoryTab`
-unverändert), die "Tatsächlicher Verlauf"-Karte (`actual_start`/`actual_end` bleiben in
-DB/API aus Compat-Gründen bestehen, P20 liefert mit Tempo/Jira einen relevanteren
-Ist-Begriff — ein Projektleiter pflegt sie nicht mehr manuell). "Planstand" ist zusätzlich aus
-dem phasenscoped Activity-Filter entfernt (`BaselineSnapshot` ist ein projektweiter Snapshot
-ohne `plan_phase_id`-Spalte, gehörte dort ohnehin nie fachlich hin — lieferte serverseitig nie
-einen Treffer). `BaselineSnapshot`/`BaselineEntry` selbst: **unverändert**, keine
-Baseline-Engine angefasst.
+Übersicht-Tab entfernt: die permanente "Seit Planstand VX geändert"-Zeile und — seit P20.3 —
+jeder Planstand-Vergleich im normalen Userflow (Nachvollziehbarkeit liegt ausschließlich im
+Tab **Historie**, Abschnitt 5.3), die "Tatsächlicher Verlauf"-Karte (`actual_start`/`actual_end`
+bleiben in DB/API aus Compat-Gründen bestehen, P20 liefert mit Tempo/Jira einen relevanteren
+Ist-Begriff — ein Projektleiter pflegt sie nicht mehr manuell). `baseline_snapshot` ist seit
+P20.3 nicht mehr Teil des Activity-Feeds. `BaselineSnapshot`/`BaselineEntry` bleiben als
+**Legacy/Compatibility** im Schema und in den APIs, sind aber kein Bestandteil des normalen
+Userflows (keine Baseline-Engine angefasst, kein destruktives Drop).
 
 ### 6.17 Delete Stabilization — Root Cause & Fix (P20.1G)
 
@@ -1162,7 +1204,7 @@ Tabelle — `gap_snapshots` existiert, bleibt aber ungenutzt):
 | Allocation Gap | `ResourceDemand.fte − assigned_fte` | Feld auf `ResourceDemandOut` |
 | Capacity Gap | Portfolioweiter Kapazitätsbedarf vs. verfügbare Kapazität je Rolle/Periode | `GET /gap-engine/capacity` |
 | Effort Gap | Soll/Ist/Gap je Projekt/Monat (unverändert seit Schritt 3) | `GET /projects/{id}/gaps/effort` |
-| Schedule Gap | Baseline vs. Forecast **und** Forecast vs. Actual, live (nicht auf einen Planstand angewiesen) | `GET /projects/{id}/gaps/schedule` |
+| Schedule Gap | `PlanPhase.baseline_*` vs. Forecast **und** Forecast vs. Actual, live (compat-Felder, kein Userkonzept Planstand) | `GET /projects/{id}/gaps/schedule` |
 | Progress Gap | Expected Progress (Zeitanteil) minus `PlanPhase.progress` — **rechnerisch weiter verfügbar, aber nicht mehr Teil der Health-Bewertung** (siehe unten) | `GET /projects/{id}/gaps/progress` |
 | Utilization Gap | Zugeordnete FTE vs. Available Capacity vs. 100 %-Ziel | `GET /people/{id}/gaps/utilization` |
 
@@ -1201,12 +1243,12 @@ Navigations-Gruppierung, keine Zugriffskontrolle (kein Rollen-/Login-System im R
 | Tab | Inhalt |
 |---|---|
 | Übersicht | Cockpit-Aggregation: Health-Ampel, Projektleiter, letzte Änderungen/Notizen, offene Aufgaben |
-| **Planung** | PlanPhase-Liste + Drawer, Milestones, Kapazität (Portfolio-Achse), Planstände, Teilprojekt-Verwaltung — siehe unten |
+| **Planung** | PlanPhase-Liste + Drawer, Milestones, derived monthly capacity — siehe unten. **Kein** Planstände-Bereich. |
 | Kommunikation | Diskussionen, Aufgaben, Entscheidungen, Risiken, Meetingprotokolle (projektweit; phasenbezogene Sicht siehe Planung-Tab-Drawer) |
 | Dokumente | Zentrale Dokumentenablage des gesamten Projekts, Suche/Filter, "Verwendet in"-Backlinks |
-| Historie | Automatisches Änderungsprotokoll (Audit), nach Datum/Revision (`batch_id`) gruppiert |
+| Historie | **Zentrale** Project History: automatischer, unveränderlicher Audit Trail fachlich relevanter Änderungen, nach Datum/Revision (`batch_id`) gruppiert, View-Filter Alle/Planung/Kapazität/Team/Zusammenarbeit |
 | Jira | Sync-Status, Ist-FTE-Tabelle, "Jetzt synchronisieren", seit P20.7 zusätzlich eine "Ist-Zuordnung zu PlanPhasen"-Karte (projektweite Mapping Coverage, P20.3) |
-| Einstellungen | **Projektstammdaten** (Name/Kunde/Startmonat/Anzahl Monate, mit Grund-/Batch-Speichern-Workflow), Projektparameter (Status/Projektleiter), Projektteam/Berechtigungen, Jira-Verknüpfung. **Nicht** hier: PlanPhase-Planung, Kapazitätsplanung, Assignments, Planstände, Tag-Verwendung, Kommentare/Tasks/Blocker/Milestones — das bleibt Planungsarbeit im Planung-Tab. |
+| Einstellungen | **Projektstammdaten** (Name/Kunde/Startmonat/Anzahl Monate, mit Grund-/Batch-Speichern-Workflow), Projektparameter (Status/Projektleiter), Projektteam/Berechtigungen, Jira-Verknüpfung. **Nicht** hier: PlanPhase-Planung, Kapazitätsplanung, Assignments, Tag-Verwendung, Kommentare/Tasks/Blocker/Milestones — das bleibt Planungsarbeit im Planung-Tab. Nachvollziehbarkeit liegt im Tab Historie. |
 
 ### Planung-Tab im Detail
 
@@ -1242,10 +1284,12 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
   aktuellen Phase (klickbare Vorfahren, wechselt die im Drawer offene Phase ohne den Drawer zu
   schließen). Zusätzlich seit P19: eine kompakte "Verknüpfte Themen"-Karte (Tags +
   Entscheidungen-/Blocker-/Dokumente-Counts, aus dem bereits geladenen Detail abgeleitet).
-  **Seit P20.1 entfernt** (6.16): die permanente "Seit Planstand VX geändert"-Zeile (gehört auf
-  Projektebene, Abschnitt 5.3) und die "Tatsächlicher Verlauf"-Karte
-  (Gestartet/Abgeschlossen/"Ist-Daten korrigieren") — `actual_start`/`actual_end` bleiben in
-  DB/API aus Compat-Gründen bestehen, sind aber kein Bestandteil des normalen Workspace mehr.
+  **Seit P20.1 entfernt** (6.16): die permanente "Seit Planstand VX geändert"-Zeile und die
+  "Tatsächlicher Verlauf"-Karte (Gestartet/Abgeschlossen/"Ist-Daten korrigieren") —
+  `actual_start`/`actual_end` bleiben in DB/API aus Compat-Gründen bestehen, sind aber kein
+  Bestandteil des normalen Workspace mehr. Seit P20.3 gibt es im normalen Produkt überhaupt
+  kein Planstand-Userkonzept mehr (Abschnitt 5.3) — Nachvollziehbarkeit ausschließlich über
+  den Tab Historie.
 - **Kapazität** — Plan-FTE (seit P20.1 **hier** editierbar)/Planstunden-Kopfzeile,
   Personenbesetzung (`+ Mitarbeiter zuweisen`, Available Capacity im Phasenzeitraum),
   Bedarf/Besetzt/Offen(/Überbesetzt) in Fachsprache (siehe Abschnitt 6.16). **Seit P20.1
@@ -1265,10 +1309,9 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
   "Eingeplant, bisher kein Ist: ..." und "Davon durch nicht eingeplante Ressourcen: X h" -
   reine Anzeige, **keine automatische Änderung der Ressourcenplanung**. **Keine Ampel** (BD-3
   bleibt separat offen).
-- **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-Ereignisse; **Planstand seit
-  P20.1 aus dem phasenscoped Filter entfernt** — `BaselineSnapshot` ist ein projektweiter
-  Snapshot ohne `plan_phase_id`-Spalte und lieferte hier ohnehin nie einen Treffer, siehe
-  6.16) +
+- **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-Ereignisse; `baseline_snapshot`
+  seit P20.3 nicht mehr im Activity-Vokabular — "Planstand erstellt" ist kein fachliches
+  Benutzerereignis mehr) +
   Kommentare (inkl. Threading über `parent_id` mit einer Einrückungsebene, "aus Objekt
   erstellen" direkt in der Kommentarliste), Aufgaben, Entscheidungen, Blocker im
   Phasenkontext (Tags dieser drei sind seit P19 nachbearbeitbar). Seit P19 zusätzlich eine
@@ -1287,18 +1330,19 @@ expliziter "Speichern"-Klick mit Begründung passt fachlich. Zwei konkurrierende
 Speicherparadigmen auf derselben Seite (Planung) wurden damit aufgelöst, ohne den
 Audit-Trail-Mechanismus selbst zu entfernen.
 
-**Milestones, Planstände** liegen als eigene, projektweite Karten unterhalb der
-PlanPhase-Liste (die seit P19 visuell die primäre, immer offene Karte ist), jeweils mit
-Sofort-Speichern. Seit P19 zeigt eine weitere Karte "Projektkapazität nach Monat" die
-derived monthly capacity read-only (Balken/Stunden/FTE-Äquivalent je Monat, Klick auf einen
-Monat schlüsselt ihn nach beitragender Leaf-PlanPhase auf) — Quelle ist unverändert
-`compute_project_monthly_capacity` (Abschnitt 6.6), keine neue Berechnung, keine
-Ampel-/Erfüllungsbewertung. Die Legacy-Karten (Teilprojekt-Verwaltung, `ResourceDemandGrid`)
-lagen von P19 bis P20.1 gebündelt in einem eingeklappten "Legacy-Kapazitätsplanung"-Block
-ganz unten im Planung-Tab — **seit P20.1 sind sie aus dem Planung-Tab entfernt** und liegen
-unter `Administration → Legacy-Kapazitätsplanung` (`LegacyCapacityDiagnostics.tsx`, mit
-Projektauswahl), siehe Abschnitt 6.15/6.16/12. Unverändert funktionsfähig, aber ein normaler
-Projektleiter sieht diesen Bereich im Planung-Tab nicht mehr.
+**Milestones** liegen als eigene, projektweite Karte unterhalb der PlanPhase-Liste (die seit
+P19 visuell die primäre, immer offene Karte ist), mit Sofort-Speichern. **Kein Planstände-
+Bereich** im Planung-Tab (P20.3) — weder Placeholder noch Legacy-Hinweis. Seit P19 zeigt eine
+weitere Karte "Projektkapazität nach Monat" die derived monthly capacity read-only
+(Balken/Stunden/FTE-Äquivalent je Monat, Klick auf einen Monat schlüsselt ihn nach
+beitragender Leaf-PlanPhase auf) — Quelle ist unverändert `compute_project_monthly_capacity`
+(Abschnitt 6.6), keine neue Berechnung, keine Ampel-/Erfüllungsbewertung. Die Legacy-Karten
+(Teilprojekt-Verwaltung, `ResourceDemandGrid`) lagen von P19 bis P20.1 gebündelt in einem
+eingeklappten "Legacy-Kapazitätsplanung"-Block ganz unten im Planung-Tab — **seit P20.1 sind
+sie aus dem Planung-Tab entfernt** und liegen unter `Administration → Legacy-Kapazitätsplanung`
+(`LegacyCapacityDiagnostics.tsx`, mit Projektauswahl), siehe Abschnitt 6.15/6.16/12.
+Unverändert funktionsfähig, aber ein normaler Projektleiter sieht diesen Bereich im
+Planung-Tab nicht mehr.
 
 ---
 
@@ -1341,7 +1385,8 @@ Planstunden, Personenbesetzung oder Available Capacity.
 |---|---|---|---|---|
 | Projektstammdaten | `Project` | Einstellungen-Tab | — | aktuell |
 | Phasen-Termine ("Plan") | `PlanPhase.forecast_start/end` | Planung-Tab → Drawer "Übersicht" | — | aktuell (UI zeigt technischen Begriff "forecast" nicht) |
-| Planstand | `BaselineSnapshot`/`BaselineEntry` | Planung-Tab, Aktion "Planstand festhalten" | Snapshot von PlanPhase/Milestone-Feldern zum Zeitpunkt X | aktuell; `PlanPhase.baseline_start/end` sind compat-only, nicht mehr die UX-Quelle |
+| Project History | `PlanHistory` | automatisch bei Domain-Änderung; gelesen im Tab Historie | Source-of-Truth-Felder (Alt/Neu, gebündelt über `batch_id`) | aktuell (P20.3) |
+| Planstand (Legacy/Compat) | `BaselineSnapshot`/`BaselineEntry` | nicht im normalen Userflow; APIs `/baselines` bleiben | Snapshot von PlanPhase/Milestone-Feldern zum Zeitpunkt X | **Legacy/Compatibility seit P20.3** — kein Userkonzept mehr; `PlanPhase.baseline_start/end` bleiben compat-only |
 | Tatsächlicher Verlauf | `PlanPhase.actual_start/end` | nirgends im normalen Workspace (Feld bleibt in DB/API, P20.1 entfernte die UI-Karte) | — | Compat-only seit P20.1 (Abschnitt 6.16) — P20 Tempo/Jira ist der relevantere Ist-Begriff |
 | Plan-Aufwand | `PlanPhase.plan_fte` | Drawer "Kapazität" (seit P20.1 einzige primäre Bearbeitungsstelle, vorher zusätzlich im Übersicht-Tab editierbar) / Create-Modal | — | aktuell, führend |
 | Planstunden | berechnet (`phase_metrics_calc.plan_hours`) | nicht editierbar | `plan_fte` × Werktage × Wochenstunden/5 | aktuell |
@@ -1407,7 +1452,8 @@ Werktage-Logik ableitbar, keine offene Frage.
 - `PlanPhase.progress`-Spalte tatsächlich droppen (Schema-Cleanup erst, wenn alle Consumer
   entfernt sind — kein destruktives Cleanup nur für UX)
 - `phase_control_status`/🟢🟡🔴-Bewertung der Phasenmetriken (BD-3)
-- Snapshot-vs-Snapshot-Vergleich (zwei Planstände direkt gegeneinander)
+- Snapshot-vs-Snapshot-Vergleich der Legacy-`BaselineSnapshot`-APIs (kein Userkonzept mehr;
+  destruktives API-/Tabellen-Drop ist ein späterer Cleanup, Abschnitt 16.29)
 - Gantt Drag&Drop/Resize als Planungsworkflow
 - Milestones im Gantt darstellen
 - Automatisches Setzen von `actual_start`/`actual_end` bei Statuswechsel (geprüft, bewusst
@@ -1423,9 +1469,9 @@ Werktage-Logik ableitbar, keine offene Frage.
 - vollständiger Schema-Drop aller deprecateten Felder (`progress`, `baseline_*` bleiben
   bewusst bestehen, bis alle Consumer entfernt sind)
 - großformatige neue Design-System-Einführung
-- Planstand-Relations-UX (Planstand ↔ Blocker/Decision/Comment über `EntityRelation`
-  verknüpfen) — geprüft in P13.6, keine bestehende generische Auswahl-UX dafür wiederverwendbar,
-  nicht künstlich gebaut (siehe Abschnitt 16.3)
+- Legacy-`BaselineSnapshot`-Relations-UX (Snapshot ↔ Blocker/Decision/Comment über
+  `EntityRelation`) — geprüft in P13.6, mit P20.3 obsolet als Userfeature; Tabellen/APIs
+  bleiben Compat (siehe Abschnitt 16.3/16.29)
 - **P18 Pass 1 (Grob-/Feinplanung-Reconciliation, Abschnitt 6a)** — fachlich fertig
   spezifiziert, aber **superseded durch P18 Pass 2** (Abschnitt 6); BD-7/BD-8/BD-9 obsolet.
 - **P18 Pass 2 (PlanPhase-only/hierarchische Phasen, Abschnitt 6)** — fachlich **final
@@ -3217,6 +3263,47 @@ beiden tatsächlich gefundenen Regressionen).
 keine der beiden Regressionen hatte mit der P20.1-Domänenentscheidung selbst zu tun, beide
 waren reine Infrastruktur-/Ausführungsreihenfolge-Bugs, die nur unter PostgreSQLs strengerer
 Semantik sichtbar wurden.
+
+### 16.29 P20.3 — Automatic Project History & Planstand Cleanup (dieser Durchgang)
+
+**Auftrag:** Das Benutzerkonzept „Planstand“ (manuell festhalten, benennen, V1/V2, vergleichen)
+entfällt vollständig aus dem normalen Produkt. Jede fachlich relevante Domain-Änderung wird
+automatisch historisiert. History ist Systemverhalten, kein konfigurierbares Feature. History
+bedeutet Nachvollziehen, nicht Zustand wiederherstellen.
+
+**Audit (vor Implementierung):** `PlanHistory` existierte bereits als Feld-Diff-Tabelle
+(`bereich`/`feld`/`alter_wert`/`neuer_wert`/`batch_id`), wurde aber nur spärlich beschrieben
+(Projektstammdaten-Update, Leaf→Parent-`plan_fte`/`jira_label`, Subtree-Delete). Create/Update/
+Delete von PlanPhase, ResourceAssignment, Milestone, Task/Blocker/Decision, Tags,
+Dokumentverknüpfungen und manuellen Jira-/Worklog-Mappings fehlten. `Activity` ist Collaboration
+(Kommentare/Feed), kein Audit Trail. `BaselineSnapshot`/`BaselineEntry` speisten die
+Planstände-UX und bleiben von Controlling (`baseline_calc`, Portfolio-Deviations) benötigt —
+Klassifikation **LEGACY COMPAT**, kein destruktives Drop.
+
+**Umsetzung (bestehende Infrastruktur erweitert, keine zweite History-Engine):**
+
+- Neues gemeinsames Schreibmodul `backend/app/history.py` (`record_created` /
+  `record_updated` / `record_deleted` / `record_tag_diff` / `record_rows`). Router importieren
+  von hier, nicht voneinander.
+- Additive Migration `0008_p20_3_plan_history` (Revision-ID ≤ 32 Zeichen): nullable Spalten
+  `entity_type`, `entity_id`, `entity_label`, `action`, `actor_person_id` (FK `persons`
+  `ON DELETE SET NULL`). Kein Drop von Baseline-Tabellen.
+- Domain-Router verdrahtet: `projects`, `planning` (PlanPhase, Assignments, Milestones,
+  Worklog-Overrides, `jira_label`), `communication` (Task/Blocker/Decision + Tags; Kommentare
+  bewusst nicht), `documents` (Projekt-Upload und Links auf Phase/Milestone).
+- Jira-Sync (`jira.py` / `jira_sync.py`) schreibt **keine** History.
+- `baselines.py` bleibt als LEGACY COMPAT; erzeugt **keine** neuen „Planstand erstellt“-
+  History-/Activity-Einträge. `baseline_snapshot` ist aus `ACTIVITY_ENTITY_TYPES` entfernt.
+- Frontend: Planstände-Karte aus `ProjectPlanningTab.tsx` entfernt (kein Placeholder).
+  Tab Historie ist die zentrale Timeline (Filter, Zeitraum, Batch-Bündelung, aufklappbare
+  Alt/Neu-Werte, keine JSON-Dumps). Keine History-Bearbeiten/Löschen-Buttons. Actor bleibt
+  nullable — kein Auth-/RBAC-System im Repo (Abschnitt 8).
+
+**Nicht Teil dieses Durchgangs:** Undo/Redo, Time Travel, Restore, RBAC, neue Baseline-/
+Snapshot-Engine, Gantt-DnD, ResourceDemand im normalen Planungsflow.
+
+**Ergebnis:** User plant, das System dokumentiert. Volles Detail:
+[`P20_3_PROJECT_HISTORY_CONSOLIDATION.md`](P20_3_PROJECT_HISTORY_CONSOLIDATION.md).
 
 ---
 

@@ -1,7 +1,11 @@
-"""Baseline Management (Phase 18, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 12).
-Friert die aktuellen PlanPhase-/Milestone-Felder eines Projekts als benannten BaselineSnapshot
-ein, damit spätere Forecasts dagegen verglichen werden können (Schedule-/Milestone-
-Abweichungen). Folgt demselben CRUD-Muster wie routers/planning.py/communication.py."""
+"""Baseline Snapshot APIs — LEGACY COMPAT (P20.3).
+
+Kein Bestandteil des normalen Userflows mehr (kein Planstand-Festhalten in der UI).
+Die Endpoints bleiben für Bestandsdaten, Controlling (`baseline_calc` / portfolio
+baseline-deviations) und Migrationspfade erhalten. Neue Nachvollziehbarkeit läuft über
+PlanHistory (`app/history.py`). Es werden KEINE neuen History-Einträge "Planstand erstellt"
+geschrieben.
+"""
 
 from datetime import datetime, timezone
 

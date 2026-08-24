@@ -14,6 +14,7 @@ import TagInput from "../../../components/TagInput";
 import TaskList from "./TaskList";
 import usePeopleMap from "../../../hooks/usePeopleMap";
 import { formatBaselineDate, summarizeBaselineDeviations } from "../baselineDeviationFormat";
+import { useProjectWorkspace } from "../ProjectWorkspaceContext";
 import {
   MAX_PLAN_PHASE_DEPTH,
   PLAN_PHASE_STATUS_LABELS,
@@ -24,6 +25,7 @@ import {
   type BaselineDeviation,
   type BaselineSnapshotSummary,
   type EntityType,
+  type JiraMatchPreview,
   type PlanPhase,
   type PlanPhaseDetail,
   type PlanPhaseStatus,
@@ -115,6 +117,27 @@ export default function PlanPhaseWorkspace({
   const [baselines, setBaselines] = useState<BaselineSnapshotSummary[] | null>(null);
   const [baselineDeviations, setBaselineDeviations] = useState<BaselineDeviation[] | null>(null);
   const people = usePeopleMap();
+  const { project } = useProjectWorkspace();
+  // P20.5 (Übersicht-Tab, Ist-Daten-Zeile, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md
+  // Abschnitt 9): Labels, die im verknüpften Jira-Projekt tatsächlich vorkommen, als
+  // Datalist-Vorschläge (Dropdown-artig, aber weiterhin Freitext möglich - kein neuer
+  // Jira-API-Endpoint, list_labels() existiert bereits für den Component-Picker). Ohne
+  // verknüpftes Jira-Projekt bleibt die Liste leer, das Feld bleibt reiner Freitext.
+  const [jiraLabelSuggestions, setJiraLabelSuggestions] = useState<string[]>([]);
+  useEffect(() => {
+    if (!project.jira_project_key) {
+      setJiraLabelSuggestions([]);
+      return;
+    }
+    api
+      .jiraListLabels(project.jira_project_key)
+      .then(setJiraLabelSuggestions)
+      .catch(() => setJiraLabelSuggestions([]));
+  }, [project.jira_project_key]);
+  // P20.5 (Mapping-Preview, Abschnitt 10): zeigt, was das aktuell GESPEICHERTE jira_label
+  // treffen würde - rein lesend gegen den Sync-Cache, aktualisiert sich automatisch nach
+  // jedem Speichern (detail.jira_label ändert sich dann), keine Live-Jira-Abfrage.
+  const [jiraMatchPreview, setJiraMatchPreview] = useState<JiraMatchPreview | null>(null);
 
   const load = () => {
     if (planPhaseId == null) return;
@@ -163,6 +186,20 @@ export default function PlanPhaseWorkspace({
     setActivityVersion((v) => v + 1);
     onChanged?.();
   };
+
+  // P20.5: Mapping-Preview für das aktuell gespeicherte jira_label - muss vor dem frühen
+  // `return null` unten stehen (Rules of Hooks), daher hier statt weiter unten im JSX-Zweig.
+  useEffect(() => {
+    if (!detail || !detail.jira_label) {
+      setJiraMatchPreview(null);
+      return;
+    }
+    api
+      .getPlanPhaseJiraMatches(detail.id, detail.jira_label)
+      .then(setJiraMatchPreview)
+      .catch(() => setJiraMatchPreview(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id, detail?.jira_label]);
 
   // P19.6: "Seit Planstand VX (Datum) geändert: ..."-Zeile - clientseitig aus dem bestehenden
   // Deviation-Endpoint gefiltert (entity_type=plan_phase, entity_id = diese Phase bzw. bei
@@ -444,6 +481,66 @@ export default function PlanPhaseWorkspace({
             </div>
           </div>
 
+          {/* P20.5 (Übersicht-Tab, Ist-Daten-Zeile, siehe
+              P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 9/10): nur auf Leaf-Phasen
+              sichtbar/editierbar - analog zum Geplanten Ressourcenbedarf oben (jira_label wird
+              beim Parent-Übergang serverseitig auf NULL gesetzt, gleicher Lifecycle wie
+              plan_fte). Freitext + Datalist statt starrem Dropdown, damit auch ohne
+              verknüpftes Jira-Projekt (leere Vorschlagsliste) editierbar bleibt. */}
+          {!detail.has_children && (
+            <div className="card" style={{ marginBottom: "0.75rem" }}>
+              <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Ist-Daten</h4>
+              <label>
+                Jira-Label
+                <input
+                  key={`${detail.id}-jira-label-${detail.jira_label}`}
+                  list="plan-phase-jira-label-suggestions"
+                  defaultValue={detail.jira_label ?? ""}
+                  placeholder="z. B. phase:configuration"
+                  onBlur={(e) => {
+                    const value = e.target.value.trim();
+                    if (value !== (detail.jira_label ?? "")) update({ jira_label: value === "" ? null : value });
+                  }}
+                />
+              </label>
+              <datalist id="plan-phase-jira-label-suggestions">
+                {jiraLabelSuggestions.map((l) => (
+                  <option key={l} value={l} />
+                ))}
+              </datalist>
+              <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.4rem 0 0" }}>
+                Worklogs von Issues mit diesem Label zählen als Ist-Aufwand dieser Phase. Ein
+                Label darf pro Projekt nur einer Leaf-Phase zugeordnet sein.
+              </p>
+              {detail.jira_label && (
+                <p style={{ fontSize: "0.82rem", margin: "0.4rem 0 0" }}>
+                  {jiraMatchPreview == null ? (
+                    <span style={{ color: "var(--text-muted)" }}>Lädt Treffer …</span>
+                  ) : jiraMatchPreview.matched_issues === 0 ? (
+                    <span style={{ color: "var(--text-muted)" }}>
+                      Aktuell keine Treffer im letzten Sync-Stand - Label prüfen oder zuerst
+                      im Jira-Tab synchronisieren.
+                    </span>
+                  ) : (
+                    <>
+                      <strong>{jiraMatchPreview.matched_issues}</strong> Issue
+                      {jiraMatchPreview.matched_issues === 1 ? "" : "s"} ·{" "}
+                      <strong>{jiraMatchPreview.matched_worklogs}</strong> Worklog
+                      {jiraMatchPreview.matched_worklogs === 1 ? "" : "s"} ·{" "}
+                      <strong>{jiraMatchPreview.total_hours} h</strong>
+                      {jiraMatchPreview.sample_issue_keys.length > 0 && (
+                        <span style={{ color: "var(--text-muted)" }}>
+                          {" "}
+                          ({jiraMatchPreview.sample_issue_keys.join(", ")})
+                        </span>
+                      )}
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="card" style={{ marginBottom: "0.75rem" }}>
             <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Kennzahlen</h4>
             <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem" }}>
@@ -456,12 +553,27 @@ export default function PlanPhaseWorkspace({
                   (Anteil des geplanten Zeitraums, der vergangen ist - kein Health-/Fortschrittswert)
                 </span>
               </div>
+              {/* P20.4 (BD-1 CLOSED): null bleibt "noch nicht zugeordnet" statt einer
+                  irreführenden 0 - siehe worklog_actuals.py/phase_metrics_calc.py. */}
               <div>
-                <strong>Ist-Aufwand:</strong> Noch nicht eindeutig der Planphase zugeordnet
+                <strong>Ist-Aufwand:</strong>{" "}
+                {detail.metrics.ist_hours == null
+                  ? "Noch nicht eindeutig zugeordnet"
+                  : `${detail.metrics.ist_hours} h`}
               </div>
               <div>
-                <strong>Aufwandsverbrauch:</strong> {"—"}
+                <strong>Aufwandsverbrauch:</strong> {fmtNum(detail.metrics.effort_consumption_pct, "%")}
               </div>
+              {detail.metrics.remaining_plan_hours != null && (
+                <div>
+                  <strong>Verbleibender Planaufwand:</strong> {detail.metrics.remaining_plan_hours} h
+                </div>
+              )}
+              {detail.metrics.overrun_hours != null && detail.metrics.overrun_hours > 0 && (
+                <div style={{ color: "var(--rot)" }}>
+                  <strong>Überverbrauch:</strong> {detail.metrics.overrun_hours} h
+                </div>
+              )}
             </div>
           </div>
 

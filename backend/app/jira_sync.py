@@ -1,6 +1,6 @@
 """Sync- und Umrechnungslogik für die Jira-Ist-Integration (CONCEPT.md Abschnitt 4)."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,24 @@ def _monat_label(iso_datum: str) -> str:
 MAX_UNBEKANNTE_BEISPIELE = 5
 
 
+def _upsert_issue_cache(db: Session, project: models.Project, issues: list[dict]) -> None:
+    """Aktualisiert JiraIssueCache für alle beim Sync gefundenen Issues dieses Projekts
+    (P20.1). Upsert per PK (jira_issue_key) - ein Issue kann projektübergreifend nicht
+    doppelt vorkommen, da JQL bereits über Project.jira_component gescoped ist (siehe
+    jira_client.search_issues_for_component)."""
+    now = datetime.now(timezone.utc).isoformat()
+    for issue in issues:
+        entry = db.get(models.JiraIssueCache, issue["key"])
+        if entry is None:
+            entry = models.JiraIssueCache(jira_issue_key=issue["key"])
+            db.add(entry)
+        entry.project_id = project.id
+        entry.labels = ",".join(issue["labels"]) if issue["labels"] else None
+        entry.component = issue["component"]
+        entry.summary = issue["summary"]
+        entry.last_synced_at = now
+
+
 def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[dict]]:
     """Holt Worklogs aus Jira für die Component/Label des Projekts und cached sie.
 
@@ -32,13 +50,21 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
     Rückgabe: (Anzahl gecachter Worklogs, Anzahl unzugeordneter Buchungen, Beispiele
     unbekannter Autoren als {"account_id", "display_name"} — zum Abgleich mit den in den
     Personen-Stammdaten hinterlegten Jira-Account-IDs, falls eine Zuordnung fehlschlägt).
+
+    Befüllt zusätzlich JiraIssueCache mit den Issue-Metadaten (Labels/Component/Summary) aus
+    demselben Suchergebnis (P20.1, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt
+    4/24) — Grundlage für den künftigen Worklog->PlanPhase-Resolver (P20.2). Kein
+    zusätzlicher Jira-API-Round-Trip: search_issues_for_component() liefert diese Felder
+    bereits mit.
     """
     since = (date.today() - timedelta(days=SYNC_LOOKBACK_DAYS)).isoformat()
+    issues = jira_client.search_issues_for_component(project.jira_component, since)
     if tempo_client.is_configured():
-        issues = jira_client.search_issues_for_component(project.jira_component, since)
         raw_worklogs = tempo_client.fetch_worklogs_for_issues(issues, since)
     else:
-        raw_worklogs = jira_client.fetch_worklogs_for_component(project.jira_component, since)
+        raw_worklogs = jira_client.fetch_worklogs_for_issue_keys([i["key"] for i in issues], since)
+
+    _upsert_issue_cache(db, project, issues)
 
     # Der Cache kennt nur eine Zeile je (Person, Ticket, Tag) — Tempo erlaubt aber mehrere
     # Buchungen am selben Tag/Ticket (z.B. vormittags/nachmittags getrennt). Vor dem Speichern

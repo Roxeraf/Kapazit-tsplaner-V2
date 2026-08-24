@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import type { JiraStatus, JiraSyncResult } from "../../types";
+import type { JiraStatus, JiraSyncResult, ProjectActualsCoverage } from "../../types";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
 export default function ProjectJiraTab() {
@@ -10,6 +10,11 @@ export default function ProjectJiraTab() {
   const [jiraStatus, setJiraStatus] = useState<JiraStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<JiraSyncResult | null>(null);
+  // P20.7 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 19/26): dieselbe
+  // Vertrauens-/Vollständigkeitskennzahl wie im Kapazität-Tab einer einzelnen Phase (P20.5),
+  // hier projektweit im Jira-Tab - kein neuer Endpoint, wiederverwendet GET
+  // /projects/{id}/actuals-coverage (P20.3). Neu geladen bei jedem reload() (z.B. nach Sync).
+  const [coverage, setCoverage] = useState<ProjectActualsCoverage | null>(null);
 
   useEffect(() => {
     api
@@ -17,6 +22,10 @@ export default function ProjectJiraTab() {
       .then(setJiraStatus)
       .catch((e) => setError(`Integrationsstatus konnte nicht geladen werden: ${String(e)}`));
   }, []);
+
+  useEffect(() => {
+    api.getProjectActualsCoverage(project.id).then(setCoverage).catch(() => setCoverage(null));
+  }, [project.id, project.ist]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -115,6 +124,41 @@ export default function ProjectJiraTab() {
           </div>
         )}
       </div>
+
+      {/* P20.7 (Projekt-Coverage-Anzeige, siehe
+          P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 19/26): reine Vertrauens-/
+          Vollständigkeitskennzahl, wie vollständig die Tempo-Ist-Stunden bereits PlanPhasen
+          zugeordnet sind - KEINE Health-Ampel, keine Bewertung. Projekt-Ist (oben, "Ist-FTE")
+          bleibt davon unberührt und weiterhin die führende Quelle. */}
+      {coverage && coverage.project_ist_total > 0 && (
+        <div className="card" style={{ marginTop: "1.25rem" }}>
+          <h3 style={{ color: "var(--navy)", marginTop: 0 }}>Ist-Zuordnung zu PlanPhasen</h3>
+          <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem" }}>
+            <div>
+              <strong>Gesamt:</strong> {coverage.project_ist_total} h
+            </div>
+            <div>
+              <strong>Zu PlanPhasen zugeordnet:</strong> {coverage.mapped_total} h
+            </div>
+            {coverage.ambiguous_total > 0 && (
+              <div>
+                <strong>Nicht eindeutig zugeordnet:</strong> {coverage.ambiguous_total} h
+              </div>
+            )}
+            <div>
+              <strong>Nicht zugeordnet:</strong> {coverage.unmapped_total} h
+            </div>
+            <div style={{ paddingTop: "0.3rem", borderTop: "1px solid var(--border)" }}>
+              <strong>Coverage:</strong> {coverage.coverage_pct == null ? "—" : `${coverage.coverage_pct}%`}
+            </div>
+          </div>
+          <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.6rem 0 0" }}>
+            Zuordnung erfolgt je Planphase über das Jira-Label (Drawer → Übersicht →
+            "Ist-Daten"). Diese Kennzahl bewertet nur die Vollständigkeit der Zuordnung, nicht
+            den Projektfortschritt.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

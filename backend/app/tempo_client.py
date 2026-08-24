@@ -4,7 +4,7 @@ Wird verwendet, wenn TEMPO_API_TOKEN gesetzt ist. Grund: Wird in Jira mit dem Te
 Timesheets-Plugin gebucht, zeigt der native Jira-Worklog-Autor häufig den
 Tempo-Systemaccount ("Timesheets by Tempo - Jira Time Tracking") statt der echten Person —
 die tatsächliche Zuordnung kennt nur Tempo selbst. Deshalb hier direkter Zugriff auf Tempo,
-als Ersatz für jira_client.fetch_worklogs_for_component().
+als Ersatz für jira_client.fetch_worklogs_for_issue_keys().
 
 Konfiguration: TEMPO_API_TOKEN (Bearer-Token, erzeugt in Jira unter
 Tempo -> Einstellungen -> API Integration; siehe README.md). Andere Basis-URL/Auth als
@@ -62,7 +62,7 @@ def _paginated_get(client: httpx.Client, path: str, params: dict) -> list[dict]:
 def fetch_worklogs_for_issues(issues: list[dict], since: str) -> list[dict]:
     """Tempo-Worklogs für die gegebenen Issues (`[{"key": ..., "id": ...}, ...]`) seit `since`.
 
-    Rückgabe im selben Format wie jira_client.fetch_worklogs_for_component(), damit
+    Rückgabe im selben Format wie jira_client.fetch_worklogs_for_issue_keys(), damit
     jira_sync.sync_project() beide Quellen gleich weiterverarbeiten kann. Da Tempo keine
     Anzeigenamen im Worklog mitliefert, ist author_display_name hier zunächst die Account-ID.
     """

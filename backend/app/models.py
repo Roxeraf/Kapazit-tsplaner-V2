@@ -205,6 +205,54 @@ class JiraWorklogCache(Base):
     projekt_mapping: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
+class JiraIssueCache(Base):
+    """Issue-Metadaten aus dem Jira-Sync, zusaetzlich zum Worklog-Cache (P20.1, siehe
+    P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 4/24) - haelt die Felder (Labels/
+    Component/Summary), die derselbe Issue-Search-Call bereits liefert, aber bislang sofort
+    verwarf. Grundlage fuer den Worklog->PlanPhase-Resolver (P20.2); dieses Paket selbst matcht
+    noch nichts, es befuellt nur den Cache bei jedem jira_sync.sync_project()-Lauf."""
+
+    __tablename__ = "jira_issue_cache"
+
+    jira_issue_key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    # Kommagetrennt gespeichert (kein Array-Typ in SQLite, analog Tag.synonyms) - z.B.
+    # "phase:configuration,kunde-a". Leer/None, wenn das Issue keine Labels traegt.
+    labels: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Erste/einzige Component des Issues (nur Anzeige, kein Matching-Kriterium in P20).
+    component: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Nur fuer die spaetere Mapping-Preview-UI (P20.5), kein Matching-Kriterium.
+    summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_synced_at: Mapped[str] = mapped_column(String(40))
+
+
+class WorklogPhaseOverride(Base):
+    """Manuelle Korrektur der Worklog->PlanPhase-Zuordnung auf Issue-Key-Ebene (P20.1, BD-1B
+    CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 14) - hoechste
+    Prioritaet im Resolver (P20.2). Aendert niemals Jira/Tempo-Originaldaten, nur eine lokale
+    Zuordnungsentscheidung - analog zu JiraWorklogCache.projekt_mapping. Grobkoernig auf
+    Issue-Ebene (nicht je Worklog-Zeile): ein Ticket gehoert im Regelfall ueber seine gesamte
+    Laufzeit zu genau einer Phase, deshalb `jira_issue_key` UNIQUE statt eines Zusammensetzung
+    aus Person+Datum. Kein Auth-/Session-Mechanismus im Backend (verifiziert) -
+    `created_by_person_id` ist wie ueberall im Produkt ein manuell gewaehlter, nullable
+    Personen-Verweis, keine neue Auth-Anforderung."""
+
+    __tablename__ = "worklog_phase_overrides"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
+    jira_issue_key: Mapped[str] = mapped_column(String(50), unique=True)
+    plan_phase_id: Mapped[int] = mapped_column(ForeignKey("plan_phases.id"), index=True)
+    # Snapshot des Zuordnungszustands vor dem Override ("unmapped"|"ambiguous"|"<phase_id>") -
+    # fuer Audit-Nachvollziehbarkeit. Wird vom Resolver (P20.2) zum Zeitpunkt des Anlegens
+    # berechnet und hier nur gespeichert - dieses Paket (P20.1) hat noch keinen Resolver, das
+    # Feld bleibt bis dahin nullable/unbefuellt.
+    previous_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
 class JiraProjectCatalog(Base):
     """Verwaltung, welche Jira-Projekte im Kapazitätsplaner geplant werden (siehe /jira/projects).
 
@@ -579,6 +627,15 @@ class PlanPhase(Base):
     # (plan_phase_id, bereich="phase_struktur") - keine automatische Reaktivierung, falls die
     # Phase später wieder zum Leaf wird (letztes Kind entfernt).
     plan_fte: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Jira-Label dieser Leaf-Phase fuer den automatischen Worklog-Resolver (P20.1, BD-1A
+    # CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 7/8/24) - Pendant zu
+    # Project.jira_component auf Phasenebene, matcht gegen JiraIssueCache.labels innerhalb des
+    # bereits projektweit gescopten Worklog-Bestands. Gleicher Lifecycle wie plan_fte: sobald
+    # die Phase ihr erstes Kind erhaelt, setzt das Backend diesen Wert serverseitig auf NULL
+    # (siehe routers/planning.py, _maybe_historize_parent_fte) - keine automatische
+    # Reaktivierung, falls die Phase spaeter wieder zum Leaf wird. Konfliktprüfung (BD-1G
+    # CLOSED): zwei Leaf-Phasen desselben Projekts duerfen nie denselben Wert tragen.
+    jira_label: Mapped[str | None] = mapped_column(String(200), nullable=True)
     owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     owner_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     erstellt_am: Mapped[str] = mapped_column(String(40))

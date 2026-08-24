@@ -1,8 +1,13 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Version:** v0.26 (P20.3 — Automatic Project History: Planstände sind kein Benutzerkonzept
-mehr, jede fachlich relevante Änderung wird automatisch historisiert, siehe Abschnitt 5.3/16.29)
-**Vorherige Marken:** v0.25 (P20.2 — Regression Recovery: App-Start auf echtem PostgreSQL und
+**Version:** v0.27 (P20.4 — PlanPhase Workspace UX Redesign: Übersicht-Tab Projektleiter-
+zentriert neu strukturiert (Steuerung statt "Kennzahlen", Meilensteine im Übersicht statt im
+Aktivität-Tab, jira_label-Mapping einklappbar statt permanent sichtbar, "Zeit verstrichen"
+statt "Zeitfortschritt"), plus Backend-Fix für Parent-Phase-`plan_hours`/`time_progress_pct`
+(waren zuvor immer `None`) — siehe Abschnitt 16.30)
+**Vorherige Marken:** v0.26 (P20.3 — Automatic Project History: Planstände sind kein
+Benutzerkonzept mehr, jede fachlich relevante Änderung wird automatisch historisiert, siehe
+Abschnitt 5.3/16.29); v0.25 (P20.2 — Regression Recovery: App-Start auf echtem PostgreSQL und
 3-Ebenen-`delete-subtree` repariert, beide Root Causes auf SQLite strukturell unauffindbar
 gewesen, siehe Abschnitt 16.28); v0.24 (P20 — Tempo/Jira→PlanPhase-Mapping
 vollständig implementiert, BD-1 CLOSED, siehe Abschnitt 16.19–16.25); P20.1 (PlanPhase
@@ -206,8 +211,11 @@ darauf.
 - **Progress (`PlanPhase.progress`, manuelles Prozentfeld) ist deprecatet** (siehe P6/P11,
   Abschnitt 16.1). Kein Health-Dimension-Input mehr, keine neue Befüllung, aus
   Rückwärtskompatibilität im Modell/Schema erhalten.
-- **Zeitfortschritt ist berechnet, nicht manuell** — reiner Datumsanteil (wie viel Prozent
-  des geplanten Zeitraums vergangen sind), kein Health-/Fortschrittswert.
+- **"Zeit verstrichen" ist berechnet, nicht manuell** (`time_progress_pct`, UI-Begriff seit
+  P20.4 bewusst nicht mehr "Zeitfortschritt" — siehe Abschnitt 16.30) — reiner Datumsanteil
+  (wie viel Prozent des geplanten Zeitraums vergangen sind), **keine Aussage über
+  fachlichen Fortschritt** und kein Health-/Fortschrittswert. "Fortschritt" würde suggerieren,
+  die Phase sei zu X % fertig — das ist falsch, die Kennzahl kennt nur Datumsanteil.
 - **Tempo/Jira-Worklogs sind die Ist-Aufwandsquelle**, kein Personio/HR-System. Projekt-Level
   funktioniert seit jeher; Phase-Level ist seit P20 (BD-1 CLOSED, Abschnitt 16.19–16.25)
   ebenfalls implementiert.
@@ -435,10 +443,18 @@ aber in der UI (`MilestoneList.tsx`) nicht mehr angeboten — dort steht ausschl
 Datumsfeld heißt schlicht "Datum" (= `forecast_date`), `baseline_date` ist compat-only,
 `actual_date` sekundär mit expliziter Korrektur-Aktion ("Ist-Datum korrigieren").
 
-Seit P19 zeigt der `PlanPhaseWorkspace` zusätzlich eine kompakte "Meilensteine"-Karte im
-Aktivität-Tab (Leaf **und** Parent), gefiltert auf `plan_phase_id == aktuelle Phase`
-(nicht rekursiv) — Wiederverwendung von `MilestoneList.tsx`, kein zweites Milestone-Modell,
-kein neuer Tab. Siehe Abschnitt 16.18.
+Seit P19 zeigt der `PlanPhaseWorkspace` zusätzlich eine kompakte "Meilensteine"-Karte, gefiltert
+auf `plan_phase_id == aktuelle Phase` (nicht rekursiv, Leaf **und** Parent) — Wiederverwendung
+von `MilestoneList.tsx`, kein zweites Milestone-Modell, kein neuer Tab. **Seit P20.4 liegt diese
+Karte im Übersicht-Tab statt im Aktivität-Tab** (Auftrag Abschnitt 15/25/32) — ein Meilenstein
+ist ein "was ist wichtig"-Signal für den Projektleiter, keine Kollaborations-Aktivität. Siehe
+Abschnitt 16.18/16.30.
+
+**Fachliche Abgrenzung (Auftrag Abschnitt 32):** `PlanPhase` = Arbeitszeitraum (hat Dauer,
+Start/Ende). `Milestone` = wichtiger Ziel-/Ergebnis-/Freigabepunkt zu genau einem Datum. Ein
+Milestone trägt **keine** `plan_fte`/Kapazität und ist **keine** künstliche Mini-`PlanPhase` —
+beide Entitäten bleiben getrennte Datenmodelle mit unterschiedlichem fachlichen Zweck, keine
+Vereinheitlichung.
 
 ### 5.6 Gantt
 
@@ -1263,62 +1279,102 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
 über den Dateien-Tab des Drawers verwaltet.
 
 **PlanPhase-Workspace (Drawer):** die primäre Detail-/Bearbeitungsoberfläche, vier Tabs
-(unverändert seit P19 — P19 ergänzt Inhalte **innerhalb** der Tabs, baut keine neuen):
+(unverändert seit P19 in ihrer Aufteilung — jeder Umbau seither, zuletzt P20.4, ergänzt/
+strukturiert Inhalte **innerhalb** der Tabs neu, baut keine neuen Tabs). Seit P20.4 gilt
+je Tab eine feste Leitfrage (Auftrag Abschnitt 2/30), damit kein Tab wie eine
+Datenmodell-Ansicht wirkt:
 
-- **Übersicht** — editierbar: Name, Start/Ende (= "Zeitraum"), Status, Owner, Teilprojekt,
-  Tags, alles sofort speichernd (kein Batch-/Grund-Workflow, siehe unten). **Seit P20.1 NICHT
-  mehr hier editierbar: Plan-FTE** — eindeutige primäre Bearbeitungsstelle ist jetzt der
-  Kapazität-Tab (6.16); der Übersicht-Tab zeigt Plan-FTE nur noch als read-only Referenz mit
-  Verweis auf den Kapazität-Tab (keine doppelte Editierstelle). Seit P20.5 zusätzlich (nur auf
-  Leaf-Phasen): eine **"Ist-Daten"-Karte** mit Freitext+Datalist-Feld für `jira_label`
-  (Vorschläge aus `GET /jira/projects/{key}/labels`, falls das Projekt über
-  `jira_project_key` verknüpft ist) und einer darunterliegenden **Mapping-Preview**
-  ("2 Issues · 3 Worklogs · 60 h (WMX-100, WMX-101)"), die sich nach jedem Speichern
-  automatisch aktualisiert (`GET .../jira-matches?label=...`, rein lesend gegen den
-  Sync-Cache, keine Live-Jira-Abfrage). Ein Speicherversuch mit einem bereits vergebenen
-  Label wird vom Backend mit `409` abgelehnt und als Fehlertext angezeigt (Abschnitt 16.19,
-  BD-1G). Read-only/berechnet: Planstunden, Zeitfortschritt, **Ist-Aufwand/Aufwandsverbrauch/
-  Verbleibender Planaufwand/Überverbrauch** (seit P20.5 reale Werte aus `PhaseMetricsOut`,
-  siehe Abschnitt 16.22 - `null` bleibt "noch nicht eindeutig zugeordnet", nie eine
-  irreführende 0). Header zeigt seit P19 den vollen Breadcrumb-Pfad von der Wurzel bis zur
-  aktuellen Phase (klickbare Vorfahren, wechselt die im Drawer offene Phase ohne den Drawer zu
-  schließen). Zusätzlich seit P19: eine kompakte "Verknüpfte Themen"-Karte (Tags +
-  Entscheidungen-/Blocker-/Dokumente-Counts, aus dem bereits geladenen Detail abgeleitet).
-  **Seit P20.1 entfernt** (6.16): die permanente "Seit Planstand VX geändert"-Zeile und die
-  "Tatsächlicher Verlauf"-Karte (Gestartet/Abgeschlossen/"Ist-Daten korrigieren") —
+| Tab | Leitfrage |
+|---|---|
+| Übersicht | WAS ist diese Phase? WANN läuft sie? WO STEHEN WIR? WAS IST WICHTIG? |
+| Kapazität | WIE VIEL Kapazität brauchen wir? WER ist eingeplant? |
+| Aktivität | WAS wird besprochen? WAS ist offen? |
+| Dateien | WELCHE Unterlagen gehören dazu? |
+
+- **Übersicht** — seit P20.4 in vier kompakten Karten statt einer Formular-Card + einer
+  generischen "Kennzahlen"-Card + einer permanenten "Ist-Daten"-Card (siehe
+  P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md):
+  1. **Basisdaten** (editierbar, sofort speichernd): Name, Zeitraum (Leaf: Start/Ende;
+     Parent: abgeleiteter Zeitraum read-only + "Aggregiert aus N Unterphasen"), Status,
+     Übergeordnete Phase, Owner, Tags. **Kein** doppeltes Klartext-Echo des Owner-Namens
+     mehr (der `PersonPicker` zeigt die gewählte Person bereits als Chip). Plan-FTE erscheint
+     hier **nicht mehr** — weder editierbar noch als read-only Referenz; einzige Stelle für
+     den geplanten Aufwand ist die Steuerung-Karte darunter (Planstunden) bzw. der
+     Kapazität-Tab (Plan-FTE, dort seit P20.1 einzige primäre Bearbeitungsstelle).
+  2. **Steuerung** (ersetzt die vormalige "Kennzahlen"-Card): Geplanter Aufwand
+     (`metrics.plan_hours`, optional kleine FTE-Zeile darunter), **"Zeit verstrichen"**
+     (`time_progress_pct` — bewusst nicht mehr "Zeitfortschritt", siehe Abschnitt 16.30) als
+     Balken + Prozent, Ist-Aufwand (oder "Noch nicht eindeutig zugeordnet"), bei vorhandenem
+     Ist zusätzlich "Aufwand verbraucht" (`effort_consumption_pct`) als Balken + Prozent —
+     Zeit- und Aufwandsbalken sind bewusst gleich gestylt, um sie direkt vergleichbar zu
+     machen, **ohne** daraus eine Ampel/Bewertung abzuleiten (BD-3 bleibt separat offen).
+     Darunter optional Restlicher Planaufwand/Überverbrauch. Das `jira_label`-Mapping ist
+     **keine permanent sichtbare Eingabestelle mehr** (nur auf Leaf-Phasen relevant): eine
+     kleine sekundäre Aktion ("Ist-Zuordnung konfigurieren", bzw. "Ist-Zuordnung
+     anzeigen/ausblenden" sobald ein Label gesetzt ist) klappt das Freitext+Datalist-Feld für
+     `jira_label` und die Mapping-Preview ("2 Issues · 3 Worklogs · 60 h") erst auf explizite
+     Aktion auf — Vorschläge weiterhin aus `GET /jira/projects/{key}/labels`, Preview weiterhin
+     aus `GET .../jira-matches?label=...` (rein lesend gegen den Sync-Cache). Ein
+     Speicherversuch mit einem bereits vergebenen Label wird weiterhin vom Backend mit `409`
+     abgelehnt (Abschnitt 16.19, BD-1G) — an der P20-Mapping-Logik selbst (manueller Override →
+     Label-Match → UNMAPPED/AMBIGUOUS) ändert P20.4 nichts, nur die UI-Platzierung.
+  3. **Meilensteine** — seit P20.4 Teil der Übersicht statt einer Karte im Aktivität-Tab
+     (Meilensteine sind ein "was ist wichtig"-Signal, keine Kollaborations-Aktivität), sonst
+     unverändert: dieselbe `MilestoneList.tsx`, phasengefiltert, "+ Meilenstein" erstellt mit
+     bereits vorausgewählter aktueller Phase, für Leaf- **und** Parent-Phasen (Abschnitt 5.5).
+  4. **Verknüpfte Themen** — seit P20.4 fokussiert auf Blocker-/Entscheidungen-/
+     Dokumente-Counts; Tags werden **nicht** mehr doppelt gezeigt (stehen bereits in den
+     Basisdaten oben). Counts sind klickbar und wechseln in den zuständigen Tab (Aktivität
+     bzw. Dateien) — bestehende Tab-Navigation, kein neuer Endpoint.
+
+  Header zeigt weiterhin seit P19 den vollen Breadcrumb-Pfad von der Wurzel bis zur aktuellen
+  Phase (klickbare Vorfahren, wechselt die im Drawer offene Phase ohne den Drawer zu
+  schließen). **Seit P20.1 entfernt** (6.16): die permanente "Seit Planstand VX geändert"-Zeile
+  und die "Tatsächlicher Verlauf"-Karte (Gestartet/Abgeschlossen/"Ist-Daten korrigieren") —
   `actual_start`/`actual_end` bleiben in DB/API aus Compat-Gründen bestehen, sind aber kein
   Bestandteil des normalen Workspace mehr. Seit P20.3 gibt es im normalen Produkt überhaupt
   kein Planstand-Userkonzept mehr (Abschnitt 5.3) — Nachvollziehbarkeit ausschließlich über
-  den Tab Historie.
-- **Kapazität** — Plan-FTE (seit P20.1 **hier** editierbar)/Planstunden-Kopfzeile,
-  Personenbesetzung (`+ Mitarbeiter zuweisen`, Available Capacity im Phasenzeitraum),
-  Bedarf/Besetzt/Offen(/Überbesetzt) in Fachsprache (siehe Abschnitt 6.16). **Seit P20.1
-  entfernt:** Rollen-Picker/"Rollen aufschlüsseln"/"Ohne Rolle"/"Bedarf je Rolle"/"Besetzt je
-  Rolle"/"Aufgeschlüsselt" — ein Projektleiter muss diese technischen Konzepte nicht mehr
-  kennen (die optionale Rollen-Aufschlüsselung bleibt Legacy/Compat-Backend, kein normaler
-  UI-Pfad mehr). Seit P19 liefert `PlanPhaseDetail` die Assignment-Summary bereits eingebettet
+  den Tab Historie. Technische Feldnamen (`forecast_start`, `jira_label`, `mapping_source`,
+  `ResourceDemand`, …) erscheinen nirgends in der normalen Übersicht-UI (Auftrag Abschnitt 27).
+- **Kapazität** — Plan-FTE (seit P20.1 **hier** editierbar, seit P20.4 die **einzige**
+  Kapazitäts-Planungsoberfläche des Workspace)/Planstunden-Kopfzeile, Personenbesetzung
+  (`+ Mitarbeiter zuweisen`, Available Capacity im Phasenzeitraum), Bedarf/Besetzt/
+  Offen(/Überbesetzt) in Fachsprache (siehe Abschnitt 6.16). **Seit P20.1 entfernt:**
+  Rollen-Picker/"Rollen aufschlüsseln"/"Ohne Rolle"/"Bedarf je Rolle"/"Besetzt je Rolle"/
+  "Aufgeschlüsselt" — ein Projektleiter muss diese technischen Konzepte nicht mehr kennen (die
+  optionale Rollen-Aufschlüsselung bleibt Legacy/Compat-Backend, kein normaler UI-Pfad mehr).
+  Seit P19 liefert `PlanPhaseDetail` die Assignment-Summary bereits eingebettet
   (Round-Trip-Reduktion, kein neuer Endpoint) — seit P20.1 als Zusammenführung aus direktem und
-  Legacy-Pfad (6.16). Seit P20.5 zusätzlich eine additive **"Steuerung"-Karte** unterhalb der
-  Kapazität-Kopfzeile:
-  dieselben Phasen-Ist-Rohmetriken wie im Übersicht-Tab, plus eine "Ist-Zuordnung (Projekt)"-
-  Zeile aus der **projektweiten** Coverage (P20.3, `GET /projects/{id}/actuals-coverage`) -
-  bewusst als "(Projekt)" gekennzeichnet, da Coverage keine Phasen-Kennzahl ist. Seit P20.6
-  klappt "Details ▾" neben "Ist-Aufwand" (nur sichtbar, wenn `ist_hours` gesetzt ist) den
-  **Personen-Drilldown** auf (`GET .../person-actuals`, lazy geladen): eine Zeile je Person
-  mit Ist-Stunden, ungeplante Personen mit dem Hinweis "nicht eingeplant" markiert, darunter
-  "Eingeplant, bisher kein Ist: ..." und "Davon durch nicht eingeplante Ressourcen: X h" -
-  reine Anzeige, **keine automatische Änderung der Ressourcenplanung**. **Keine Ampel** (BD-3
-  bleibt separat offen).
-- **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-Ereignisse; `baseline_snapshot`
-  seit P20.3 nicht mehr im Activity-Vokabular — "Planstand erstellt" ist kein fachliches
-  Benutzerereignis mehr) +
-  Kommentare (inkl. Threading über `parent_id` mit einer Einrückungsebene, "aus Objekt
-  erstellen" direkt in der Kommentarliste), Aufgaben, Entscheidungen, Blocker im
-  Phasenkontext (Tags dieser drei sind seit P19 nachbearbeitbar). Seit P19 zusätzlich eine
-  kompakte Meilensteine-Karte (Leaf und Parent, Abschnitt 5.5).
+  Legacy-Pfad (6.16). **Seit P20.4 umbenannt und verschlankt:** die vormalige "Steuerung"-Card
+  (die dieselben Phasen-Ist-Rohmetriken wie der Übersicht-Tab duplizierte) heißt jetzt **"Ist-
+  Aufwand nach Person"** und zeigt nur noch, was ausschließlich hier hingehört — Ist-Aufwand
+  nach Person (Planned-vs-Actual) und die projektweite Mapping-Coverage als
+  Vertrauensindikator; Zeit verstrichen/Aufwandsverbrauch/Restlicher Planaufwand/Überverbrauch
+  stehen jetzt ausschließlich in der Übersicht-Steuerung-Karte (keine Duplikation zwischen den
+  Tabs mehr, Auftrag Abschnitt 24). "Details ▾" neben "Ist-Aufwand" (nur sichtbar, wenn
+  `ist_hours` gesetzt ist) klappt weiterhin den **Personen-Drilldown** auf
+  (`GET .../person-actuals`, lazy geladen): eine Zeile je Person mit Ist-Stunden, ungeplante
+  Personen mit dem Hinweis "nicht eingeplant" markiert, darunter "Eingeplant, bisher kein Ist:
+  ..." und "Davon durch nicht eingeplante Ressourcen: X h" - reine Anzeige, **keine
+  automatische Änderung der Ressourcenplanung**. **Keine Ampel** (BD-3 bleibt separat offen).
+- **Aktivität** — Activity Feed (zeigt weiterhin Milestone-*Ereignisse* im Feed-Vokabular,
+  auch wenn die Meilensteine-**Karte** seit P20.4 in der Übersicht liegt — ein Klick auf ein
+  Milestone-Ereignis im Feed springt entsprechend in die Übersicht statt in diesen Tab;
+  `baseline_snapshot` seit P20.3 nicht mehr im Activity-Vokabular — "Planstand erstellt" ist
+  kein fachliches Benutzerereignis mehr) + Kommentare (inkl. Threading über `parent_id` mit
+  einer Einrückungsebene, "aus Objekt erstellen" direkt in der Kommentarliste), Aufgaben,
+  Entscheidungen, Blocker im Phasenkontext (Tags dieser drei sind seit P19 nachbearbeitbar).
 - **Dateien** — seit P19 dieselbe volle Dokumentenkomponente wie der projektweite
   Dokumente-Tab (Suche, Typ-/Tag-Filter, "Verwendet in"-Backlinks), phasengefiltert statt der
   früheren schwächeren Eigenbau-Liste — ein System, eine Komponente, zwei Filteransichten.
+
+**Parent-Übersicht (Auftrag Abschnitt 26):** eine Parent-Phase zeigt dieselbe
+Vier-Karten-Struktur, aber ohne Kapazitäts-/Mapping-Editierstellen — Zeitraum ist read-only
+abgeleitet, Steuerung zeigt `metrics.plan_hours`/`metrics.ist_hours`/`metrics.time_progress_pct`
+**aggregiert aus den Leaf-Nachfahren** (seit P20.4 auch `plan_hours`/`time_progress_pct` echt
+aggregiert statt `None` — siehe Abschnitt 16.30, `_plan_phase_metrics` in `planning.py`), keine
+"Ist-Zuordnung konfigurieren"-Aktion (Parent-Phasen tragen nie ein eigenes `jira_label`).
+Meilensteine und Verknüpfte Themen bleiben wie bei einer Leaf-Phase nutzbar.
 
 **Speichern-Paradigma:** Der Planung-Tab ist konsequent Sofort-Speichern (jede Änderung im
 Drawer/in der Liste wird direkt persistiert) — **kein** globales "Grund für diese
@@ -1389,15 +1445,15 @@ Planstunden, Personenbesetzung oder Available Capacity.
 | Planstand (Legacy/Compat) | `BaselineSnapshot`/`BaselineEntry` | nicht im normalen Userflow; APIs `/baselines` bleiben | Snapshot von PlanPhase/Milestone-Feldern zum Zeitpunkt X | **Legacy/Compatibility seit P20.3** — kein Userkonzept mehr; `PlanPhase.baseline_start/end` bleiben compat-only |
 | Tatsächlicher Verlauf | `PlanPhase.actual_start/end` | nirgends im normalen Workspace (Feld bleibt in DB/API, P20.1 entfernte die UI-Karte) | — | Compat-only seit P20.1 (Abschnitt 6.16) — P20 Tempo/Jira ist der relevantere Ist-Begriff |
 | Plan-Aufwand | `PlanPhase.plan_fte` | Drawer "Kapazität" (seit P20.1 einzige primäre Bearbeitungsstelle, vorher zusätzlich im Übersicht-Tab editierbar) / Create-Modal | — | aktuell, führend |
-| Planstunden | berechnet (`phase_metrics_calc.plan_hours`) | nicht editierbar | `plan_fte` × Werktage × Wochenstunden/5 | aktuell |
+| Planstunden | berechnet (`phase_metrics_calc.plan_hours`) | nicht editierbar | `plan_fte` × Werktage × Wochenstunden/5; für Parent-Phasen seit P20.4 Summe der Leaf-Nachfahren-Planstunden (vorher fälschlich `None`, da `plan_fte`/Zeitraum einer Parent-Phase selbst immer `None` sind, Abschnitt 16.30) | aktuell |
 | Aufschlüsselung | `ResourceDemand` (mit `plan_phase_id`) | nur noch über Legacy-Endpunkte (`/resource-demands/...`), kein normaler UI-Pfad mehr | — | **Legacy/Compat seit P20.1** (Abschnitt 6.16) — keine operative Source of Truth mehr, optional, keine Sync-Pflicht zu `plan_fte` |
 | Besetzung | `ResourceAssignment` (seit P20.1 primär über `plan_phase_id`, ohne `ResourceDemand`-Adapter) | Drawer "Kapazität" | — | aktuell, führend (Abschnitt 6.16); `resource_demand_id` bleibt nullable Compat-Verweis für unmigrierte Alt-Zeilen |
 | Ist-Aufwand (Phase) | berechnet (`worklog_actuals.leaf_ist_hours`/`parent_ist_hours`) | nicht editierbar | Tempo/Jira via `worklog_resolver.resolve_project_issues` | **IMPLEMENTIERT (P20.4, Abschnitt 16.22), BD-1 CLOSED** — `PhaseMetricsOut.ist_hours` liefert reale Werte, `null` nur ohne Mapping-Konfiguration |
 | Mapping Coverage | berechnet (`actuals_coverage.project_coverage`) | nicht editierbar | `GET /projects/{id}/actuals-coverage`, aus `jira_worklogs_cache` + Resolver | **IMPLEMENTIERT (P20.3, Abschnitt 16.21)** — reine Vertrauenskennzahl (Abschnitt 19 des P20-Dokuments), keine Health-Ampel; Projekt-Ist bleibt führend, wird nie aus Phasen zurückgerechnet |
-| Phase-Jira-Zuordnung | `PlanPhase.jira_label` | Drawer "Übersicht" (Label-Picker folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, nur auf Leaf-Phasen, gleicher Lifecycle wie `plan_fte` |
+| Phase-Jira-Zuordnung | `PlanPhase.jira_label` | Drawer "Übersicht" → "Steuerung" → sekundäre Aktion "Ist-Zuordnung konfigurieren" (seit P20.4 einklappbar statt permanent sichtbar, siehe Abschnitt 16.30) | — | **IMPLEMENTIERT (P20.1)**, nur auf Leaf-Phasen, gleicher Lifecycle wie `plan_fte` |
 | Worklog-Metadaten-Cache | `jira_issue_cache` | nicht editierbar (Sync-Ergebnis) | Jira-Issue-Suche bei `POST /jira/sync` | **IMPLEMENTIERT (P20.1)** |
 | Manuelle Worklog-Zuordnung | `worklog_phase_overrides` | `POST/DELETE .../worklog-overrides` (UI folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, ändert nie Jira/Tempo-Originaldaten, höchste Resolver-Priorität sobald P20.2 existiert |
-| Zeitfortschritt | berechnet (`phase_metrics_calc.time_progress`) | nicht editierbar | Datumsanteil | aktuell |
+| Zeit verstrichen (`time_progress_pct`) | berechnet (`phase_metrics_calc.time_progress`) | nicht editierbar; UI-Begriff seit P20.4 "Zeit verstrichen" statt "Zeitfortschritt" (Abschnitt 16.30) | Datumsanteil, für Parent-Phasen seit P20.4 aus dem abgeleiteten Zeitraum der Leaf-Nachfahren berechnet | aktuell |
 | Progress (%) | `PlanPhase.progress` | nirgends (deprecatet) | — | **deprecated**, compat-only |
 | Status | `PlanPhase.status`/`Milestone.status` (Freitext) | Drawer/Liste, Zielvokabular in Dropdown | — | aktuell; historische Werte lesbar, siehe Abschnitt 16.1 |
 | Tags | `Tag`/`TagLink` | überall wo taggbar | — | aktuell |
@@ -3304,6 +3360,76 @@ Snapshot-Engine, Gantt-DnD, ResourceDemand im normalen Planungsflow.
 
 **Ergebnis:** User plant, das System dokumentiert. Volles Detail:
 [`P20_3_PROJECT_HISTORY_CONSOLIDATION.md`](P20_3_PROJECT_HISTORY_CONSOLIDATION.md).
+
+---
+
+### 16.30 P20.4 — PlanPhase Workspace UX Redesign (dieser Durchgang)
+
+**Auftrag:** Kein neuer Domain-Umbau — P18/P19/P20/P20.1/P20.2/P20.3 bleiben fachlich
+bestehen. Der Übersicht-Tab des `PlanPhaseWorkspace` wirkte wie eine Darstellung des
+Datenmodells statt einer Projektleiter-verständlichen Übersicht: eine große Formular-Card,
+eine permanent sichtbare "Ist-Daten"-Card mit rohem `jira_label`-Freitextfeld, eine generische
+"Kennzahlen"-Card ohne fachliche Ordnung, und Meilensteine versteckt im Aktivität-Tab statt
+im Blick des Projektleiters beim Öffnen einer Phase.
+
+**Audit (vor Implementierung):** volle Matrix in
+[`P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md`](P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md)
+Abschnitt 2. Kernfund: `_plan_phase_metrics` in `planning.py` berechnete `plan_hours`/
+`time_progress_pct` für **jede** Parent-Phase als `None` — nicht weil keine Daten vorlägen,
+sondern weil die Formeln `p.plan_fte`/`p.forecast_start`/`p.forecast_end` direkt lasen, die bei
+einer Parent-Phase per Konstruktion immer `None` sind (Abschnitt 6b.1a). Damit hätte eine
+Parent-Übersicht (Auftrag Abschnitt 26: "Geplanter Aufwand: Summe Leaf Planstunden") niemals
+befüllt werden können — ein echter, in diesem Durchgang behobener Backend-Gap, keine reine
+UI-Frage.
+
+**Umsetzung (additiv, keine zweite Metrik-/Milestone-/Mapping-Engine):**
+
+- `backend/app/routers/planning.py` (`_plan_phase_metrics`): für Parent-Phasen werden
+  `time_progress_pct` jetzt aus `planning_calc.derive_parent_bounds` (wie
+  `derived_forecast_start/end`) und `plan_hours` als Summe der `phase_metrics_calc.plan_hours`
+  aller Leaf-Nachfahren berechnet — analog zu `derive_parent_capacity`/`parent_ist_hours`,
+  `None` bleibt `None` (kein Leaf-Nachfahre mit gültigen Werten), nie eine irreführende 0.
+  Leaf-Verhalten unverändert. Neuer Regressionsfall in
+  `backend/scripts/test_p20_phase_actual_metrics.py` (6/6: Parent mit zwei Leaf-Kindern
+  80h+40h=120h, leerer Parent → `None`).
+- `PlanPhaseWorkspace.tsx`, Übersicht-Tab neu strukturiert in vier Karten: **Basisdaten**
+  (Name/Zeitraum/Status/Übergeordnete Phase/Owner/Tags, kein doppeltes Owner-Klartext-Echo,
+  kein Plan-FTE-Feld mehr), **Steuerung** (ersetzt "Kennzahlen": Geplanter Aufwand, "Zeit
+  verstrichen" als Balken, Ist-Aufwand, bei vorhandenem Ist zusätzlich "Aufwand verbraucht"
+  als gleich gestylter Balken — visuell vergleichbar, keine Ampel/Bewertung —, Restlicher
+  Planaufwand/Überverbrauch; `jira_label`-Mapping nur noch über eine einklappbare sekundäre
+  Aktion, nicht mehr permanent sichtbar), **Meilensteine** (aus dem Aktivität-Tab hierher
+  verschoben — dieselbe `MilestoneList.tsx`, kein zweites Modell), **Verknüpfte Themen**
+  (nur noch Blocker-/Entscheidungen-/Dokumente-Counts, klickbar in den passenden Tab; Tags
+  nicht mehr doppelt gezeigt, da bereits in den Basisdaten). `ActivityFeed`s
+  `onOpenSection`-Callback springt bei einem Milestone-Ereignis jetzt in den Übersicht- statt
+  Aktivität-Tab (sonst hätte ein Klick ins Leere geführt, da die Meilensteine-Karte dort nicht
+  mehr existiert).
+- `PlanPhaseCapacityTab.tsx`: die vormalige "Steuerung"-Card (identische Rohmetriken wie die
+  neue Übersicht-Steuerung) umbenannt zu **"Ist-Aufwand nach Person"** und auf das reduziert,
+  was ausschließlich hier hingehört — Personen-Drilldown (Planned-vs-Actual) und
+  projektweite Mapping-Coverage. Keine Duplikation von Zeit verstrichen/Aufwandsverbrauch/
+  Restlicher Planaufwand mehr zwischen Übersicht- und Kapazität-Tab.
+- `ProjectJiraTab.tsx`: Verweistext auf die neue Mapping-Fundstelle ("Übersicht" →
+  "Steuerung" → "Ist-Zuordnung konfigurieren") aktualisiert.
+- Terminologie: "Zeitfortschritt" ⇒ **"Zeit verstrichen"** in jeder UI-Oberfläche (Auftrag
+  Abschnitt 10/31) — die Kennzahl ist und bleibt ein reiner Datumsanteil, keine Aussage über
+  fachlichen Fortschritt. Edge Cases unverändert korrekt (`gap_calc.expected_progress_pct`):
+  heute vor Start ⇒ 0 %, heute nach Ende ⇒ 100 %, Start == Ende ⇒ `None` (kein Crash, keine
+  >100 %-Anzeige) — bereits vor P20.4 so implementiert, hier verifiziert statt neu gebaut.
+
+**Nicht Teil dieses Durchgangs** (Auftrag Abschnitt 34): neue Tempo-Integration, neue
+Mapping-Engine, Health-Ampel, Forecast-Engine, Milestone-Dependencies, Gantt-Drag&Drop,
+Milestones im Gantt (weiterhin nicht dargestellt — reiner Dokumentations-Punkt, kein
+Scope-Zuwachs, siehe unten), RBAC, Personio, neue Capacity-/History-Engine, Baseline/Planstände.
+
+**Gantt/Milestones (dokumentiert, nicht gebaut):** `PlanPhaseGantt.tsx` visualisiert weiterhin
+ausschließlich `PlanPhase`-Balken; Milestones erscheinen dort nicht. Das bleibt ein späterer
+UX-Ausbau (Abschnitt 5.6) — P20.4 erweitert bewusst nicht den Scope.
+
+**Ergebnis:** Der Übersicht-Tab beantwortet jetzt WAS/WANN/WO STEHEN WIR/WAS IST WICHTIG, ohne
+technische Feldnamen im Vordergrund. Volles Detail:
+[`P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md`](P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md).
 
 ---
 

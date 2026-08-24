@@ -78,6 +78,48 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
+// P20.1G (Delete Stabilization, Auftrag Abschnitt 26): trägt zusätzlich zur bisherigen
+// message (unverändertes Format "<status> <statusText>: <body>", damit bestehende
+// String(e)-Aufrufer überall im Rest der App unverändert weiterlaufen) den HTTP-Status und
+// den geparsten JSON-Body, damit Aufrufer wie PlanPhaseDeleteDialog.tsx fachliche
+// Fehlermeldungen statt eines rohen Fehlertexts anzeigen können.
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(status: number, statusText: string, bodyText: string) {
+    super(`${status} ${statusText}: ${bodyText}`);
+    this.name = "ApiError";
+    this.status = status;
+    try {
+      this.detail = JSON.parse(bodyText)?.detail;
+    } catch {
+      this.detail = undefined;
+    }
+  }
+}
+
+// P20.1G: fachliche Fehlermeldung statt eines rohen Fehlertexts (Auftrag Abschnitt 26) -
+// "Niemals rohe TypeError: Failed to fetch im normalen Userdialog anzeigen". Unterscheidet:
+// - Netzwerkfehler (TypeError aus fetch() selbst, z.B. Server nicht erreichbar oder eine
+//   500-Antwort ohne CORS-Header, siehe main.py._unhandled_exception_handler-Docstring).
+// - strukturierte 409-Konflikte ({message, child_count}, siehe PlanPhaseOut-Delete-Response).
+// - sonstige API-Fehler (validation/404/...) mit der Backend-Message, falls vorhanden.
+export function formatApiError(e: unknown): string {
+  if (e instanceof ApiError) {
+    const detail = e.detail;
+    if (detail && typeof detail === "object" && "message" in detail && typeof (detail as { message: unknown }).message === "string") {
+      return (detail as { message: string }).message;
+    }
+    if (typeof detail === "string") return detail;
+    return `Die Aktion konnte nicht ausgeführt werden (${e.status}).`;
+  }
+  if (e instanceof TypeError) {
+    return "Die Aktion konnte nicht ausgeführt werden. Der Server ist derzeit nicht erreichbar.";
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -85,7 +127,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+    throw new ApiError(res.status, res.statusText, body);
   }
   if (res.status === 204) {
     return undefined as T;
@@ -100,7 +142,7 @@ async function requestForm<T>(path: string, formData: FormData, method = "POST")
   const res = await fetch(`${API_BASE}${path}`, { method, body: formData });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+    throw new ApiError(res.status, res.statusText, body);
   }
   if (res.status === 204) {
     return undefined as T;
@@ -218,7 +260,7 @@ export const api = {
       return { blocked: true, childCount: body.detail.child_count, message: body.detail.message };
     }
     const body = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+    throw new ApiError(res.status, res.statusText, body);
   },
   getPlanPhaseDetail: (planPhaseId: number) =>
     request<PlanPhaseDetail>(`/projects/plan-phases/${planPhaseId}`),

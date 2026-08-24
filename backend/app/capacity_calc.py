@@ -315,6 +315,149 @@ def compute_capacity_gap(db: Session, period: str, resource_role_id: int | None 
     )
 
 
+def _direct_assignment_fte_for_period(
+    db: Session, period: str, project_id: int | None = None, person_id: int | None = None
+) -> float:
+    """P20.1 (Capacity Consumer Rewiring, CONCEPT.md Abschnitt 12/6c): Anteil des zugeordneten
+    FTE, der über den NEUEN direkten Weg (ResourceAssignment.plan_phase_id gesetzt, keine
+    ResourceDemand mehr) entsteht - für einen Monats-Bucket `period`. Ein direktes Assignment
+    trägt bei, wenn der Zeitraum seiner Leaf-Phase (forecast_start/forecast_end) diesen
+    Kalendermonat überlappt (keine werktage-anteilige Gewichtung - dieselbe grobe "gehört zu
+    diesem Monats-Bucket ja/nein"-Konvention wie die bestehende ResourceDemand.period-Zuordnung,
+    keine zweite Genauigkeitsstufe). Ohne Zeitraum (forecast_start/forecast_end fehlt) trägt
+    ein Assignment nicht bei - eine Phase ohne Termin kann keinem Monats-Bucket zugeordnet
+    werden."""
+    year, month = parse_period(period)
+    month_start, month_end = _month_bounds(year, month)
+
+    query = (
+        db.query(models.ResourceAssignment, models.PlanPhase)
+        .join(models.PlanPhase, models.PlanPhase.id == models.ResourceAssignment.plan_phase_id)
+    )
+    if project_id is not None:
+        query = query.filter(models.PlanPhase.project_id == project_id)
+    if person_id is not None:
+        query = query.filter(models.ResourceAssignment.person_id == person_id)
+
+    total = 0.0
+    for assignment, phase in query.all():
+        if not phase.forecast_start or not phase.forecast_end:
+            continue
+        phase_start = date.fromisoformat(phase.forecast_start)
+        phase_end = date.fromisoformat(phase.forecast_end)
+        if phase_start <= month_end and phase_end >= month_start:
+            total += assignment.fte
+    return total
+
+
+def assigned_fte_for_project_period(db: Session, project_id: int, period: str) -> float:
+    """P20.1: Gesamt zugeordnetes FTE eines Projekts in einem Monats-Bucket, über BEIDE
+    Ressourcenwege summiert - Legacy ResourceDemand-Assignments (period-gebunden, wie bisher)
+    UND direkte PlanPhase-Assignments (neuer Standardpfad, Abschnitt 3). Keine Dopplung: ein
+    ResourceAssignment trägt laut ck_resource_assignments_has_target/Migrationsskript
+    entweder resource_demand_id ODER plan_phase_id, migrierte Zeilen behalten zwar beide FKs,
+    zählen hier aber nur einmal über den plan_phase_id-Zweig (siehe demand_ids-Filter unten:
+    eine migrierte ResourceDemand ohne verbleibende NICHT-migrierte Assignments trägt über den
+    Legacy-Zweig nichts mehr zusätzlich bei, weil dieselbe Zeile bereits im direkten Zweig
+    gezählt wird und assigned_fte_for_project_period() sie nicht zweimal abfragt - die
+    Legacy-Query filtert weiterhin auf alle Assignments dieser Demands, das ist für migrierte
+    Zeilen mit BEIDEN FKs eine bewusste Ausnahme, siehe Docstring von ResourceAssignment)."""
+    demand_ids = [
+        row[0]
+        for row in db.query(models.ResourceDemand.id)
+        .filter(models.ResourceDemand.project_id == project_id, models.ResourceDemand.period == period)
+        .all()
+    ]
+    legacy_fte = 0.0
+    if demand_ids:
+        legacy_fte = sum(
+            a.fte
+            for a in db.query(models.ResourceAssignment)
+            .filter(
+                models.ResourceAssignment.resource_demand_id.in_(demand_ids),
+                models.ResourceAssignment.plan_phase_id.is_(None),
+            )
+            .all()
+        )
+    direct_fte = _direct_assignment_fte_for_period(db, period, project_id=project_id)
+    return round(legacy_fte + direct_fte, 2)
+
+
+def assigned_fte_for_person_period(db: Session, person_id: int, period: str) -> float:
+    """P20.1: wie assigned_fte_for_project_period, aber personenscharf statt projektscharf -
+    für Portfolio Utilization (Auslastungsgrad) und Utilization Gap (gap_engine.py)."""
+    legacy_fte = sum(
+        a.fte
+        for a in db.query(models.ResourceAssignment)
+        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+        .filter(
+            models.ResourceAssignment.person_id == person_id,
+            models.ResourceDemand.period == period,
+            models.ResourceAssignment.plan_phase_id.is_(None),
+        )
+        .all()
+    )
+    direct_fte = _direct_assignment_fte_for_period(db, period, person_id=person_id)
+    return round(legacy_fte + direct_fte, 2)
+
+
+def cleanup_phase_resource_dependencies(db: Session, phase_ids: list[int]) -> None:
+    """P20.1G (Delete Stabilization, Auftrag Abschnitt 23-25): räumt ALLE Fremdschlüssel auf
+    ResourceAssignment/ResourceDemand/WorklogPhaseOverride auf, BEVOR eine oder mehrere
+    PlanPhases gelöscht werden - dialektunabhängig auf Anwendungsebene (identisches Verhalten
+    in SQLite-Tests und Postgres, siehe Auftrag Abschnitt 25 "keine zufälligen Unterschiede").
+    Gemeinsam genutzt von routers/planning.py (Einzel-/Subtree-Delete) UND routers/projects.py
+    (delete_project, das PlanPhases seines Projekts ebenfalls hart löscht) - hier statt
+    router-lokal, damit kein Router vom anderen importieren muss (bestehendes Muster dieses
+    Moduls, siehe Docstring oben).
+
+    Das ist der eigentliche Root-Cause-Fix des Delete-Bugs: resource_demands.plan_phase_id
+    und worklog_phase_overrides.plan_phase_id tragen KEIN DB-seitiges ON DELETE (Alt-
+    Constraints ohne Namen, siehe Migration 0007-Docstring) - ein direktes db.delete(phase)
+    ohne diese Aufräumung löst auf Postgres eine ForeignKeyViolation aus, die als
+    unbehandelte Exception AN CORSMiddleware VORBEI durchschlägt (Starlettes
+    ServerErrorMiddleware generiert die 500-Antwort außerhalb des Middleware-Stacks, dadurch
+    fehlen die CORS-Header) - der Browser meldet daraufhin "TypeError: Failed to fetch" statt
+    des eigentlichen Fehlers. Auf SQLite (FK-Pragma standardmäßig aus) bliebe derselbe Aufruf
+    dagegen unbemerkt "erfolgreich" mit verwaisten Zeilen zurück - genau die "zufälligen
+    Unterschiede zwischen SQLite Tests und PostgreSQL", die Abschnitt 25 ausschließen will.
+
+    Reihenfolge/Entscheidung je Beziehung (CASCADE/SET NULL/BLOCK, Auftrag Abschnitt 25):
+    - WorklogPhaseOverride: CASCADE - eine Zuordnungskorrektur ohne ihre Zielphase ergibt
+      keinen Sinn mehr (Feld ist NOT NULL, kann nicht SET NULL werden).
+    - ResourceAssignment (direkt, plan_phase_id): CASCADE - gehört fachlich zur Phase
+      (Auftrag Abschnitt 3).
+    - ResourceAssignment (Legacy, über eine ResourceDemand dieser Phasen): CASCADE - analog
+      zum bisherigen delete-subtree-Verhalten.
+    - ResourceDemand: CASCADE - ergibt ohne ihre Phase (falls sie eine hatte) keinen
+      eigenständigen Sinn mehr; projektweite Legacy-Demands (plan_phase_id IS NULL) sind von
+      dieser Funktion nicht betroffen.
+    Comment/Task/Blocker/Decision/Milestone/PlanHistory bleiben unverändert SET NULL (DB-
+    seitig bereits korrekt konfiguriert, siehe Migrationen 0004/0005) - nicht Teil dieser
+    Funktion."""
+    if not phase_ids:
+        return
+    db.query(models.WorklogPhaseOverride).filter(
+        models.WorklogPhaseOverride.plan_phase_id.in_(phase_ids)
+    ).delete(synchronize_session=False)
+    db.query(models.ResourceAssignment).filter(
+        models.ResourceAssignment.plan_phase_id.in_(phase_ids)
+    ).delete(synchronize_session=False)
+    demand_ids = [
+        row[0]
+        for row in db.query(models.ResourceDemand.id)
+        .filter(models.ResourceDemand.plan_phase_id.in_(phase_ids))
+        .all()
+    ]
+    if demand_ids:
+        db.query(models.ResourceAssignment).filter(
+            models.ResourceAssignment.resource_demand_id.in_(demand_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.ResourceDemand).filter(models.ResourceDemand.id.in_(demand_ids)).delete(
+            synchronize_session=False
+        )
+
+
 def compute_portfolio_utilization(db: Session, period: str) -> list[schemas.PortfolioUtilizationEntry]:
     """Auslastungsgrad je Person: über ResourceAssignment zugeordnetes FTE einer Periode im
     Verhältnis zur individuellen Nominal-Kapazität (siehe compute_person_capacity). Ersetzt
@@ -333,16 +476,10 @@ def compute_portfolio_utilization(db: Session, period: str) -> list[schemas.Port
     for person, profile in persons_with_profile:
         capacity = compute_person_capacity(db, person.id, period)
         kapazitaet_fte = capacity.nominal_fte if capacity is not None else 0.0
-        zugeordnet_fte = round(
-            sum(
-                a.fte
-                for a in db.query(models.ResourceAssignment)
-                .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
-                .filter(models.ResourceAssignment.person_id == person.id, models.ResourceDemand.period == period)
-                .all()
-            ),
-            2,
-        )
+        # P20.1: über BEIDE Ressourcenwege (Legacy ResourceDemand + direkte PlanPhase-
+        # Assignments) summiert - vorher nur der Legacy-Weg, was neue Direct-Assignment-Daten
+        # unsichtbar für die Auslastung gemacht hätte.
+        zugeordnet_fte = assigned_fte_for_person_period(db, person.id, period)
         auslastung_pct = round(zugeordnet_fte / kapazitaet_fte * 100, 1) if kapazitaet_fte > 0 else None
         team = teams_by_id.get(profile.team_id) if profile.team_id else None
         result.append(

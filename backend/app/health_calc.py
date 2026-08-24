@@ -9,7 +9,7 @@ Router importieren nur von gemeinsamen Modulen, nicht voneinander."""
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from . import constants, gap_analysis, gap_calc, models, schemas
+from . import capacity_calc, constants, gap_analysis, gap_calc, models, schemas
 
 # Rang je Ausprägung, für die "badness"-Berechnung (je höher desto schlechter).
 SEVERITY_RANK = {"niedrig": 1, "mittel": 2, "hoch": 3, "kritisch": 4}
@@ -76,16 +76,9 @@ def _capacity_health(db: Session, project_id: int, thresholds: dict[str, tuple[f
             status="grau", value=None, explanation=f"Kein Ressourcenbedarf für die aktuelle Periode ({period})."
         )
     demand_fte = round(sum(d.fte for d in demands), 2)
-    demand_ids = [d.id for d in demands]
-    assigned_fte = round(
-        sum(
-            a.fte
-            for a in db.query(models.ResourceAssignment)
-            .filter(models.ResourceAssignment.resource_demand_id.in_(demand_ids))
-            .all()
-        ),
-        2,
-    )
+    # P20.1: über BEIDE Ressourcenwege summiert (Legacy ResourceDemand + direkte
+    # PlanPhase-Assignments), siehe capacity_calc.assigned_fte_for_project_period.
+    assigned_fte = capacity_calc.assigned_fte_for_project_period(db, project_id, period)
     gap = round(assigned_fte - demand_fte, 2)
     badness = max(0.0, -gap)
     yellow, red = thresholds["capacity_fte"]

@@ -118,21 +118,9 @@ def _cockpit_capacity(db: Session, project_id: int) -> schemas.CockpitCapacity:
     period = constants.current_period()
     monthly_hours = capacity_calc.compute_project_monthly_capacity(db, project_id, periods=[period])
     demand_fte = capacity_calc.hours_to_fte_equivalent(monthly_hours.get(period, 0.0), period)
-    demand_ids = [
-        row[0]
-        for row in db.query(models.ResourceDemand.id)
-        .filter(models.ResourceDemand.project_id == project_id, models.ResourceDemand.period == period)
-        .all()
-    ]
-    assigned_fte = round(
-        sum(
-            a.fte
-            for a in db.query(models.ResourceAssignment)
-            .filter(models.ResourceAssignment.resource_demand_id.in_(demand_ids))
-            .all()
-        ),
-        2,
-    )
+    # P20.1: über BEIDE Ressourcenwege summiert (Legacy ResourceDemand + direkte
+    # PlanPhase-Assignments), siehe capacity_calc.assigned_fte_for_project_period.
+    assigned_fte = capacity_calc.assigned_fte_for_project_period(db, project_id, period)
     return schemas.CockpitCapacity(
         period=period,
         demand_fte=demand_fte,

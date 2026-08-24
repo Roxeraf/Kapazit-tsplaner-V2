@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import actuals_coverage, documents_storage, entity_links, jira_sync, models, schemas
+from .. import actuals_coverage, capacity_calc, documents_storage, entity_links, jira_sync, models, schemas
 from ..constants import berechne_monate
 from ..database import get_db
 
@@ -253,6 +253,13 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.query(models.MeetingMinutes).filter(models.MeetingMinutes.project_id == project_id).delete()
     db.query(models.Task).filter(models.Task.project_id == project_id).delete()
     db.query(models.Blocker).filter(models.Blocker.project_id == project_id).delete()
+    # P20.1G (Delete Stabilization, Auftrag Abschnitt 23-25): VOR dem PlanPhase-Bulk-Delete
+    # alle ResourceAssignment/ResourceDemand/WorklogPhaseOverride-Zeilen aufräumen, die auf
+    # eine dieser PlanPhases zeigen (dieselbe Root-Cause-Fix-Reihenfolge wie beim Einzel-/
+    # Subtree-Delete in routers/planning.py - vorher lief diese Aufräumung fälschlich ERST
+    # NACH dem PlanPhase-Delete weiter unten, was auf Postgres denselben FK-Violation-Bug
+    # ausgelöst hätte).
+    capacity_calc.cleanup_phase_resource_dependencies(db, plan_phase_ids)
     db.query(models.PlanPhase).filter(models.PlanPhase.project_id == project_id).delete()
     db.query(models.Milestone).filter(models.Milestone.project_id == project_id).delete()
 
@@ -267,9 +274,11 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
         )
     db.query(models.BaselineSnapshot).filter(models.BaselineSnapshot.project_id == project_id).delete()
 
-    # ResourceDemand/ResourceAssignment (Phase 19): Assignments zuerst über resource_demand_id,
-    # dann die Demands selbst - ResourceAssignment hat keine direkte project_id-Spalte.
-    # ResourceRole/Skill/PersonSkill sind projektunabhängige Stammdaten und bleiben unangetastet.
+    # ResourceDemand/ResourceAssignment (Phase 19): die phasengebundenen Zeilen sind bereits
+    # oben über cleanup_phase_resource_dependencies() entfernt - hier bleiben nur noch
+    # projektweite Legacy-Demands ohne plan_phase_id ("Grobplanung", plan_phase_id IS NULL)
+    # inkl. ihrer Assignments übrig. ResourceRole/Skill/PersonSkill sind projektunabhängige
+    # Stammdaten und bleiben unangetastet.
     demand_ids = [
         d[0] for d in db.query(models.ResourceDemand.id).filter(models.ResourceDemand.project_id == project_id).all()
     ]

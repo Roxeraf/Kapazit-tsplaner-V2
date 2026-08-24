@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "../../../api/client";
+import { api, formatApiError } from "../../../api/client";
 import type { PlanPhase, PlanPhaseSubtreeImpact } from "../../../types";
 
 type Step = "confirm" | "blocked" | "subtree";
@@ -53,7 +53,7 @@ export default function PlanPhaseDeleteDialog({
       setBlockedInfo({ childCount: result.childCount, message: result.message });
       setStep("blocked");
     } catch (e) {
-      setError(String(e));
+      setError(formatApiError(e));
     } finally {
       setBusy(false);
     }
@@ -72,7 +72,7 @@ export default function PlanPhaseDeleteDialog({
         setError("Phase hat weiterhin Unterphasen und konnte nicht gelöscht werden.");
       }
     } catch (e) {
-      setError(String(e));
+      setError(formatApiError(e));
     } finally {
       setBusy(false);
     }
@@ -86,7 +86,7 @@ export default function PlanPhaseDeleteDialog({
       setImpact(data);
       setStep("subtree");
     } catch (e) {
-      setError(String(e));
+      setError(formatApiError(e));
     } finally {
       setBusy(false);
     }
@@ -104,7 +104,7 @@ export default function PlanPhaseDeleteDialog({
       onDeleted();
       handleClose();
     } catch (e) {
-      setError(String(e));
+      setError(formatApiError(e));
     } finally {
       setBusy(false);
     }
@@ -168,6 +168,7 @@ export default function PlanPhaseDeleteDialog({
               </li>
               <li>{impact.milestones_affected} Meilensteine (bleiben erhalten, werden nur entkoppelt)</li>
               <li>{impact.documents_affected} Dokumentverknüpfungen</li>
+              {impact.worklog_overrides_affected > 0 && <li>{impact.worklog_overrides_affected} Jira-Zuordnungskorrekturen</li>}
             </ul>
             <label style={{ fontSize: "0.85rem" }}>
               Zur Bestätigung Phasenname exakt eingeben: <strong>{impact.phase_type}</strong>

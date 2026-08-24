@@ -775,6 +775,7 @@ export interface PlanPhaseSubtreeImpact {
   documents_affected: number;
   resource_demands_affected: number;
   resource_assignments_affected: number;
+  worklog_overrides_affected: number;
 }
 
 // P19.7: Beitrag einer einzelnen Leaf-PlanPhase zu Projektkapazität(Monat) - für die

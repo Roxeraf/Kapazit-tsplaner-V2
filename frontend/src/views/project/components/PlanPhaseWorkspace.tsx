@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../../api/client";
 import ActivityFeed from "./ActivityFeed";
 import BlockerList from "./BlockerList";
@@ -13,7 +13,6 @@ import TagChip from "../../../components/TagChip";
 import TagInput from "../../../components/TagInput";
 import TaskList from "./TaskList";
 import usePeopleMap from "../../../hooks/usePeopleMap";
-import { formatBaselineDate, summarizeBaselineDeviations } from "../baselineDeviationFormat";
 import { useProjectWorkspace } from "../ProjectWorkspaceContext";
 import {
   MAX_PLAN_PHASE_DEPTH,
@@ -21,9 +20,6 @@ import {
   PLAN_PHASE_STATUS_OPTIONS,
   PLAN_PHASE_TYPE_SUGGESTIONS,
   planPhaseDepth,
-  planPhaseDescendantIds,
-  type BaselineDeviation,
-  type BaselineSnapshotSummary,
   type EntityType,
   type JiraMatchPreview,
   type PlanPhase,
@@ -31,27 +27,23 @@ import {
   type PlanPhaseStatus,
 } from "../../../types";
 
-// P11 (Planungs-/Kapazitätskonsolidierung): PlanPhase Workspace - rechtsseitiger Drawer, jetzt
-// die primäre Bearbeitungsoberfläche einer Phase (löst den bisherigen Doppel-UX-Zustand ab, in
-// dem PlanPhaseList.tsx parallel ein vollständiges Inline-Formular zeigte). Vier Tabs:
-// Übersicht (editierbar, Sofort-Speichern wie der Rest der Planung - kein Batch-/Grund-
-// Workflow), Kapazität (Rollen-/Personenaufschlüsselung), Aktivität (bestehende generische
-// Kommentar-/Task-/Blocker-/Decision-/ActivityFeed-Infrastruktur, unverändert wiederverwendet,
-// + kompakte Meilensteine-Karte seit P19.5), Dateien (bestehendes Document/DocumentLink-System,
-// seit P19.5 über die geteilte DocumentListPanel-Komponente). forecast_start/forecast_end
-// erscheinen hier nur als "Start"/"Ende" (= "aktueller Plan") - baseline_*/progress erscheinen
-// im Normalflow gar nicht mehr (Planstand siehe BaselineList, Progress deprecatet seit P6);
-// actual_start/actual_end sind sekundär und nur über eine explizite Korrektur-Aktion editierbar.
-// Seit P19.6 zeigt der Übersicht-Tab zusätzlich eine kompakte "Seit Planstand VX geändert"-Zeile
-// (clientseitig gegen den bestehenden Deviation-Endpoint gefiltert, kein neuer Endpoint).
+// P11 (Planungs-/Kapazitätskonsolidierung): PlanPhase Workspace - rechtsseitiger Drawer, die
+// primäre Bearbeitungsoberfläche einer Phase. Vier Tabs: Übersicht (editierbar,
+// Sofort-Speichern), Kapazität (Direct Assignment - siehe PlanPhaseCapacityTab), Aktivität
+// (bestehende generische Kommentar-/Task-/Blocker-/Decision-/ActivityFeed-Infrastruktur +
+// kompakte Meilensteine-Karte), Dateien (Document/DocumentLink-System). forecast_start/
+// forecast_end erscheinen hier nur als "Start"/"Ende" (= "aktueller Plan") - baseline_*/
+// progress erscheinen im Normalflow gar nicht mehr (Progress deprecatet seit P6).
 //
-// P19.3: Backend (_get_plan_phase_activity/list_entity_summaries, siehe communication.py/
-// entity_links.py) liefert für Modelle mit eigener plan_phase_id-Spalte bereits "milestone"
-// mit (seit P18/B-7) - hier bisher nicht mitgerendert. "baseline_snapshot" ist bewusst mit
-// aufgeführt (Auftrag P19.3), liefert aber serverseitig aktuell nie einen phasenscoped
-// Treffer zurück (BaselineSnapshot ist projektweit, keine plan_phase_id-Spalte, siehe P19.6
-// "phasenscoped Planstand-Vergleich") - additiv/harmlos, kein falsches Signal.
-const PHASE_ACTIVITY_TYPES: EntityType[] = ["comment", "decision", "task", "blocker", "milestone", "baseline_snapshot"];
+// P20.1 (Auftrag Abschnitt 17-20): bewusst NICHT mehr Bestandteil des normalen Workspace -
+// der permanente "Seit Planstand VX"-Kurzvergleich (gehört auf Projektebene, siehe
+// BaselineList/ProjectHistoryTab: Projekt → Planstände → Vergleich), die "Tatsächlicher
+// Verlauf"-Karte (actual_start/actual_end bleiben in DB/API aus Compat-Gründen bestehen, aber
+// P20 liefert mit Tempo/Jira-Ist-Aufwand einen wesentlich relevanteren Ist-Begriff - ein
+// Projektleiter soll sie nicht zusätzlich manuell pflegen müssen) und der "Planstand"-Eintrag
+// im phasenscoped Activity-Filter (BaselineSnapshot ist ein projektweiter Snapshot ohne
+// plan_phase_id-Spalte, gehört in Projekt-Historie/Planstände, nicht in den Phasenfilter).
+const PHASE_ACTIVITY_TYPES: EntityType[] = ["comment", "decision", "task", "blocker", "milestone"];
 
 type Tab = "uebersicht" | "kapazitaet" | "aktivitaet" | "dateien";
 
@@ -104,18 +96,11 @@ export default function PlanPhaseWorkspace({
   const [detail, setDetail] = useState<PlanPhaseDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("uebersicht");
-  const [correctingActual, setCorrectingActual] = useState(false);
   const [showCreateChild, setShowCreateChild] = useState(false);
   // ActivityFeed lädt selbst nach, bekommt Mutationen von NotesSection/TaskList/DecisionList/
   // BlockerList (Geschwisterkomponenten im selben Tab) aber nicht automatisch mit - dieser
   // Zähler wird bei jedem reload() hochgezählt und an ActivityFeed durchgereicht (P16.1).
   const [activityVersion, setActivityVersion] = useState(0);
-  // P19.6: alle Planstände (created_at-desc, wie BaselineList.tsx) + die Abweichungen des
-  // neuesten, clientseitig auf diese Phase (bzw. bei Parent-Phasen zusätzlich ihre Nachfahren)
-  // gefiltert - kein neuer Endpoint, siehe baselineDeviationFormat.ts (dieselbe Rendering-Logik
-  // wie BaselineList.tsx).
-  const [baselines, setBaselines] = useState<BaselineSnapshotSummary[] | null>(null);
-  const [baselineDeviations, setBaselineDeviations] = useState<BaselineDeviation[] | null>(null);
   const people = usePeopleMap();
   const { project } = useProjectWorkspace();
   // P20.5 (Übersicht-Tab, Ist-Daten-Zeile, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md
@@ -150,36 +135,9 @@ export default function PlanPhaseWorkspace({
   useEffect(() => {
     setDetail(null);
     setTab("uebersicht");
-    setCorrectingActual(false);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planPhaseId]);
-
-  // P19.6: Planstände des Projekts laden (unabhängig von der konkreten Phase, da Planstände
-  // projektweit sind) und die Abweichungen des neuesten nachladen. Wie `load()` oben: kein
-  // Fetch, solange der Drawer geschlossen ist (planPhaseId == null) - die Komponente ist
-  // dauerhaft gemountet (siehe PlanPhaseList.tsx), nicht nur bei geöffnetem Drawer.
-  useEffect(() => {
-    if (planPhaseId == null) return;
-    api
-      .listBaselines(projectId)
-      .then(setBaselines)
-      .catch(() => setBaselines([]));
-  }, [projectId, planPhaseId]);
-
-  const latestBaseline = baselines && baselines.length > 0 ? baselines[0] : null;
-  const latestBaselineId = latestBaseline?.id;
-
-  useEffect(() => {
-    if (latestBaselineId == null) {
-      setBaselineDeviations(null);
-      return;
-    }
-    api
-      .getBaselineDeviations(latestBaselineId)
-      .then(setBaselineDeviations)
-      .catch(() => setBaselineDeviations(null));
-  }, [latestBaselineId]);
 
   const reload = () => {
     load();
@@ -200,23 +158,6 @@ export default function PlanPhaseWorkspace({
       .catch(() => setJiraMatchPreview(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.id, detail?.jira_label]);
-
-  // P19.6: "Seit Planstand VX (Datum) geändert: ..."-Zeile - clientseitig aus dem bestehenden
-  // Deviation-Endpoint gefiltert (entity_type=plan_phase, entity_id = diese Phase bzw. bei
-  // einer Parent-Phase zusätzlich ihre Nachfahren-IDs aus dem bereits geladenen `allPhases`).
-  // Reine Kurzform, kein Snapshot-vs-Snapshot-Vergleich, keine neue Diff-Engine. Muss vor dem
-  // frühen `return null` unten stehen (Rules of Hooks: useMemo darf nicht bedingt aufgerufen
-  // werden).
-  const phaseNameById = useMemo(() => new Map(allPhases.map((p) => [p.id, p.phase_type])), [allPhases]);
-  const planstandSummary = useMemo(() => {
-    if (!detail || !latestBaseline || !baselineDeviations) return null;
-    const relevantIds = new Set<number>([detail.id]);
-    if (detail.has_children) {
-      for (const id of planPhaseDescendantIds(allPhases, detail.id)) relevantIds.add(id);
-    }
-    const relevant = baselineDeviations.filter((d) => d.entity_type === "plan_phase" && relevantIds.has(d.entity_id));
-    return summarizeBaselineDeviations(relevant, phaseNameById);
-  }, [detail, latestBaseline, baselineDeviations, allPhases, phaseNameById]);
 
   if (planPhaseId == null) return null;
 
@@ -332,12 +273,6 @@ export default function PlanPhaseWorkspace({
         <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Lade Phase …</p>
       ) : tab === "uebersicht" ? (
         <>
-          {latestBaseline && baselines && (
-            <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: "0 0 0.75rem" }}>
-              Seit Planstand V{baselines.length} ({formatBaselineDate(latestBaseline.created_at)}){" "}
-              {planstandSummary ? `geändert: ${planstandSummary}` : "— keine Abweichung."}
-            </p>
-          )}
           <div className="card" style={{ marginBottom: "0.75rem" }}>
             <div className="field-row" style={{ marginTop: 0, flexDirection: "column", alignItems: "stretch" }}>
               <label>
@@ -404,22 +339,14 @@ export default function PlanPhaseWorkspace({
                     ))}
                   </select>
                 </label>
+                {/* P20.1 (Auftrag Abschnitt 20): plan_fte hat seine EINDEUTIGE primäre
+                    Bearbeitungsstelle im Kapazität-Tab - hier nur noch read-only Referenz,
+                    keine doppelte Editierstelle. */}
                 {!detail.has_children && (
-                  <label>
-                    Geplanter Ressourcenbedarf (FTE)
-                    <input
-                      key={`${detail.id}-fte-${detail.plan_fte}`}
-                      type="number"
-                      min={0}
-                      step={0.05}
-                      defaultValue={detail.plan_fte ?? ""}
-                      placeholder="—"
-                      onBlur={(e) => {
-                        const raw = e.target.value.trim();
-                        update({ plan_fte: raw === "" ? null : Number(raw) });
-                      }}
-                    />
-                  </label>
+                  <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", alignSelf: "flex-end" }}>
+                    Geplanter Ressourcenbedarf: {detail.plan_fte != null ? `${detail.plan_fte.toFixed(2)} FTE` : "—"}{" "}
+                    <span style={{ fontSize: "0.78rem" }}>(bearbeiten im Tab "Kapazität")</span>
+                  </div>
                 )}
               </div>
 
@@ -577,45 +504,6 @@ export default function PlanPhaseWorkspace({
             </div>
           </div>
 
-          <div className="card">
-            <div className="toolbar">
-              <h4 style={{ color: "var(--navy)", margin: 0 }}>Tatsächlicher Verlauf</h4>
-              <button type="button" className="btn secondary" style={{ fontSize: "0.75rem" }} onClick={() => setCorrectingActual((v) => !v)}>
-                {correctingActual ? "Fertig" : "Ist-Daten korrigieren"}
-              </button>
-            </div>
-            {!correctingActual ? (
-              <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem", marginTop: "0.4rem" }}>
-                <div>
-                  <strong>Gestartet:</strong> {fmtDate(detail.actual_start)}
-                </div>
-                <div>
-                  <strong>Abgeschlossen:</strong> {fmtDate(detail.actual_end)}
-                </div>
-              </div>
-            ) : (
-              <div className="field-row" style={{ marginTop: "0.4rem" }}>
-                <label>
-                  Gestartet
-                  <input
-                    key={`${detail.id}-as-${detail.actual_start}`}
-                    type="date"
-                    defaultValue={detail.actual_start ?? ""}
-                    onBlur={(e) => update({ actual_start: e.target.value || null })}
-                  />
-                </label>
-                <label>
-                  Abgeschlossen
-                  <input
-                    key={`${detail.id}-ae-${detail.actual_end}`}
-                    type="date"
-                    defaultValue={detail.actual_end ?? ""}
-                    onBlur={(e) => update({ actual_end: e.target.value || null })}
-                  />
-                </label>
-              </div>
-            )}
-          </div>
         </>
       ) : tab === "kapazitaet" ? (
         detail.has_children ? (
@@ -637,10 +525,10 @@ export default function PlanPhaseWorkspace({
             planFte={detail.plan_fte}
             forecastStart={detail.forecast_start}
             forecastEnd={detail.forecast_end}
-            demands={detail.resource_demands}
             metrics={detail.metrics}
             assignmentSummary={detail.assignment_summary}
             onChanged={reload}
+            onUpdatePlanFte={(value) => update({ plan_fte: value })}
           />
         )
       ) : tab === "aktivitaet" ? (

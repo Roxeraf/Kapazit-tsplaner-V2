@@ -7,11 +7,11 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import (
     capacity_calc,
-    constants,
     entity_links,
     models,
     phase_metrics_calc,
@@ -577,10 +577,28 @@ def delete_plan_phase(plan_phase_id: int, db: Session = Depends(get_db)):
                 "child_count": child_count,
             },
         )
+    # P20.1G (Delete Stabilization): Root-Cause-Fix - VOR dem eigentlichen db.delete() alle
+    # ResourceAssignment/ResourceDemand/WorklogPhaseOverride-Zeilen dieser Phase aufräumen
+    # (siehe capacity_calc.cleanup_phase_resource_dependencies-Docstring).
+    capacity_calc.cleanup_phase_resource_dependencies(db, [plan_phase_id])
     entity_links.delete_links_for_entity(db, "plan_phase", plan_phase_id)
     entity_links.delete_relations_for_entity(db, "plan_phase", plan_phase_id)
-    db.delete(plan_phase)
-    db.commit()
+    try:
+        db.delete(plan_phase)
+        db.commit()
+    except IntegrityError:
+        # Letzte Sicherheitsnetz-Ebene (Auftrag Abschnitt 26): sollte durch die Aufräumung
+        # oben nicht mehr erreichbar sein - falls doch (z.B. eine künftige, hier noch nicht
+        # bekannte FK-Beziehung), NIEMALS eine rohe 500-Exception ohne CORS-Header
+        # durchschlagen lassen, sondern einen strukturierten, fachlichen 409 liefern.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Diese Phase kann aufgrund bestehender Verknüpfungen nicht gelöscht werden.",
+                "child_count": 0,
+            },
+        ) from None
 
 
 @router.post(
@@ -634,6 +652,16 @@ def _collect_subtree_impact(db: Session, plan_phase: models.PlanPhase) -> dict:
         if demand_ids
         else 0
     )
+    # P20.1G: direkte Zuordnungen (plan_phase_id gesetzt) zählen zusätzlich zu den
+    # Legacy-Assignments über eine ResourceDemand dieser Phasen (assignments oben).
+    direct_assignments = (
+        db.query(models.ResourceAssignment).filter(models.ResourceAssignment.plan_phase_id.in_(all_ids)).count()
+    )
+    worklog_overrides_affected = (
+        db.query(models.WorklogPhaseOverride)
+        .filter(models.WorklogPhaseOverride.plan_phase_id.in_(all_ids))
+        .count()
+    )
     documents_affected = (
         db.query(models.DocumentLink)
         .filter(models.DocumentLink.entity_type == "plan_phase", models.DocumentLink.entity_id.in_(all_ids))
@@ -649,7 +677,8 @@ def _collect_subtree_impact(db: Session, plan_phase: models.PlanPhase) -> dict:
         "milestones_affected": _count(models.Milestone, models.Milestone.plan_phase_id),
         "documents_affected": documents_affected,
         "resource_demands_affected": len(demand_ids),
-        "resource_assignments_affected": assignments,
+        "resource_assignments_affected": assignments + direct_assignments,
+        "worklog_overrides_affected": worklog_overrides_affected,
         "demand_ids": demand_ids,
     }
 
@@ -673,6 +702,7 @@ def get_subtree_impact(plan_phase_id: int, db: Session = Depends(get_db)):
         documents_affected=impact["documents_affected"],
         resource_demands_affected=impact["resource_demands_affected"],
         resource_assignments_affected=impact["resource_assignments_affected"],
+        worklog_overrides_affected=impact["worklog_overrides_affected"],
     )
 
 
@@ -702,16 +732,14 @@ def delete_subtree(
         )
 
     all_ids = impact["all_ids"]
-    demand_ids = impact["demand_ids"]
     now = _now()
 
-    if demand_ids:
-        db.query(models.ResourceAssignment).filter(
-            models.ResourceAssignment.resource_demand_id.in_(demand_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.ResourceDemand).filter(models.ResourceDemand.id.in_(demand_ids)).delete(
-            synchronize_session=False
-        )
+    # P20.1G (Delete Stabilization): dieselbe dialektunabhängige Aufräumung wie beim
+    # Standard-DELETE einer einzelnen Phase (siehe capacity_calc.cleanup_phase_resource_dependencies-
+    # Docstring) - deckt jetzt zusätzlich WorklogPhaseOverride und direkte
+    # ResourceAssignment.plan_phase_id-Zeilen ab (vorher hier fehlend, derselbe Root-Cause-Bug
+    # wie beim Einzel-Delete).
+    capacity_calc.cleanup_phase_resource_dependencies(db, all_ids)
 
     # Collaboration-Inhalte bleiben erhalten, nur die Verknüpfung entfällt (wie beim
     # bestehenden ON DELETE SET NULL-Verhalten eines einzelnen Phasen-Deletes).
@@ -762,7 +790,15 @@ def delete_subtree(
     for phase in descendants_by_depth:
         db.delete(phase)
     db.delete(plan_phase)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Letztes Sicherheitsnetz (Auftrag Abschnitt 26), siehe delete_plan_phase oben.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "Dieser Zweig kann aufgrund bestehender Verknüpfungen nicht gelöscht werden.", "child_count": descendant_count},
+        ) from None
 
 
 @router.get("/plan-phases/{plan_phase_id}", response_model=schemas.PlanPhaseDetail)
@@ -851,19 +887,32 @@ def get_plan_phase_person_actuals(plan_phase_id: int, db: Session = Depends(get_
         else {}
     )
 
-    # Geplante Personen: ResourceAssignment über alle ResourceDemands dieser Phase bzw. -
-    # bei einer Parent-Phase - all ihrer Leaf-Nachfahren (leaf_descendants liefert eine
-    # Leaf-Phase als ihren eigenen einzigen Nachfahren, daher ohne Fallunterscheidung).
+    # Geplante Personen: ResourceAssignment über alle Leaf-Nachfahren dieser Phase (bzw. sie
+    # selbst, falls bereits Leaf - leaf_descendants liefert eine Leaf-Phase als ihren eigenen
+    # einzigen Nachfahren, daher ohne Fallunterscheidung). P20.1: über BEIDE Ressourcenwege
+    # gemerged (direkte plan_phase_id-Zuordnung + Legacy über eine ResourceDemand) - eine
+    # migrierte Zeile (beide FKs gesetzt) zählt nur einmal über den direkten Zweig.
     leaf_ids = [leaf.id for leaf in planning_calc.leaf_descendants(db, plan_phase.id)]
-    assignment_rows = (
-        db.query(models.ResourceAssignment, models.Person)
-        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
-        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
-        .filter(models.ResourceDemand.plan_phase_id.in_(leaf_ids))
-        .all()
-        if leaf_ids
-        else []
-    )
+    if leaf_ids:
+        direct_assignment_rows = (
+            db.query(models.ResourceAssignment, models.Person)
+            .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
+            .filter(models.ResourceAssignment.plan_phase_id.in_(leaf_ids))
+            .all()
+        )
+        legacy_assignment_rows = (
+            db.query(models.ResourceAssignment, models.Person)
+            .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+            .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
+            .filter(
+                models.ResourceDemand.plan_phase_id.in_(leaf_ids),
+                models.ResourceAssignment.plan_phase_id.is_(None),
+            )
+            .all()
+        )
+        assignment_rows = direct_assignment_rows + legacy_assignment_rows
+    else:
+        assignment_rows = []
     planned_by_person_id: dict[int, dict] = {}
     for assignment, person in assignment_rows:
         entry = planned_by_person_id.setdefault(
@@ -1001,89 +1050,55 @@ def delete_worklog_override(plan_phase_id: int, jira_issue_key: str, db: Session
 
 
 # ---------------------------------------------------------------------------
-# Direct Assignment ohne Rollen-Zwang (P18/B-4, CONCEPT.md Abschnitt 6b.4/6b.10/6b.11)
+# Direct Assignment ohne Rollen-Zwang (P18/B-4, P20.1: jetzt ohne ResourceDemand als
+# technischen Adapter - siehe CONCEPT.md Abschnitt 6b.4/6b.10/6b.11 sowie Abschnitt 12/6c)
 # ---------------------------------------------------------------------------
 
-_SYSTEM_ROLE_NAME = "Ohne Rolle"
+
+def _find_system_role(db: Session) -> models.ResourceRole | None:
+    """Interne Systemrolle "Ohne Rolle", per B-1-Migration geseedet (Abschnitt 6b.4) - reine
+    Lookup-Funktion (KEIN auto-create mehr, P20.1): der neue Direct-Assignment-Flow braucht
+    sie nicht mehr als Trägerschicht, sie wird hier nur noch gesucht, um bestehende
+    Alt-Zuordnungen (vor P20.1 über diese Systemrolle angelegt) beim Upsert/Unassign
+    wiederzufinden und zu aktualisieren statt eine doppelte, zweite Zeile für dieselbe Person
+    anzulegen. None, falls die Migration (noch) nicht gelaufen ist oder keine Alt-Zuordnungen
+    existieren - dann gibt es schlicht nichts zu migrieren/finden."""
+    return db.query(models.ResourceRole).filter(models.ResourceRole.is_system_role.is_(True)).first()
 
 
-def _get_or_create_system_role(db: Session) -> models.ResourceRole:
-    """Interne Systemrolle, per B-1-Migration geseedet (Abschnitt 6b.4). Defensiv per
-    is_system_role ODER Name gesucht und bei Bedarf angelegt, damit dieser Endpunkt auch
-    gegen eine DB funktioniert, die die Migration (noch) nicht durchlaufen hat - kein
-    Hard-Fail auf einer fehlenden Seed-Zeile."""
-    role = db.query(models.ResourceRole).filter(models.ResourceRole.is_system_role.is_(True)).first()
-    if role is not None:
-        return role
-    role = db.query(models.ResourceRole).filter(models.ResourceRole.name == _SYSTEM_ROLE_NAME).first()
-    if role is not None:
-        role.is_system_role = True
-        return role
-    role = models.ResourceRole(
-        name=_SYSTEM_ROLE_NAME,
-        description=(
-            "Interne Systemrolle (nicht löschbar, im normalen Rollen-Picker ausgeblendet) - "
-            "technische Trägerschicht für direkte Personenzuordnung ohne erzwungene "
-            "Rollenauswahl (CONCEPT.md Abschnitt 6b.4)."
-        ),
-        active=True,
-        is_system_role=True,
+def _plan_phase_assignment_rows(
+    db: Session, plan_phase_id: int
+) -> list[tuple[models.ResourceAssignment, str]]:
+    """P20.1 (Capacity Consumer Rewiring, CONCEPT.md Abschnitt 12/6c): alle Personenzuordnungen
+    einer Leaf-PlanPhase, über BEIDE Ressourcenwege gemerged - der neue direkte Standardpfad
+    (ResourceAssignment.plan_phase_id gesetzt) UND der Legacy-Pfad über eine ResourceDemand
+    dieser Phase (Rollen-Aufschlüsselung oder die frühere "Ohne Rolle"-Carrier-Demand). Eine
+    bereits migrierte Zeile (beide FKs gesetzt, siehe
+    scripts/migrate_resource_assignments_to_plan_phase.py) zählt nur einmal - sie wird über
+    plan_phase_id gefunden, die Legacy-Query schließt `plan_phase_id IS NOT NULL` explizit aus."""
+    direct_rows = (
+        db.query(models.ResourceAssignment, models.Person.display_name)
+        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
+        .filter(models.ResourceAssignment.plan_phase_id == plan_phase_id)
+        .all()
     )
-    db.add(role)
-    db.flush()
-    return role
-
-
-def _get_or_create_carrier_demand(db: Session, plan_phase: models.PlanPhase) -> models.ResourceDemand:
-    """Die "technische Trägerschicht" (Abschnitt 6b.4): eine ResourceDemand mit der internen
-    Systemrolle, an die eine direkte Personenzuordnung technisch gehängt wird, OHNE dass ein
-    Projektleiter je eine Rolle auswählen muss. demand.fte selbst ist bewusst KEINE fachliche
-    Aussage (nie im UI gezeigt) - der Bedarf bleibt ausschließlich plan_fte (Abschnitt 3/6b.10).
-    period ist ein rein technisches Pflichtfeld des bestehenden ResourceDemand-Schemas, aus
-    forecast_start abgeleitet (Fallback: aktueller Monat, falls die Phase noch keinen
-    Zeitraum hat)."""
-    role = _get_or_create_system_role(db)
-    demand = (
-        db.query(models.ResourceDemand)
+    legacy_rows = (
+        db.query(models.ResourceAssignment, models.Person.display_name)
+        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
         .filter(
-            models.ResourceDemand.plan_phase_id == plan_phase.id,
-            models.ResourceDemand.resource_role_id == role.id,
+            models.ResourceDemand.plan_phase_id == plan_phase_id,
+            models.ResourceAssignment.plan_phase_id.is_(None),
         )
-        .first()
+        .all()
     )
-    if demand is not None:
-        return demand
-    if plan_phase.forecast_start:
-        year, month = int(plan_phase.forecast_start[:4]), int(plan_phase.forecast_start[5:7])
-        period = f"{constants.MONAT_NAMEN[month - 1]} {year % 100:02d}"
-    else:
-        period = constants.current_period()
-    now = _now()
-    demand = models.ResourceDemand(
-        project_id=plan_phase.project_id,
-        plan_phase_id=plan_phase.id,
-        resource_role_id=role.id,
-        period=period,
-        fte=0,
-        commitment_level="TENTATIVE",
-        erstellt_am=now,
-        aktualisiert_am=now,
-    )
-    db.add(demand)
-    db.flush()
-    return demand
+    return direct_rows + legacy_rows
 
 
 def _plan_phase_assignment_summary(
     db: Session, plan_phase: models.PlanPhase
 ) -> schemas.PlanPhaseAssignmentSummaryOut:
-    rows = (
-        db.query(models.ResourceAssignment, models.Person.display_name)
-        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
-        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
-        .filter(models.ResourceDemand.plan_phase_id == plan_phase.id)
-        .all()
-    )
+    rows = _plan_phase_assignment_rows(db, plan_phase.id)
     by_person: dict[int, dict] = {}
     for assignment, person_name in rows:
         entry = by_person.setdefault(
@@ -1114,48 +1129,135 @@ def get_plan_phase_assignment_summary(plan_phase_id: int, db: Session = Depends(
     return _plan_phase_assignment_summary(db, plan_phase)
 
 
+def _require_leaf_for_assignment(db: Session, plan_phase: models.PlanPhase) -> None:
+    if planning_calc.has_children(db, plan_phase.id):
+        raise HTTPException(
+            status_code=422,
+            detail="Direkte Personenzuordnung ist nur auf einer Leaf-Phase möglich (diese Phase ist eine Sammelphase)",
+        )
+
+
+def _upsert_direct_assignment(
+    db: Session, plan_phase: models.PlanPhase, person_id: int, fte: float
+) -> models.ResourceAssignment:
+    """P20.1 (Abschnitt 3/9/27): erzeugt/aktualisiert eine Personenzuordnung DIREKT an der
+    Leaf-PlanPhase - KEIN ResourceDemand mehr als technischer Adapter (löst die frühere
+    "Ohne Rolle"-Systemrolle als Trägerschicht ab, Abschnitt 41 "kein Scope Creep":
+    ResourceRole/ResourceDemand bleiben als Tabellen/Legacy-Pfad unverändert bestehen, nur der
+    NEUE Assignment-Flow braucht sie nicht mehr). Upsert-Semantik: existiert bereits eine
+    direkte Zuordnung dieser Person auf dieser Phase, wird nur ihre FTE aktualisiert; existiert
+    stattdessen noch eine Legacy-Zuordnung derselben Person über die frühere Carrier-Demand
+    ("Ohne Rolle"), wird DIESE aktualisiert statt eine zweite (doppelt zählende) Zeile
+    anzulegen - eine echte Rollen-Aufschlüsselung über eine ANDERE (nicht-System-)Rolle bleibt
+    davon unberührt. Ändert plan_fte NIE (Kernprinzip, Abschnitt 3/6b.10) - auch bei
+    Überbesetzung nicht."""
+    now = _now()
+    direct = (
+        db.query(models.ResourceAssignment)
+        .filter(
+            models.ResourceAssignment.plan_phase_id == plan_phase.id,
+            models.ResourceAssignment.person_id == person_id,
+        )
+        .first()
+    )
+    if direct is not None:
+        direct.fte = fte
+        direct.aktualisiert_am = now
+        return direct
+
+    system_role = _find_system_role(db)
+    legacy_carrier = None
+    if system_role is not None:
+        carrier_demand = (
+            db.query(models.ResourceDemand)
+            .filter(
+                models.ResourceDemand.plan_phase_id == plan_phase.id,
+                models.ResourceDemand.resource_role_id == system_role.id,
+            )
+            .first()
+        )
+        if carrier_demand is not None:
+            legacy_carrier = (
+                db.query(models.ResourceAssignment)
+                .filter(
+                    models.ResourceAssignment.resource_demand_id == carrier_demand.id,
+                    models.ResourceAssignment.person_id == person_id,
+                    models.ResourceAssignment.plan_phase_id.is_(None),
+                )
+                .first()
+            )
+    if legacy_carrier is not None:
+        legacy_carrier.fte = fte
+        legacy_carrier.aktualisiert_am = now
+        return legacy_carrier
+
+    assignment = models.ResourceAssignment(
+        plan_phase_id=plan_phase.id, person_id=person_id, fte=fte, erstellt_am=now, aktualisiert_am=now
+    )
+    db.add(assignment)
+    return assignment
+
+
+def _delete_person_assignment(db: Session, plan_phase_id: int, person_id: int) -> bool:
+    """P20.1: entfernt die primäre Zuordnung (direkt ODER die frühere "Ohne Rolle"-Carrier-
+    Zuordnung) dieser Person von dieser Phase - identisches Verhalten wie vorher, jetzt über
+    beide Speicherwege. Rührt eine etwaige ZUSÄTZLICHE Zuordnung über eine echte
+    Rollen-Aufschlüsselung (andere, nicht-System-Rolle) NICHT an - die bleibt Legacy über die
+    bestehenden /resource-demands/{id}/assignments-Endpunkte verwaltet. True, wenn etwas
+    gelöscht wurde."""
+    direct = (
+        db.query(models.ResourceAssignment)
+        .filter(
+            models.ResourceAssignment.plan_phase_id == plan_phase_id,
+            models.ResourceAssignment.person_id == person_id,
+        )
+        .first()
+    )
+    if direct is not None:
+        db.delete(direct)
+        return True
+
+    system_role = _find_system_role(db)
+    if system_role is None:
+        return False
+    demand = (
+        db.query(models.ResourceDemand)
+        .filter(
+            models.ResourceDemand.plan_phase_id == plan_phase_id,
+            models.ResourceDemand.resource_role_id == system_role.id,
+        )
+        .first()
+    )
+    if demand is None:
+        return False
+    deleted = (
+        db.query(models.ResourceAssignment)
+        .filter(
+            models.ResourceAssignment.resource_demand_id == demand.id,
+            models.ResourceAssignment.person_id == person_id,
+        )
+        .delete(synchronize_session=False)
+    )
+    return deleted > 0
+
+
 @router.post(
     "/plan-phases/{plan_phase_id}/assign-person", response_model=schemas.PlanPhaseAssignmentSummaryOut
 )
 def assign_person_to_plan_phase(
     plan_phase_id: int, payload: schemas.PlanPhaseAssignPersonRequest, db: Session = Depends(get_db)
 ):
-    """P18/B-4 (Abschnitt 6b.4/6b.10): direkte Personenzuordnung OHNE erzwungene
-    Rollenauswahl - hängt technisch transparent an einer ResourceDemand mit der internen
-    Systemrolle "Ohne Rolle". Ändert plan_fte NIE (Kernprinzip, Abschnitt 3/6b.10) - auch bei
-    Überbesetzung nicht. Upsert: erneutes Zuweisen derselben Person aktualisiert nur die FTE."""
+    """P18/B-4, P20.1 (Abschnitt 3/6b.4/6b.10/9): direkte Personenzuordnung OHNE erzwungene
+    Rollenauswahl UND ohne ResourceDemand als technischen Adapter (P20.1 - vorher: interne
+    Systemrolle "Ohne Rolle"). Ändert plan_fte NIE, auch bei Überbesetzung nicht. Upsert:
+    erneutes Zuweisen derselben Person aktualisiert nur die FTE."""
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
-    if planning_calc.has_children(db, plan_phase_id):
-        raise HTTPException(
-            status_code=422,
-            detail="Direkte Personenzuordnung ist nur auf einer Leaf-Phase möglich (diese Phase ist eine Sammelphase)",
-        )
+    _require_leaf_for_assignment(db, plan_phase)
     person = db.get(models.Person, payload.person_id)
     if person is None:
         raise HTTPException(status_code=404, detail="Person nicht gefunden")
 
-    demand = _get_or_create_carrier_demand(db, plan_phase)
-    now = _now()
-    assignment = (
-        db.query(models.ResourceAssignment)
-        .filter(
-            models.ResourceAssignment.resource_demand_id == demand.id,
-            models.ResourceAssignment.person_id == payload.person_id,
-        )
-        .first()
-    )
-    if assignment is not None:
-        assignment.fte = payload.fte
-        assignment.aktualisiert_am = now
-    else:
-        assignment = models.ResourceAssignment(
-            resource_demand_id=demand.id,
-            person_id=payload.person_id,
-            fte=payload.fte,
-            erstellt_am=now,
-            aktualisiert_am=now,
-        )
-        db.add(assignment)
+    _upsert_direct_assignment(db, plan_phase, payload.person_id, payload.fte)
     db.commit()
     db.refresh(plan_phase)
     return _plan_phase_assignment_summary(db, plan_phase)
@@ -1166,27 +1268,138 @@ def assign_person_to_plan_phase(
     response_model=schemas.PlanPhaseAssignmentSummaryOut,
 )
 def unassign_person_from_plan_phase(plan_phase_id: int, person_id: int, db: Session = Depends(get_db)):
-    """Entfernt die direkte Zuordnung (System-Rolle "Ohne Rolle") dieser Person von dieser
-    Phase. Rührt eine etwaige ZUSÄTZLICHE Zuordnung über eine echte Rollen-Aufschlüsselung
-    (Abschnitt 6b.4) NICHT an - die bleibt über die bestehenden
-    /resource-demands/{id}/assignments-Endpunkte verwaltet."""
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
-    role = _get_or_create_system_role(db)
-    demand = (
-        db.query(models.ResourceDemand)
-        .filter(
-            models.ResourceDemand.plan_phase_id == plan_phase_id,
-            models.ResourceDemand.resource_role_id == role.id,
-        )
-        .first()
-    )
-    if demand is not None:
-        db.query(models.ResourceAssignment).filter(
-            models.ResourceAssignment.resource_demand_id == demand.id,
-            models.ResourceAssignment.person_id == person_id,
-        ).delete(synchronize_session=False)
+    if _delete_person_assignment(db, plan_phase_id, person_id):
         db.commit()
     return _plan_phase_assignment_summary(db, plan_phase)
+
+
+# ---------------------------------------------------------------------------
+# Phasenscoped Assignment-API (Auftrag Abschnitt 27, API-Zielbild) - CRUD ausschließlich für
+# den neuen direkten Pfad (ResourceAssignment.plan_phase_id). Legacy-Zuordnungen über eine
+# ResourceDemand bleiben über die bestehenden /resource-demands/{id}/assignments-Endpunkte
+# erreichbar (nicht Teil dieser neuen, absichtlich schlanken Ressource) - für die
+# Bedarf/Besetzt/Offen-Gesamtsicht bleibt assignment-summary/PlanPhaseDetail die
+# Zusammenführung beider Wege (_plan_phase_assignment_rows).
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{project_id}/plan-phases/{plan_phase_id}/assignments", response_model=list[schemas.ResourceAssignmentOut]
+)
+def list_plan_phase_direct_assignments(project_id: int, plan_phase_id: int, db: Session = Depends(get_db)):
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if plan_phase.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Planphase gehört nicht zu diesem Projekt")
+    rows = (
+        db.query(models.ResourceAssignment, models.Person.display_name)
+        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
+        .filter(models.ResourceAssignment.plan_phase_id == plan_phase_id)
+        .order_by(models.Person.display_name)
+        .all()
+    )
+    return [
+        schemas.ResourceAssignmentOut(
+            id=a.id,
+            resource_demand_id=a.resource_demand_id,
+            plan_phase_id=a.plan_phase_id,
+            person_id=a.person_id,
+            person_name=name,
+            fte=a.fte,
+            erstellt_am=a.erstellt_am,
+            aktualisiert_am=a.aktualisiert_am,
+        )
+        for a, name in rows
+    ]
+
+
+@router.post(
+    "/{project_id}/plan-phases/{plan_phase_id}/assignments",
+    response_model=schemas.ResourceAssignmentOut,
+    status_code=201,
+)
+def create_plan_phase_direct_assignment(
+    project_id: int,
+    plan_phase_id: int,
+    payload: schemas.PlanPhaseResourceAssignmentCreate,
+    db: Session = Depends(get_db),
+):
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if plan_phase.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Planphase gehört nicht zu diesem Projekt")
+    _require_leaf_for_assignment(db, plan_phase)
+    person = db.get(models.Person, payload.person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="Person nicht gefunden")
+
+    assignment = _upsert_direct_assignment(db, plan_phase, payload.person_id, payload.fte)
+    db.commit()
+    db.refresh(assignment)
+    return schemas.ResourceAssignmentOut(
+        id=assignment.id,
+        resource_demand_id=assignment.resource_demand_id,
+        plan_phase_id=assignment.plan_phase_id,
+        person_id=assignment.person_id,
+        person_name=person.display_name,
+        fte=assignment.fte,
+        erstellt_am=assignment.erstellt_am,
+        aktualisiert_am=assignment.aktualisiert_am,
+    )
+
+
+def _get_direct_assignment_or_404(db: Session, plan_phase_id: int, assignment_id: int) -> models.ResourceAssignment:
+    assignment = (
+        db.query(models.ResourceAssignment)
+        .filter(models.ResourceAssignment.id == assignment_id, models.ResourceAssignment.plan_phase_id == plan_phase_id)
+        .first()
+    )
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Ressourcenzuordnung nicht gefunden")
+    return assignment
+
+
+@router.patch(
+    "/{project_id}/plan-phases/{plan_phase_id}/assignments/{assignment_id}",
+    response_model=schemas.ResourceAssignmentOut,
+)
+def update_plan_phase_direct_assignment(
+    project_id: int,
+    plan_phase_id: int,
+    assignment_id: int,
+    payload: schemas.PlanPhaseResourceAssignmentUpdate,
+    db: Session = Depends(get_db),
+):
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if plan_phase.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Planphase gehört nicht zu diesem Projekt")
+    assignment = _get_direct_assignment_or_404(db, plan_phase_id, assignment_id)
+    assignment.fte = payload.fte
+    assignment.aktualisiert_am = _now()
+    db.commit()
+    db.refresh(assignment)
+    person = db.get(models.Person, assignment.person_id)
+    return schemas.ResourceAssignmentOut(
+        id=assignment.id,
+        resource_demand_id=assignment.resource_demand_id,
+        plan_phase_id=assignment.plan_phase_id,
+        person_id=assignment.person_id,
+        person_name=person.display_name if person else "",
+        fte=assignment.fte,
+        erstellt_am=assignment.erstellt_am,
+        aktualisiert_am=assignment.aktualisiert_am,
+    )
+
+
+@router.delete("/{project_id}/plan-phases/{plan_phase_id}/assignments/{assignment_id}", status_code=204)
+def delete_plan_phase_direct_assignment(
+    project_id: int, plan_phase_id: int, assignment_id: int, db: Session = Depends(get_db)
+):
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if plan_phase.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Planphase gehört nicht zu diesem Projekt")
+    assignment = _get_direct_assignment_or_404(db, plan_phase_id, assignment_id)
+    db.delete(assignment)
+    db.commit()
 
 
 @router.get(
@@ -1206,7 +1419,14 @@ def list_plan_phase_assignment_candidates(plan_phase_id: int, db: Session = Depe
     range_start = date.fromisoformat(plan_phase.forecast_start)
     range_end = date.fromisoformat(plan_phase.forecast_end)
 
+    # P20.1: BEIDE Ressourcenwege ausschließen (direkte plan_phase_id-Zuordnung + Legacy über
+    # eine ResourceDemand dieser Phase) - Rollen-Aufschlüsselung UND direkte Zuordnung zählen
+    # weiterhin gleichermaßen.
     already_assigned = {
+        row[0] for row in db.query(models.ResourceAssignment.person_id).filter(
+            models.ResourceAssignment.plan_phase_id == plan_phase_id
+        ).all()
+    } | {
         row[0]
         for row in db.query(models.ResourceAssignment.person_id)
         .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)

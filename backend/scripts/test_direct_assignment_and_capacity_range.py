@@ -8,9 +8,10 @@ echte FastAPI-App. Prüft:
    Monatswerte).
 2. GET /resource-roles blendet die interne Systemrolle "Ohne Rolle" standardmäßig aus,
    include_system_roles=true zeigt sie.
-3. POST /plan-phases/{id}/assign-person ordnet eine Person OHNE Rollenauswahl zu, legt dafür
-   genau eine ResourceDemand mit der Systemrolle an (idempotent bei einer zweiten Person auf
-   derselben Phase - keine zweite Demand-Zeile).
+3. POST /plan-phases/{id}/assign-person ordnet eine Person OHNE Rollenauswahl zu - P20.1:
+   OHNE dabei eine ResourceDemand als technischen Adapter anzulegen (ResourceAssignment.
+   plan_phase_id wird direkt gesetzt, siehe test_p20_1_direct_plan_phase_assignments.py für
+   die vollständige P20.1-Testabdeckung dieses neuen Verhaltens).
 4. Bedarf/Besetzt/Offen entspricht exakt dem Beispiel aus der Aufgabenstellung (Abschnitt 8):
    plan_fte bleibt unverändert 0.40, auch bei Überbesetzung (Summe > plan_fte).
 5. Direkte Zuordnung auf einer Parent-Phase (has_children) wird abgelehnt (422).
@@ -160,10 +161,12 @@ def main() -> None:
     if summary["plan_fte"] != 0.4 or summary["assigned_fte"] != 0.2 or summary["open_fte"] != 0.2:
         _fail("assign-person", f"Bedarf/Besetzt/Offen falsch nach 1. Zuordnung: {summary}")
 
+    # P20.1: KEINE ResourceDemand mehr als technischer Adapter - die Zuordnung hängt direkt an
+    # der PlanPhase.
     demands = client.get(f"/projects/{project_id}/resource-demands").json()
     demands_for_phase = [d for d in demands if d["plan_phase_id"] == phase_id]
-    if len(demands_for_phase) != 1:
-        _fail("assign-person", f"erwartet genau 1 Carrier-Demand, gefunden {len(demands_for_phase)}")
+    if len(demands_for_phase) != 0:
+        _fail("assign-person", f"erwartet 0 ResourceDemands (kein Carrier-Adapter mehr), gefunden {len(demands_for_phase)}")
 
     print("4/6  Zweite Person, dann Überbesetzung - plan_fte bleibt unverändert ...")
     resp = client.post(
@@ -187,16 +190,18 @@ def main() -> None:
     demands_for_phase_after = [
         d for d in client.get(f"/projects/{project_id}/resource-demands").json() if d["plan_phase_id"] == phase_id
     ]
-    if len(demands_for_phase_after) != 1:
-        _fail("Idempotenz Carrier-Demand", f"erwartet weiterhin 1 Demand: {demands_for_phase_after}")
+    if len(demands_for_phase_after) != 0:
+        _fail("Kein Carrier-Adapter", f"erwartet weiterhin 0 ResourceDemands: {demands_for_phase_after}")
 
-    print("4b/6  P19.2: PlanPhaseDetail bettet assignment_summary + resource_demands[].assignments ein ...")
-    carrier_demand = demands_for_phase_after[0]
-    if {a["person_id"] for a in carrier_demand.get("assignments", [])} != {dominik["id"], max_["id"]}:
+    print("4b/6  P20.1: phasenscoped /assignments-Endpoint + PlanPhaseDetail.assignment_summary ...")
+    direct_assignments = client.get(f"/projects/{project_id}/plan-phases/{phase_id}/assignments").json()
+    if {a["person_id"] for a in direct_assignments} != {dominik["id"], max_["id"]}:
         _fail(
-            "ResourceDemandOut.assignments (N+1-Fix)",
-            f"erwartet Dominik+Max eingebettet in der Carrier-Demand, bekommen: {carrier_demand}",
+            "Phasenscoped /assignments",
+            f"erwartet Dominik+Max als direkte Zuordnungen, bekommen: {direct_assignments}",
         )
+    if any(a["resource_demand_id"] is not None for a in direct_assignments):
+        _fail("Phasenscoped /assignments", f"erwartet resource_demand_id=None (kein Adapter): {direct_assignments}")
     detail = client.get(f"/projects/plan-phases/{phase_id}").json()
     embedded_summary = detail.get("assignment_summary")
     standalone_summary = client.get(f"/projects/plan-phases/{phase_id}/assignment-summary").json()
@@ -207,12 +212,26 @@ def main() -> None:
         )
     if embedded_summary["assigned_fte"] != 0.5 or embedded_summary["open_fte"] != -0.1:
         _fail("PlanPhaseDetail.assignment_summary", f"erwartet assigned_fte=0.5/open_fte=-0.1: {embedded_summary}")
-    detail_carrier_demand = next(d for d in detail["resource_demands"] if d["id"] == carrier_demand["id"])
-    if {a["person_id"] for a in detail_carrier_demand["assignments"]} != {dominik["id"], max_["id"]}:
-        _fail(
-            "PlanPhaseDetail.resource_demands[].assignments",
-            f"weicht vom eigenständigen resource-demands-Endpoint ab: {detail_carrier_demand}",
-        )
+    if detail["resource_demands"]:
+        _fail("PlanPhaseDetail.resource_demands", f"erwartet leer (kein Carrier-Adapter mehr): {detail['resource_demands']}")
+
+    print("4c/6  Phasenscoped PATCH/DELETE auf direkte Zuordnung ...")
+    max_direct = next(a for a in direct_assignments if a["person_id"] == max_["id"])
+    patch_resp = client.patch(
+        f"/projects/{project_id}/plan-phases/{phase_id}/assignments/{max_direct['id']}", json={"fte": 0.25}
+    )
+    if patch_resp.status_code != 200 or patch_resp.json()["fte"] != 0.25:
+        _fail("PATCH /assignments", f"{patch_resp.status_code}: {patch_resp.text}")
+    delete_resp = client.delete(f"/projects/{project_id}/plan-phases/{phase_id}/assignments/{max_direct['id']}")
+    if delete_resp.status_code != 204:
+        _fail("DELETE /assignments", f"{delete_resp.status_code}: {delete_resp.text}")
+    summary_after_delete = client.get(f"/projects/plan-phases/{phase_id}/assignment-summary").json()
+    if summary_after_delete["assigned_fte"] != 0.2:
+        _fail("DELETE /assignments Wirkung", f"erwartet assigned_fte=0.2 nach Löschen von Max: {summary_after_delete}")
+    # Max erneut über assign-person zuordnen, damit die Restlogik von Schritt 5/6 unverändert bleibt.
+    resp = client.post(f"/projects/plan-phases/{phase_id}/assign-person", json={"person_id": max_["id"], "fte": 0.3})
+    if resp.status_code != 200:
+        _fail("Re-Assign Max", f"{resp.status_code}: {resp.text}")
 
     print("5/6  Direkte Zuordnung auf einer Parent-Phase wird abgelehnt ...")
     child_resp = client.post(

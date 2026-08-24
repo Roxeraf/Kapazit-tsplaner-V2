@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    CheckConstraint,
     Float,
     ForeignKey,
     String,
@@ -774,14 +775,44 @@ class ResourceDemand(Base):
 
 
 class ResourceAssignment(Base):
-    """Ordnet einen ResourceDemand konkreten Personen zu (Master-MD Abschnitt 18) - getrennt
-    vom bestehenden Assignment-Modell (TeamMember<->Project), siehe Klassendoku oben."""
+    """Ordnet Personen einer Ressourcenplanungsebene zu (Master-MD Abschnitt 18) - getrennt
+    vom bestehenden Assignment-Modell (TeamMember<->Project), siehe Klassendoku oben.
+
+    P20.1 (Direct Assignment Foundation, siehe CONCEPT.md Abschnitt 12/6c): ein
+    ResourceAssignment haengt seit diesem Paket entweder an einer ResourceDemand (Legacy/
+    Compat-Pfad ueber die optionale Rollen-Aufschluesselung bzw. altes Grobplanungs-Raster,
+    resource_demand_id gesetzt) ODER DIREKT an einer Leaf-PlanPhase (neuer Standardpfad,
+    plan_phase_id gesetzt) - nie beides gleichzeitig leer (ck_resource_assignments_has_target).
+    Neue Zuordnungen ueber den normalen PlanPhase-Flow erzeugen NIE mehr eine
+    ResourceDemand nur als technischen Adapter (vorher: interne Systemrolle "Ohne Rolle").
+    resource_demand_id bleibt nullable/compat, bis eine ausgefuehrte Migration
+    (scripts/migrate_resource_assignments_to_plan_phase.py) und ein spaeterer B-8-Cutover
+    alle Alt-Zeilen ueberfuehrt haben - kein Big-Bang-Drop."""
 
     __tablename__ = "resource_assignments"
-    __table_args__ = (UniqueConstraint("resource_demand_id", "person_id"),)
+    __table_args__ = (
+        # Unbenannt, wie im urspruenglichen Baseline-Schema (0001) - nicht umbenannt, um keine
+        # Drift zwischen models.py und der Alembic-Kette zu erzeugen (siehe check_migrations.py).
+        UniqueConstraint("resource_demand_id", "person_id"),
+        UniqueConstraint("plan_phase_id", "person_id", name="uq_resource_assignments_phase_person"),
+        CheckConstraint(
+            "(resource_demand_id IS NOT NULL) OR (plan_phase_id IS NOT NULL)",
+            name="ck_resource_assignments_has_target",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    resource_demand_id: Mapped[int] = mapped_column(ForeignKey("resource_demands.id"))
+    # Legacy/Compat (P20.1): nullable seit diesem Paket - eine direkte PlanPhase-Zuordnung
+    # setzt dieses Feld nicht mehr.
+    resource_demand_id: Mapped[int | None] = mapped_column(ForeignKey("resource_demands.id"), nullable=True)
+    # Neuer Standardpfad (P20.1): direkte Zuordnung zu einer Leaf-PlanPhase, ohne ResourceDemand/
+    # ResourceRole als technische Zwischenebene. ON DELETE CASCADE - die Zuordnung gehoert
+    # fachlich zur Phase (Abschnitt 3 des Auftrags: "ResourceAssignment gehoert direkt zur Leaf
+    # PlanPhase"), sie ergibt ohne ihre Phase keinen Sinn mehr (anders als Comment/Task/Blocker/
+    # Decision, die als lose Historie erhalten bleiben).
+    plan_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plan_phases.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
     fte: Mapped[float] = mapped_column(Float, default=0)
     erstellt_am: Mapped[str] = mapped_column(String(40))

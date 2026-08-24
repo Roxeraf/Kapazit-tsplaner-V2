@@ -493,6 +493,9 @@ class PlanPhaseCreate(BaseModel):
     status: str = "geplant"  # Zielvokabular: geplant/laufend/abgeschlossen/entfaellt (siehe models.PlanPhase.status)
     progress: float | None = None
     plan_fte: float | None = None
+    # P20.1 (BD-1A CLOSED): Jira-Label fuer den automatischen Worklog-Resolver, nur auf
+    # Leaf-Phasen sinnvoll - gleicher Lifecycle wie plan_fte (siehe models.PlanPhase.jira_label).
+    jira_label: str | None = None
     owner_person_id: int | None = None
     owner_team_id: int | None = None
     tags: list[str] = []
@@ -517,6 +520,7 @@ class PlanPhaseUpdate(BaseModel):
     # progress mehr schreiben können, nicht nur create_plan_phase().
     progress: float | None = None
     plan_fte: float | None = None
+    jira_label: str | None = None
     owner_person_id: int | None = None
     owner_team_id: int | None = None
     tags: list[str] | None = None
@@ -538,6 +542,8 @@ class PlanPhaseOut(BaseModel):
     status: str
     progress: float | None
     plan_fte: float | None
+    # P20.1 (BD-1A CLOSED): siehe models.PlanPhase.jira_label / PlanPhaseCreate.jira_label.
+    jira_label: str | None = None
     owner_person_id: int | None
     owner_team_id: int | None
     erstellt_am: str
@@ -552,6 +558,28 @@ class PlanPhaseOut(BaseModel):
     derived_forecast_start: str | None = None
     derived_forecast_end: str | None = None
     derived_capacity: float | None = None
+
+
+class WorklogPhaseOverrideCreate(BaseModel):
+    """P20.1 (BD-1B CLOSED): manuelle Worklog->PlanPhase-Zuordnung auf Issue-Key-Ebene, siehe
+    models.WorklogPhaseOverride. previous_status wird optional mitgegeben, da der Resolver
+    (P20.2), der ihn eigentlich berechnet, in diesem Paket noch nicht existiert."""
+
+    jira_issue_key: str
+    previous_status: str | None = None
+    note: str | None = None
+    created_by_person_id: int | None = None
+
+
+class WorklogPhaseOverrideOut(BaseModel):
+    id: int
+    project_id: int
+    jira_issue_key: str
+    plan_phase_id: int
+    previous_status: str | None
+    note: str | None
+    created_by_person_id: int | None
+    created_at: str
 
 
 class MilestoneCreate(BaseModel):

@@ -107,21 +107,68 @@ def _maybe_historize_parent_fte(db: Session, parent: models.PlanPhase) -> None:
     keine automatische Reaktivierung, falls sie später wieder zum Leaf wird (letztes Kind
     entfernt/reparented: keine Sonderbehandlung, plan_fte bleibt NULL, Korrektur 35.1). Ein
     bereits kinderloser Aufruf mit plan_fte=None ist ein No-Op (idempotent bei weiteren
-    Kindern derselben Phase)."""
-    if parent.plan_fte is None:
-        return
-    db.add(
-        models.PlanHistory(
-            project_id=parent.project_id,
-            plan_phase_id=parent.id,
-            bereich="phase_struktur",
-            feld="plan_fte",
-            alter_wert=str(parent.plan_fte),
-            neuer_wert=None,
-            geaendert_am=_now(),
+    Kindern derselben Phase).
+
+    P20.1 (BD-1E CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 15):
+    jira_label folgt demselben Lifecycle wie plan_fte - wird hier mit historisiert/zurückgesetzt,
+    kein zweiter Code-Pfad an den drei Aufrufstellen (create_plan_phase, update_plan_phase,
+    reparent_children)."""
+    if parent.plan_fte is not None:
+        db.add(
+            models.PlanHistory(
+                project_id=parent.project_id,
+                plan_phase_id=parent.id,
+                bereich="phase_struktur",
+                feld="plan_fte",
+                alter_wert=str(parent.plan_fte),
+                neuer_wert=None,
+                geaendert_am=_now(),
+            )
         )
+        parent.plan_fte = None
+    if parent.jira_label is not None:
+        db.add(
+            models.PlanHistory(
+                project_id=parent.project_id,
+                plan_phase_id=parent.id,
+                bereich="phase_struktur",
+                feld="jira_label",
+                alter_wert=parent.jira_label,
+                neuer_wert=None,
+                geaendert_am=_now(),
+            )
+        )
+        parent.jira_label = None
+
+
+def _check_jira_label_conflict(
+    db: Session, project_id: int, plan_phase_id: int | None, jira_label: str | None
+) -> None:
+    """P20.1 (BD-1G CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 11):
+    zwei Leaf-Phasen desselben Projekts dürfen nie denselben jira_label-Wert tragen - jedes
+    matchende Issue würde sonst laut Resolver (P20.2) strukturell für beide Phasen zutreffen
+    und wäre damit immer AMBIGUOUS. Harter Block (409) statt Warnung, da es dafür keinen
+    legitimen Anwendungsfall gibt (anders als bei einem Issue mit mehreren unterschiedlichen
+    Phase-Labels, das ein gültiger Ambiguous-Grenzfall bleibt). plan_phase_id ist None beim
+    Anlegen (die Phase existiert noch nicht, schließt sich also nie selbst aus)."""
+    if jira_label is None:
+        return
+    query = db.query(models.PlanPhase).filter(
+        models.PlanPhase.project_id == project_id,
+        models.PlanPhase.jira_label == jira_label,
     )
-    parent.plan_fte = None
+    if plan_phase_id is not None:
+        query = query.filter(models.PlanPhase.id != plan_phase_id)
+    conflict = query.first()
+    if conflict is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f'Das Label "{jira_label}" ist bereits Phase "{conflict.phase_type}" '
+                f"(#{conflict.id}) zugeordnet. Ein Label darf pro Projekt nur einer "
+                "Leaf-Phase zugeordnet sein."
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +197,7 @@ def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
         status=p.status,
         progress=p.progress,
         plan_fte=p.plan_fte,
+        jira_label=p.jira_label,
         owner_person_id=p.owner_person_id,
         owner_team_id=p.owner_team_id,
         erstellt_am=p.erstellt_am,
@@ -326,6 +374,7 @@ def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDet
         status=p.status,
         progress=p.progress,
         plan_fte=p.plan_fte,
+        jira_label=p.jira_label,
         owner_person_id=p.owner_person_id,
         owner_team_id=p.owner_team_id,
         erstellt_am=p.erstellt_am,
@@ -421,6 +470,7 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
     _check_subproject(db, project_id, payload.subproject_id)
     _check_owner(db, payload.owner_person_id, payload.owner_team_id)
     _check_parent_phase(db, project_id, plan_phase_id=None, parent_phase_id=payload.parent_phase_id)
+    _check_jira_label_conflict(db, project_id, plan_phase_id=None, jira_label=payload.jira_label)
     now = _now()
     plan_phase = models.PlanPhase(
         project_id=project_id,
@@ -437,6 +487,7 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
         status=payload.status,
         progress=None,  # P6: Fortschritts-Dimension deprecatet - wird beim Anlegen ignoriert
         plan_fte=payload.plan_fte,
+        jira_label=payload.jira_label,
         owner_person_id=payload.owner_person_id,
         owner_team_id=payload.owner_team_id,
         erstellt_am=now,
@@ -470,6 +521,10 @@ def update_plan_phase(plan_phase_id: int, payload: schemas.PlanPhaseUpdate, db: 
     new_parent_id = changes.get("parent_phase_id")
     if "parent_phase_id" in changes and new_parent_id != plan_phase.parent_phase_id:
         _check_parent_phase(db, plan_phase.project_id, plan_phase_id=plan_phase.id, parent_phase_id=new_parent_id)
+    if "jira_label" in changes and changes["jira_label"] != plan_phase.jira_label:
+        _check_jira_label_conflict(
+            db, plan_phase.project_id, plan_phase_id=plan_phase.id, jira_label=changes["jira_label"]
+        )
     if changes:
         for field, value in changes.items():
             setattr(plan_phase, field, value)
@@ -701,6 +756,94 @@ def get_plan_phase_detail(plan_phase_id: int, db: Session = Depends(get_db)):
 def get_plan_phase_metrics(plan_phase_id: int, db: Session = Depends(get_db)):
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
     return _plan_phase_metrics(db, plan_phase)
+
+
+# ---------------------------------------------------------------------------
+# Worklog Phase Overrides (P20.1, BD-1B CLOSED, siehe
+# P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 14/25) - manuelle
+# Worklog->PlanPhase-Zuordnung auf Issue-Key-Ebene. Ändert niemals Jira/Tempo-Originaldaten.
+# Der Resolver, der diese Overrides tatsächlich auswertet, folgt erst in P20.2 - dieses Paket
+# liefert nur die Datenhaltung + CRUD.
+# ---------------------------------------------------------------------------
+
+
+def _worklog_phase_override_out(o: models.WorklogPhaseOverride) -> schemas.WorklogPhaseOverrideOut:
+    return schemas.WorklogPhaseOverrideOut(
+        id=o.id,
+        project_id=o.project_id,
+        jira_issue_key=o.jira_issue_key,
+        plan_phase_id=o.plan_phase_id,
+        previous_status=o.previous_status,
+        note=o.note,
+        created_by_person_id=o.created_by_person_id,
+        created_at=o.created_at,
+    )
+
+
+@router.get(
+    "/plan-phases/{plan_phase_id}/worklog-overrides",
+    response_model=list[schemas.WorklogPhaseOverrideOut],
+)
+def list_worklog_overrides(plan_phase_id: int, db: Session = Depends(get_db)):
+    _get_plan_phase_or_404(db, plan_phase_id)
+    rows = (
+        db.query(models.WorklogPhaseOverride)
+        .filter(models.WorklogPhaseOverride.plan_phase_id == plan_phase_id)
+        .order_by(models.WorklogPhaseOverride.created_at.desc())
+        .all()
+    )
+    return [_worklog_phase_override_out(o) for o in rows]
+
+
+@router.post(
+    "/plan-phases/{plan_phase_id}/worklog-overrides",
+    response_model=schemas.WorklogPhaseOverrideOut,
+    status_code=201,
+)
+def create_worklog_override(
+    plan_phase_id: int, payload: schemas.WorklogPhaseOverrideCreate, db: Session = Depends(get_db)
+):
+    """Legt einen Override an oder verschiebt einen bestehenden auf diese Phase (Upsert per
+    jira_issue_key, das über die gesamte Tabelle UNIQUE ist - Abschnitt 14: "Bearbeiten" eines
+    Overrides ist fachlich dasselbe wie ihn erneut mit neuer Ziel-Phase anzulegen)."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    if payload.created_by_person_id is not None and db.get(models.Person, payload.created_by_person_id) is None:
+        raise HTTPException(status_code=404, detail="Person (created_by_person_id) nicht gefunden")
+    override = (
+        db.query(models.WorklogPhaseOverride)
+        .filter(models.WorklogPhaseOverride.jira_issue_key == payload.jira_issue_key)
+        .first()
+    )
+    now = _now()
+    if override is None:
+        override = models.WorklogPhaseOverride(jira_issue_key=payload.jira_issue_key)
+        db.add(override)
+    override.project_id = plan_phase.project_id
+    override.plan_phase_id = plan_phase_id
+    override.previous_status = payload.previous_status
+    override.note = payload.note
+    override.created_by_person_id = payload.created_by_person_id
+    override.created_at = now
+    db.commit()
+    db.refresh(override)
+    return _worklog_phase_override_out(override)
+
+
+@router.delete("/plan-phases/{plan_phase_id}/worklog-overrides/{jira_issue_key}", status_code=204)
+def delete_worklog_override(plan_phase_id: int, jira_issue_key: str, db: Session = Depends(get_db)):
+    _get_plan_phase_or_404(db, plan_phase_id)
+    override = (
+        db.query(models.WorklogPhaseOverride)
+        .filter(
+            models.WorklogPhaseOverride.plan_phase_id == plan_phase_id,
+            models.WorklogPhaseOverride.jira_issue_key == jira_issue_key,
+        )
+        .first()
+    )
+    if override is None:
+        raise HTTPException(status_code=404, detail="Override nicht gefunden")
+    db.delete(override)
+    db.commit()
 
 
 # ---------------------------------------------------------------------------

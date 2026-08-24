@@ -768,13 +768,15 @@ Phase-Mapping ist eine zusätzliche, additive Aufschlüsselung derselben
 Mapping-Kriterium ist **CLOSED** (BD-1A–G) — Jira-Label pro Leaf-Phase (`PlanPhase.jira_label`,
 matcht gegen `jira_issue_cache.labels`) mit manuellem Issue-Key-Override
 (`worklog_phase_overrides`, höchste Priorität) als Ausnahme. Kein Datum als primäres
-Kriterium, keine generische Regelmaschine. **Implementiert (P20.1, Abschnitt 16.19):**
-Datenmodell, Sync-Erweiterung (`jira_sync.sync_project` befüllt `jira_issue_cache` beim
-gleichen API-Call), Override-CRUD, Konfliktprüfung. **Noch nicht implementiert:** der
-eigentliche Worklog→PlanPhase-Resolver (P20.2) und seine Verdrahtung in
-`phase_metrics_calc.effort_consumption()`/`PhaseMetricsOut` (P20.4) — `ist_hours`/
-`effort_consumption_pct` liefern bis dahin weiterhin konsequent `null`, nie eine
-Datumsheuristik oder ein Fake-Ist.
+Kriterium, keine generische Regelmaschine. **Implementiert:** Datenmodell, Sync-Erweiterung, Override-CRUD, Konfliktprüfung (P20.1,
+Abschnitt 16.19). **Resolver-Modul implementiert** (P20.2, `app/worklog_resolver.py`,
+Abschnitt 16.20): `resolve_project_issues()` löst pro Projekt jedes im `jira_issue_cache`
+stehende Issue eindeutig auf einen Status auf (`matched`/`unmapped`/`ambiguous`), inkl.
+Erklärbarkeit (`mapping_source`/`mapping_value`) und Projekt-Scope. **Noch nicht
+implementiert:** die Aggregation zu Coverage/Unmapped/Ambiguous-Kennzahlen (P20.3) und die
+Verdrahtung in `phase_metrics_calc.effort_consumption()`/`PhaseMetricsOut` (P20.4) — kein
+API-Endpoint konsumiert den Resolver bisher, `ist_hours`/`effort_consumption_pct` liefern
+deshalb weiterhin konsequent `null`, nie eine Datumsheuristik oder ein Fake-Ist.
 
 Konfiguration über `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`; ohne diese bleibt der
 Sync deaktiviert (`GET /jira/status`), die übrige Planung funktioniert unabhängig davon.
@@ -989,7 +991,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 | Planstunden | berechnet (`phase_metrics_calc.plan_hours`) | nicht editierbar | `plan_fte` × Werktage × Wochenstunden/5 | aktuell |
 | Aufschlüsselung | `ResourceDemand` (mit `plan_phase_id`) | Drawer "Kapazität" | — | aktuell, optional, keine Sync-Pflicht zu `plan_fte` |
 | Besetzung | `ResourceAssignment` | Drawer "Kapazität" | — | aktuell |
-| Ist-Aufwand (Phase) | — | — | Tempo/Jira, Resolver fehlt noch (P20.2) | Mapping-Kriterium **CLOSED**, Datenmodell **IMPLEMENTIERT** (P20.1, Abschnitt 16.19) — Resolver/Verdrahtung fehlen, liefert bis dahin weiterhin `null` |
+| Ist-Aufwand (Phase) | — | — | Tempo/Jira via `worklog_resolver.resolve_project_issues` | Mapping-Kriterium **CLOSED**, Datenmodell (P20.1) + Resolver-Modul (P20.2, Abschnitt 16.19/16.20) **IMPLEMENTIERT** — noch kein API-Endpoint/keine Metriken-Verdrahtung (P20.3/P20.4), `PhaseMetricsOut` liefert bis dahin weiterhin `null` |
 | Phase-Jira-Zuordnung | `PlanPhase.jira_label` | Drawer "Übersicht" (Label-Picker folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, nur auf Leaf-Phasen, gleicher Lifecycle wie `plan_fte` |
 | Worklog-Metadaten-Cache | `jira_issue_cache` | nicht editierbar (Sync-Ergebnis) | Jira-Issue-Suche bei `POST /jira/sync` | **IMPLEMENTIERT (P20.1)** |
 | Manuelle Worklog-Zuordnung | `worklog_phase_overrides` | `POST/DELETE .../worklog-overrides` (UI folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, ändert nie Jira/Tempo-Originaldaten, höchste Resolver-Priorität sobald P20.2 existiert |
@@ -1009,7 +1011,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 
 | ID | Frage | Status |
 |---|---|---|
-| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | Kriterium **CLOSED** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell + Sync-Erweiterung + Konfliktprüfung sind implementiert (P20.1, Abschnitt 16.19). Resolver (P20.2) und die Metriken-Verdrahtung (P20.4) fehlen noch — `effort_consumption_pct`/`ist_hours` liefern bis dahin weiterhin konsequent `null`, keine Heuristik. |
+| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | Kriterium **CLOSED** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1) und Resolver-Modul (P20.2, `worklog_resolver.py`, Abschnitt 16.20) sind implementiert. Die Metriken-Verdrahtung (P20.4: `ist_hours`/`effort_consumption_pct` in `PhaseMetricsOut`) und Coverage/Unmapped/Ambiguous-Aggregation (P20.3) fehlen noch — `PhaseMetricsOut` liefert bis dahin weiterhin konsequent `null`, keine Heuristik. |
 | BD-3 | Bewertungs-Thresholds für Phasenmetriken (🟢/🟡/🔴 auf `plan_hours`/`time_progress_pct`/Reconciliation)? | offen — Metriken werden aktuell ohne Ampel gezeigt |
 | BD-4 | Feiertags-Handling für Planstunden (aktuell Mo–Fr ohne Feiertagsabzug) | offen, dokumentierter Scope-Cut, keine stille Baseline-Änderung |
 | BD-5 | `ResourceAssignment` mit Teil-Zeiträumen (Sub-Ranges) statt einer FTE über die ganze Demand-Periode? | offen |
@@ -1045,8 +1047,9 @@ Werktage-Logik ableitbar, keine offene Frage.
 
 ## 15. Deferred Features
 
-- Tempo→PlanPhase-Mapping: **Mapping-Domain implementiert (P20.1, Abschnitt 16.19)** —
-  Resolver/Coverage/Metriken-Verdrahtung (P20.2–P20.7) bleiben deferred
+- Tempo→PlanPhase-Mapping: **Mapping-Domain (P20.1) + Resolver-Modul (P20.2, Abschnitt
+  16.19/16.20) implementiert** — Coverage/Metriken-Verdrahtung/UX (P20.3–P20.7) bleiben
+  deferred
 - `PlanPhase.progress`-Spalte tatsächlich droppen (Schema-Cleanup erst, wenn alle Consumer
   entfernt sind — kein destruktives Cleanup nur für UX)
 - `phase_control_status`/🟢🟡🔴-Bewertung der Phasenmetriken (BD-3)
@@ -2386,6 +2389,53 @@ Parent-Übergang inkl. PlanHistory-Eintrag, WorklogPhaseOverride-CRUD inkl. Upse
 Backend-Testskripte (u. a. `test_planning_phase_tree_api.py`, das denselben
 Parent-Übergangs-Pfad testet) unverändert grün — keine Regression am `plan_fte`-Lifecycle.
 App-Import, Migration auf frischer SQLite-DB und OpenAPI-Schema-Generierung geprüft.
+
+### 16.20 P20.2 — Worklog → PlanPhase Resolver (dieser Durchgang)
+
+**Auftrag:** zweites von acht additiven P20-Paketen (abhängig von P20.1, Abschnitt 16.19) —
+der eigentliche Resolver, der einem Jira-Issue anhand der in P20.1 geschaffenen Datenlage
+(`PlanPhase.jira_label`, `jira_issue_cache`, `worklog_phase_overrides`) genau einen Status
+zuweist. Reines Domain-Modul ohne API-Anbindung (folgt in P20.3/P20.4) — bewusst zuerst
+isoliert gebaut und getestet, bevor Coverage-Aggregation und Metriken-Verdrahtung darauf
+aufsetzen.
+
+**Umsetzung — neues Modul `app/worklog_resolver.py`:**
+
+- **`resolve_issue(issue_key, issue_labels, override_phase_id, phases_by_label)`** — reine
+  Funktion, kein DB-Zugriff, keine Seiteneffekte (Auftrag Abschnitt 8: "isoliert testbar").
+  Prioritätskette exakt wie im P20-Dokument (Abschnitt 8) spezifiziert: Override (falls
+  gesetzt) sticht **immer**, auch wenn die Labels für sich genommen ambiguous wären; sonst
+  Label-Match gegen `phases_by_label` — kein Treffer → `UNMAPPED`, genau ein Treffer →
+  `MATCHED` (`mapping_source="jira_label"`), mehr als ein Treffer → `AMBIGUOUS` (mit
+  `candidate_phase_ids` für die spätere UI-Erklärung, Auftrag Abschnitt 35). Kein Datum wird
+  an keiner Stelle konsultiert.
+- **`resolve_project_issues(db, project_id)`** — Orchestrierung: löst **je Issue** auf (nicht
+  je `jira_worklogs_cache`-Zeile — ein Ticket gehört über seine gesamte Laufzeit zu genau
+  einer Phase, siehe `WorklogPhaseOverride`-Docstring), damit alle Worklogs desselben Issues
+  automatisch dieselbe Zuordnung erhalten, ohne N+1 über Worklog-Zeilen. Drei DB-Queries
+  (Issues, Overrides, Leaf-Phasen mit Label), danach reine In-Memory-Berechnung. Ein
+  Override für ein Issue, das (noch) nicht im `jira_issue_cache` steht (Override vor dem
+  nächsten Sync angelegt), löst trotzdem `MATCHED` auf — ein Override verschwindet nie nur,
+  weil der Cache noch nicht nachgezogen ist. Strikt projekt-gescoped: ein zweites Projekt mit
+  identischen Label-Werten beeinflusst die Auflösung nicht.
+- `ResolutionStatus` (Enum: `matched`/`unmapped`/`ambiguous`) und `IssueResolution`
+  (Dataclass: `status`, `plan_phase_id`, `mapping_source`, `mapping_value`,
+  `candidate_phase_ids`) sind das Ergebnisformat — noch kein Pydantic-Schema/API-Response,
+  das folgt erst mit dem Endpoint in P20.3/P20.4.
+
+**Bewusst nicht Teil von P20.2:** kein API-Endpoint, keine Coverage-/Unmapped-/
+Ambiguous-Aggregation über ein ganzes Projekt (P20.3), keine Verdrahtung in
+`PhaseMetricsOut`/`phase_metrics_calc.effort_consumption()` (P20.4) — `ist_hours`/
+`effort_consumption_pct` bleiben bis dahin `null`. Keine Migration (reines Python-Modul,
+keine neue Tabelle/Spalte).
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_worklog_resolver.py` —
+`resolve_issue()` isoliert (Unmapped/Matched/Ambiguous/Override-Vorrang inkl. Override über
+ambiguous Labels hinweg) sowie `resolve_project_issues()` gegen echte DB-Zeilen (Label-Match,
+Ambiguous mit korrekten `candidate_phase_ids`, Override mit und ohne Cache-Eintrag,
+Projekt-Scope-Trennung, parallele Phasen mit identischem Zeitraum die ausschließlich über
+Labels unterschieden werden, AT5). Alle acht Backend-Testskripte (sechs bestehende + beide
+P20-Skripte) grün.
 
 ---
 

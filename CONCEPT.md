@@ -1,9 +1,13 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Version:** v0.24 (P20 — Tempo/Jira→PlanPhase-Mapping vollständig implementiert, BD-1
-CLOSED, siehe Abschnitt 16.19–16.25) **Vorherige Marke:** v0.23 (P18 Finalization —
-CONCEPT.md als Rebuild-Spezifikation bereinigt, realistischer Migrations-Dry-Run bewertet,
-B-8 weiterhin BLOCKED — siehe Abschnitt 16.17)
+**Version:** v0.25 (P20.2 — Regression Recovery: App-Start auf echtem PostgreSQL und
+3-Ebenen-`delete-subtree` repariert, beide Root Causes auf SQLite strukturell unauffindbar
+gewesen, siehe Abschnitt 16.28) **Vorherige Marken:** v0.24 (P20 — Tempo/Jira→PlanPhase-Mapping
+vollständig implementiert, BD-1 CLOSED, siehe Abschnitt 16.19–16.25); P20.1 (PlanPhase
+Simplification, direkte `ResourceAssignment`-Domäne ohne Rollenzwang, Delete Stabilization —
+siehe Abschnitt 16.27, im ursprünglichen v0.24-Header nicht separat vermerkt); v0.23 (P18
+Finalization — CONCEPT.md als Rebuild-Spezifikation bereinigt, realistischer Migrations-Dry-Run
+bewertet, B-8 weiterhin BLOCKED — siehe Abschnitt 16.17)
 **Stand:** Alle in Abschnitt 16 gelisteten Phasen bis P17 sind umgesetzt. **P18 ist fachlich/
 dokumentarisch abgeschlossen bis auf den produktiven Cutover (B-8).** **P19** hat die
 `PlanPhase`-Workspace-UX konsolidiert (Abschnitt 16.18). **P20** hat die zuvor offene
@@ -1012,13 +1016,35 @@ Unterphase/Leaf ohne Children → erfolgreich, Parent-Aggregation aktualisiert s
 Children → `409` mit `{message, child_count}`, nie ein roher Fehler. Letztes Kind gelöscht →
 Parent wird wieder Leaf, `plan_fte` bleibt `NULL` (keine implizite Reaktivierung, 6.1a
 unverändert). Kein verwaister Zustand nach jedem Löschpfad (Regressionstest:
-`test_p20_1_delete_stabilization.py`).
+`test_p20_1_delete_stabilization.py`, `test_p20_2_regression_recovery.py`).
 
 **Frontend-Fehlerbehandlung** (`api/client.ts`, `PlanPhaseDeleteDialog.tsx`): neue `ApiError`-
 Klasse (Status + geparster JSON-`detail`) und `formatApiError()` — unterscheidet
 Netzwerkfehler ("Der Server ist derzeit nicht erreichbar"), strukturierte `409`-Konflikte
 (Backend-`message`) und sonstige API-Fehler. Niemals mehr eine rohe `TypeError: Failed to
 fetch` im Dialog.
+
+**P20.2-Nachtrag — zweiter, unabhängiger Delete-Bug bei 3 Ebenen (Regression Recovery):** Der
+oben beschriebene Fix deckte den Einzel-/2-Ebenen-Fall ab, aber `delete_subtree` löschte eine
+volle 3-Ebenen-Hierarchie (Parent → Child → Grandchild, die von BD-10 erlaubte Maximaltiefe)
+in der falschen Reihenfolge. Ursache: der Code löschte über ORM-Objekt-`db.delete(phase)` je
+Nachfahre gefolgt von einem gemeinsamen `db.commit()` — `PlanPhase.parent_phase_id` trägt aber
+kein gemapptes `relationship()` (reine FK-Spalte), SQLAlchemys Unit-of-Work kennt die
+Selbstreferenz-Abhängigkeit zwischen den vorgemerkten Objekten deshalb nicht und band die
+tatsächliche SQL-Ausführungsreihenfolge nicht an die vorher korrekt berechnete
+"tiefste-zuerst"-Python-Reihenfolge (beobachtet: Ausführung nach aufsteigender Primary-Key statt
+nach Tiefe). Auf Postgres schlug das mit `ForeignKeyViolation` fehl (Parent vor seinem Kind
+gelöscht); auf SQLite blieb es unbemerkt (FK-Pragma aus) — und der bestehende
+`test_p20_1_delete_stabilization.py`-Subtree-Test deckte nur 2 Ebenen ab, nie die 3-Ebenen-
+Bedingung. **Fix:** dieselbe, bereits korrekt berechnete Reihenfolge wird jetzt über
+Bulk-`Query.delete(synchronize_session=False)` je Phase durchgesetzt statt über ORM-Objekt-
+Deletes — jeder Aufruf führt sein `DELETE` sofort aus, nicht erst gebündelt bei einem späteren
+Flush, garantiert dadurch dialektunabhängig dieselbe Reihenfolge auf SQLite und PostgreSQL.
+Keine `relationship()` ergänzt (deutlich größerer Blast Radius für eine reine
+Ordering-Korrektur gewesen). Verifiziert gegen eine echte PostgreSQL-16-Instanz — vor dem Fix
+reproduzierbar `409`/`ForeignKeyViolation`, danach zuverlässig `204`. Details:
+`P20_2_REGRESSION_RECOVERY_REPORT.md` Abschnitt 2.2/6, Regressionstest:
+`test_p20_2_regression_recovery.py`.
 
 ---
 
@@ -3127,6 +3153,71 @@ GEARBEITET WURDE (Tempo/Jira, unverändert P20), WAS NOCH OFFEN IST (Plan vs. Is
 unverändert P20) — ohne `ResourceDemand`, `ResourceRole`, "Ohne Rolle", Legacy Capacity
 Planning, `BaselineSnapshot`-Internals oder `actual_start`/`actual_end` kennen zu müssen.
 
+### 16.28 P20.2 — Regression Recovery (dieser Durchgang)
+
+**Auftrag:** P20.1 behauptete vollständig grüne Tests (16 Backend-Skripte, `tsc -b && vite
+build`, `oxlint`, `check_migrations.py`, Playwright-Journey 24/24) — alle ausschließlich gegen
+eine frische SQLite-Datei. Der P20.2-Auftrag unterstellte, dass zentrale Bereiche
+("Projekte laden nicht mehr") seither nicht mehr zuverlässig funktionieren, und forderte eine
+vollständige Root-Cause-Analyse statt Symptombehandlung — ausdrücklich inklusive Prüfung gegen
+echtes PostgreSQL mit Bestandsdaten, nicht nur SQLite.
+
+**Root Causes (volles Detail: `P20_2_REGRESSION_RECOVERY_REPORT.md`, Abschnitt 6.17
+P20.2-Nachtrag hier):**
+
+1. **App-Start scheiterte auf jeder echten PostgreSQL-Instanz.** Migration `0007`s
+   Revision-ID war 39 Zeichen lang — Alembics `alembic_version.version_num` ist standardmäßig
+   `VARCHAR(32)`. SQLite ignoriert diese Länge (unbemerkt "erfolgreich"), PostgreSQL erzwingt
+   sie strikt (`StringDataRightTruncation`, `db_bootstrap.run_migrations()` bricht beim
+   App-Start ab — jede Anfrage inkl. `GET /projects` läuft dadurch ins Leere). **Das** war die
+   Ursache von "Projekte laden nicht mehr": nicht die Projekt-Endpunkte selbst, sondern der
+   nie gestartete Prozess dahinter. Fix: Revision-ID auf 28 Zeichen gekürzt
+   (`0007_p20_1_direct_assignment`).
+2. **`delete-subtree` über 3 Ebenen (Parent/Child/Grandchild) löschte in falscher
+   Reihenfolge** — auf PostgreSQL eine `ForeignKeyViolation` statt der erwarteten 204.
+   `PlanPhase.parent_phase_id` trägt keine gemappte `relationship()`, SQLAlchemys
+   Unit-of-Work respektierte die vorher korrekt berechnete Lösch-Reihenfolge deshalb nicht
+   zuverlässig. Der P20.1-Regressionstest deckte nur 2 Ebenen ab. Fix: Bulk-`Query.delete()`
+   je Phase statt ORM-Objekt-Delete-Schleife, siehe Abschnitt 6.17 P20.2-Nachtrag.
+
+**Kein dritter Fund:** Alle weiteren im Auftrag benannten Verdachtsflächen
+(`ResourceAssignment.plan_phase_id`-Migration, Legacy-Koexistenz, Capacity-Consumer-
+Doppelzählung bei gemischten/migrierten Daten, Kapazitäts-UX, Kern-Flows A–L) wurden einzeln
+reproduziert und sind funktional korrekt — keine dritte, vierte oder fünfte Regression
+gefunden.
+
+**Methodik-Lektion (jetzt Policy, Abschnitt 17.6 Punkt 6/7):** beide Root Causes waren auf
+SQLite strukturell unauffindbar — nicht durch Pech, sondern weil SQLite VARCHAR-Längen nicht
+durchsetzt und sein FK-Pragma standardmäßig aus ist. Root-Cause-Analyse und Regressionstests
+für migrations-/FK-relevante Codepfade laufen ab jetzt zusätzlich gegen eine echte
+PostgreSQL-Instanz, nicht nur gegen SQLite.
+
+**Umsetzung:** `backend/alembic/versions/0007_p20_1_direct_plan_phase_assignment.py`
+(Revision-ID gekürzt), `backend/app/routers/planning.py` (`delete_subtree`-Lösch-Reihenfolge),
+neues `backend/scripts/test_p20_2_regression_recovery.py` (Revision-ID-Längen-Check,
+3-Ebenen-Subtree-Delete-Check mit optionalem echtem-PostgreSQL-Lauf, Doppelzählungs-Check).
+Alle 17 Backend-Testskripte, `check_migrations.py` (SQLite und PostgreSQL), `tsc -b`,
+`vite build`, `oxlint` und eine reale Playwright-Browser-Journey (21/21 Checks: Projektliste →
+Projekt → Planung → PlanPhase → Kapazität → Zuweisen/Entfernen → Persistenz nach Reload →
+Unterphase → Parent-mit-Kindern-Delete blockiert → Delete-Kette → Gantt → Cockpit/Health/GAP →
+Projektübersicht erneut laden) grün.
+
+**Bewusst nicht Teil dieses Durchgangs:** keine neuen Features (Auftrag Abschnitt 13), keine
+Rückkehr zum "Ohne Rolle"-Carrier-Mechanismus oder zu einer normalen Rollen-Aufschlüsselung im
+PlanPhase-Kapazitätsworkflow (Auftrag Abschnitt 5), keine vollständige strukturelle
+Neugliederung von Abschnitt 1–17 in dieser Datei (der P20.1-Ansatz — Korrektur-Hinweisboxen
+mit Vorwärtsverweis auf den aktuellen Stand statt physischer Verschiebung, siehe 6.4/6.9/6.10/
+6.12/6.15 — bleibt für diesen Durchgang bestehen; eine vollständige Migration jeder historischen
+Passage nach Abschnitt 17 ist ein eigener, hier nicht notwendiger Aufwand ohne Bezug zu den
+beiden tatsächlich gefundenen Regressionen).
+
+**Ergebnis:** Beide Root Causes behoben und gegen eine echte PostgreSQL-Instanz verifiziert
+(vorher reproduzierbar FAIL, danach reproduzierbar PASS). Die P20.1-Architektur (direkte
+`ResourceAssignment`, kein Rollenzwang, Legacy-Kompatibilität) bleibt vollständig erhalten —
+keine der beiden Regressionen hatte mit der P20.1-Domänenentscheidung selbst zu tun, beide
+waren reine Infrastruktur-/Ausführungsreihenfolge-Bugs, die nur unter PostgreSQLs strengerer
+Semantik sichtbar wurden.
+
 ---
 
 ## 17. Historie / Architecture Decision Log
@@ -3208,9 +3299,10 @@ Der Alembic-Verlauf wurde einmalig konsolidiert (Squash der historischen Kette 0
 eine Baseline `0001_consolidated`, da zwei spätere Revisionen ein reines
 Drop-and-Recreate-Paar ohne fachlichen Mehrwert bildeten). Aktuelle Kette:
 `0001_consolidated` → `0002_align_project_nullable` → `0003_phase26_legacy_cutover` →
-`0004_planning_consolidation`. `backend/app/db_bootstrap.py` erkennt beim Start automatisch
-zwischen frischer DB, bekannter Revision und (historisch) unbekannten/abgelösten
-Zwischenständen.
+`0004_planning_consolidation` → `0005_p18_hierarchy_foundation` →
+`0006_p20_jira_phase_mapping` → `0007_p20_1_direct_assignment`. `backend/app/db_bootstrap.py`
+erkennt beim Start automatisch zwischen frischer DB, bekannter Revision und (historisch)
+unbekannten/abgelösten Zwischenständen.
 
 Policy (verbindlich für künftige Schemaänderungen):
 
@@ -3219,8 +3311,26 @@ Policy (verbindlich für künftige Schemaänderungen):
 3. Destruktive Migrationen (Spalten-/Tabellen-Drop) nur mit vorheriger Datenkonvertierung,
    nicht Drop-and-Pray (siehe 26.9 als Referenzbeispiel).
 4. `python backend/check_migrations.py` vor jedem Commit mit Schemaänderung (prüft
-   Kettenintegrität, Drift gegen `models.py`, Seeds, Downgrade/Upgrade-Roundtrip).
+   Kettenintegrität, Drift gegen `models.py`, Seeds, Downgrade/Upgrade-Roundtrip) — **aber
+   `check_migrations.py` läuft standardmäßig gegen SQLite und deckt Postgres-spezifische
+   Constraint-Verletzungen (Spaltenlängen, FK-Enforcement) nicht ab, siehe Punkt 6/7.**
 5. `alembic/env.py` liest `DATABASE_URL` aus `app.database`, keine eigene Konfiguration.
+6. **Revision-IDs bleiben ≤ 32 Zeichen** (P20.2-Lektion, siehe
+   `P20_2_REGRESSION_RECOVERY_REPORT.md` Abschnitt 2.1): Alembics `alembic_version`-Tabelle hat
+   standardmäßig eine `version_num VARCHAR(32)`-Spalte (kein `version_table_len`-Override in
+   `alembic/env.py`). SQLite ignoriert VARCHAR-Längen (Type Affinity) und lässt eine zu lange
+   Revision-ID unbemerkt "funktionieren" — auf PostgreSQL (dem realen Produktivziel) bricht
+   **jedes** `alembic upgrade head` mit `StringDataRightTruncation` ab, und damit der komplette
+   App-Start (`db_bootstrap.run_migrations()` läuft synchron beim Modulimport von
+   `app/main.py`). Vor dem Anlegen einer neuen Revision-ID: Zeichenzahl prüfen (automatisiert
+   durch `test_p20_2_regression_recovery.py`, Check 1/3).
+7. **Migrationen/Delete-Pfade, die auf FK-Verhalten angewiesen sind, gegen eine echte
+   PostgreSQL-Instanz verifizieren, nicht nur gegen SQLite** (P20.2-Lektion): SQLites FK-Pragma
+   ist standardmäßig aus (`backend/app/database.py`) — sowohl fehlende `ON DELETE`-Aufräumung
+   (P20.1G, Abschnitt 6.17) als auch eine falsche Lösch-Reihenfolge bei mehrzeiligen
+   ORM-Objekt-Deletes ohne gemapptes `relationship()` (P20.2, Abschnitt 6.17 P20.2-Nachtrag)
+   blieben auf SQLite unbemerkt und traten ausschließlich auf PostgreSQL auf. "Grün auf einer
+   leeren/befüllten SQLite-DB" ist **kein** ausreichender Nachweis für FK-relevante Codepfade.
 
 ### 17.7 P18 Pass 1 — superseded Grob-/Feinplanung & Capacity Reconciliation (Design, nie implementiert)
 

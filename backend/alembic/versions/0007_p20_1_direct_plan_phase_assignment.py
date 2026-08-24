@@ -1,8 +1,21 @@
 """P20.1: Direct ResourceAssignment Foundation - resource_assignments.plan_phase_id.
 
-Revision ID: 0007_p20_1_direct_plan_phase_assignment
+Revision ID: 0007_p20_1_direct_assignment
 Revises: 0006_p20_jira_phase_mapping
 Create Date: 2026-08-24 00:00:00.000000
+
+P20.2 (Regression Recovery): die Revision-ID war urspruenglich
+"0007_p20_1_direct_plan_phase_assignment" (39 Zeichen) - das sprengt die von Alembic per
+Default angelegte alembic_version.version_num-Spalte (VARCHAR(32), siehe alembic/env.py, kein
+version_table_len-Override). SQLite ignoriert VARCHAR-Laengen (Type Affinity) und liess das
+unbemerkt "funktionieren"; auf PostgreSQL (das eigentliche Produktivziel) schlug JEDES
+`alembic upgrade head` - und damit der komplette App-Start (db_bootstrap.run_migrations() laeuft
+beim Modul-Import von app/main.py) - mit `StringDataRightTruncation` fehl, und zwar unabhaengig
+davon ob die Ziel-DB frisch oder mit Bestandsdaten war (reproduziert mit einer echten Postgres-
+16-Instanz). Root Cause von "Projekte laden nicht mehr": der Prozess kam nie hoch. Gekuerzt auf
+28 Zeichen, klar unter dem Limit. Keine bestehende Postgres-DB kann je erfolgreich auf der alten
+langen ID gestanden haben (das Upgrade brach dort immer schon vorher ab) - eine Umbenennung ist
+daher gefahrlos, es gibt keinen Produktivstand, der dadurch "unbekannt" wuerde.
 
 Additiv, nicht-destruktiv (siehe CONCEPT.md Abschnitt 12.1 Migrations-Policy). Reine
 Schema-Grundlage fuer den P20.1-Zielzustand "ResourceAssignment haengt direkt an der Leaf
@@ -42,7 +55,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0007_p20_1_direct_plan_phase_assignment"
+revision: str = "0007_p20_1_direct_assignment"
 down_revision: Union[str, Sequence[str], None] = "0006_p20_jira_phase_mapping"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

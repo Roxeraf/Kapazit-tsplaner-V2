@@ -2,7 +2,7 @@
 (CONCEPT.md Abschnitt 12/6c, Auftrag Abschnitt 3/13/34).
 
 Reines Daten-Migrationsskript, KEIN Alembic-Bestandteil - setzt die additive Schema-Grundlage
-(0007_p20_1_direct_plan_phase_assignment: resource_assignments.plan_phase_id) voraus.
+(0007_p20_1_direct_assignment: resource_assignments.plan_phase_id) voraus.
 
 Analysiert jede bestehende ResourceAssignment-Zeile mit gesetztem resource_demand_id und noch
 leerem plan_phase_id:

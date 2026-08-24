@@ -783,13 +783,28 @@ def delete_subtree(
     )
 
     # Nachfahren-Phasen tiefste Ebene zuerst löschen (parent_phase_id-FK hat kein
-    # ON DELETE CASCADE - ein Kind muss vor seinem Elternteil gelöscht werden).
+    # ON DELETE CASCADE - ein Kind muss vor seinem Elternteil gelöscht werden). P20.2
+    # (Regression Recovery): NICHT über ORM-Objekt-`db.delete(phase)` + einem gemeinsamen
+    # `db.commit()` am Ende - PlanPhase.parent_phase_id ist eine reine FK-Spalte OHNE
+    # gemapptes `relationship()` (siehe models.py), SQLAlchemys Unit-of-Work hat für
+    # Self-FKs ohne Relationship-Metadaten keine Dependency-Info und kann die noetige
+    # Reihenfolge nicht herleiten - der finale DELETE-Batch wird dann NICHT zwingend in der
+    # hier berechneten tiefste-zuerst-Reihenfolge ausgefuehrt (beobachtet: Primary-Key-
+    # aufsteigend statt tiefe-absteigend). Bei einer 3-Ebenen-Hierarchie (Parent/Child/
+    # Grandchild, BD-10) fuehrte das auf echtem PostgreSQL zu `ForeignKeyViolation:
+    # ... still referenced from table "plan_phases"`, weil der Parent vor seinem Kind
+    # geloescht wurde - auf SQLite (FK-Pragma standardmaessig aus, siehe capacity_calc.
+    # cleanup_phase_resource_dependencies-Docstring) blieb das unbemerkt, weshalb keiner
+    # der 16 SQLite-Regressionsskripte dies auffing. Bulk-`Query.delete()` je Phase (statt
+    # ORM-Objekt-Delete) fuehrt das DELETE SOFORT beim Aufruf aus, nicht erst gebuendelt bei
+    # einem spaeteren Flush - garantiert dieselbe, hier explizit berechnete Reihenfolge
+    # dialektunabhaengig auf SQLite und PostgreSQL.
     descendants_by_depth = sorted(
         impact["descendants"], key=lambda phase: planning_calc.depth_of(db, phase.id), reverse=True
     )
     for phase in descendants_by_depth:
-        db.delete(phase)
-    db.delete(plan_phase)
+        db.query(models.PlanPhase).filter(models.PlanPhase.id == phase.id).delete(synchronize_session=False)
+    db.query(models.PlanPhase).filter(models.PlanPhase.id == plan_phase.id).delete(synchronize_session=False)
     try:
         db.commit()
     except IntegrityError:

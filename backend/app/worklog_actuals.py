@@ -69,3 +69,49 @@ def parent_ist_hours(db: Session, plan_phase_id: int) -> float | None:
     matched = hours_by_matched_phase(db, leaves[0].project_id)
     values = [matched.get(leaf.id, 0.0) for leaf in leaves if leaf.jira_label is not None]
     return round(sum(values), 2) if values else None
+
+
+def person_hours_by_matched_phase(db: Session, project_id: int) -> dict[int, dict[str, float]]:
+    """Wie `hours_by_matched_phase()`, zusätzlich nach `jira_account_id` aufgeschlüsselt
+    (P20.6, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 17/24) - Grundlage
+    für den Personen-Drilldown je Phase. Nur MATCHED-Issues tragen bei, keine Ausnahme von
+    der bestehenden Doppelzählungs-Regel (Abschnitt 12/13)."""
+    resolution = worklog_resolver.resolve_project_issues(db, project_id)
+    rows = (
+        db.query(
+            models.JiraWorklogCache.jira_issue_key,
+            models.JiraWorklogCache.jira_account_id,
+            models.JiraWorklogCache.stunden,
+        )
+        .filter(models.JiraWorklogCache.projekt_mapping == str(project_id))
+        .all()
+    )
+    result: dict[int, dict[str, float]] = {}
+    for issue_key, account_id, stunden in rows:
+        r = resolution.get(issue_key)
+        if r is None or r.status is not ResolutionStatus.MATCHED:
+            continue
+        by_person = result.setdefault(r.plan_phase_id, {})
+        by_person[account_id] = by_person.get(account_id, 0.0) + stunden
+    return {
+        phase_id: {account_id: round(hours, 2) for account_id, hours in by_person.items()}
+        for phase_id, by_person in result.items()
+    }
+
+
+def person_hours_for_phase(db: Session, plan_phase: models.PlanPhase) -> dict[str, float]:
+    """Person-Ist-Stunden (account_id -> Stunden) für eine Leaf- ODER Parent-Phase (P20.6) -
+    bei Parent rekursiv über alle Leaf-Nachfahren summiert. `leaf_descendants()` liefert eine
+    Leaf-Phase als ihren eigenen einzigen Nachfahren (siehe planning_calc.py), daher deckt
+    diese eine Funktion beide Fälle ohne gesonderte Fallunterscheidung ab - Personen-Auflösung
+    (jira_account_id -> Person/UnassignedJiraAuthor) erfolgt beim Aufrufer
+    (routers/planning.py), hier werden nur Rohstunden aggregiert."""
+    leaves = planning_calc.leaf_descendants(db, plan_phase.id)
+    if not leaves:
+        return {}
+    by_phase = person_hours_by_matched_phase(db, leaves[0].project_id)
+    result: dict[str, float] = {}
+    for leaf in leaves:
+        for account_id, hours in by_phase.get(leaf.id, {}).items():
+            result[account_id] = result.get(account_id, 0.0) + hours
+    return {k: round(v, 2) for k, v in result.items()}

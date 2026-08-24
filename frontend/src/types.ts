@@ -710,6 +710,24 @@ export interface ProjectActualsCoverage {
   coverage_pct: number | null;
 }
 
+// P20.6 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 17/18/24/25) -
+// Personen-Drilldown + Planned-vs-Actual-Vergleich einer Phase.
+export interface PersonActual {
+  jira_account_id: string;
+  person_id: number | null;
+  display_name: string;
+  hours: number;
+  planned: boolean;
+}
+
+export interface PlanPhasePersonActuals {
+  plan_phase_id: number;
+  ist_hours: number | null;
+  persons: PersonActual[];
+  unplanned_actual_hours: number | null;
+  planned_without_actual: PlanPhaseAssignedPerson[];
+}
+
 export interface PlanPhaseDetail extends PlanPhase {
   comments: Comment[];
   tasks: Task[];

@@ -47,6 +47,7 @@ import type {
   PlanPhase,
   PlanPhaseAssignmentSummary,
   PlanPhaseDetail,
+  PlanPhasePersonActuals,
   PlanPhaseStatus,
   PlanPhaseSubtreeImpact,
   PhaseMetricsOut,
@@ -229,6 +230,10 @@ export const api = {
   // P20.3: reine Vertrauens-/Vollständigkeitskennzahl, keine Health-Ampel.
   getProjectActualsCoverage: (projectId: number) =>
     request<ProjectActualsCoverage>(`/projects/${projectId}/actuals-coverage`),
+  // P20.6: Personen-Drilldown + Planned-vs-Actual-Vergleich, keine automatische
+  // Änderung der Ressourcenplanung.
+  getPlanPhasePersonActuals: (planPhaseId: number) =>
+    request<PlanPhasePersonActuals>(`/projects/plan-phases/${planPhaseId}/person-actuals`),
   getPlanPhaseActivity: (planPhaseId: number, limit?: number) =>
     request<ActivityItem[]>(
       `/projects/plan-phases/${planPhaseId}/activity${limit ? `?limit=${limit}` : ""}`,

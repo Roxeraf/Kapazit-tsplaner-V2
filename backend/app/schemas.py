@@ -1639,6 +1639,38 @@ class PlanPhaseAssignedPersonOut(BaseModel):
     fte: float
 
 
+class PersonActualOut(BaseModel):
+    """P20.6 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 17/18/24/25) -
+    eine Zeile je Person (bzw. Jira-Account, falls (noch) keiner lokalen Person zugeordnet)
+    mit tatsächlichen Buchungen auf dieser Phase. `planned` = trägt diese Person eine
+    ResourceAssignment auf dieser Phase (bzw. ihren Leaf-Nachfahren bei einer Parent-Phase)."""
+
+    jira_account_id: str
+    person_id: int | None
+    display_name: str
+    hours: float
+    planned: bool
+
+
+class PlanPhasePersonActualsOut(BaseModel):
+    """P20.6 - Personen-Drilldown + Planned-vs-Actual-Vergleich einer Phase. `ist_hours`
+    dupliziert bewusst denselben Wert wie `PhaseMetricsOut.ist_hours` (identische Quelle,
+    keine zweite Formel) - Konsistenzprüfung: SUM(persons[].hours) == ist_hours, außer bei
+    `None` (kein Mapping konfiguriert). `unplanned_actual_hours` ist `None` unter derselben
+    Bedingung wie `ist_hours` (kein Mapping), sonst der Anteil der Ist-Stunden von Personen
+    ohne ResourceAssignment auf dieser Phase (Auftrag Abschnitt 26, kann `0.0` sein, wenn
+    alle aktiven Personen auch eingeplant waren)."""
+
+    plan_phase_id: int
+    ist_hours: float | None
+    persons: list[PersonActualOut]
+    unplanned_actual_hours: float | None
+    # Personen mit ResourceAssignment auf dieser Phase, aber (noch) keinem Ist-Eintrag
+    # (Auftrag Abschnitt 25: "Max, eingeplant, bisher kein Ist") - keine automatische
+    # Änderung der Ressourcenplanung, reine Anzeige.
+    planned_without_actual: list[PlanPhaseAssignedPersonOut]
+
+
 class PlanPhaseAssignmentSummaryOut(BaseModel):
     """Bedarf/Besetzt/Offen einer Leaf-PlanPhase (P18/B-4, CONCEPT.md Abschnitt 6b.10) - UI-
     Vokabular: "Geplanter Ressourcenbedarf"/"Besetzung"/"Offen", NICHT "ResourceDemand". Vor

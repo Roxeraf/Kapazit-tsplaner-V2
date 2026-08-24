@@ -817,6 +817,101 @@ def get_plan_phase_jira_matches(plan_phase_id: int, label: str, db: Session = De
     )
 
 
+@router.get("/plan-phases/{plan_phase_id}/person-actuals", response_model=schemas.PlanPhasePersonActualsOut)
+def get_plan_phase_person_actuals(plan_phase_id: int, db: Session = Depends(get_db)):
+    """P20.6 (Personen-Drilldown + Planned-vs-Actual, siehe
+    P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 17/18/24/25): gruppiert dieselben
+    Resolver-zugeordneten Worklog-Zeilen wie die Phase-Ist-Metriken (P20.4) zusätzlich nach
+    Person, und vergleicht sie mit den geplanten `ResourceAssignment`s dieser Phase (bzw.
+    ihrer Leaf-Nachfahren, falls Parent) - keine neue Personendatenquelle, keine
+    automatische Änderung der Ressourcenplanung."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+
+    ist_hours = (
+        worklog_actuals.parent_ist_hours(db, plan_phase.id)
+        if planning_calc.has_children(db, plan_phase.id)
+        else worklog_actuals.leaf_ist_hours(db, plan_phase)
+    )
+    person_hours = worklog_actuals.person_hours_for_phase(db, plan_phase)
+
+    accounts = list(person_hours.keys())
+    persons_by_account = (
+        {p.jira_account_id: p for p in db.query(models.Person).filter(models.Person.jira_account_id.in_(accounts))}
+        if accounts
+        else {}
+    )
+    unassigned_by_account = (
+        {
+            u.jira_account_id: u
+            for u in db.query(models.UnassignedJiraAuthor).filter(
+                models.UnassignedJiraAuthor.jira_account_id.in_(accounts)
+            )
+        }
+        if accounts
+        else {}
+    )
+
+    # Geplante Personen: ResourceAssignment über alle ResourceDemands dieser Phase bzw. -
+    # bei einer Parent-Phase - all ihrer Leaf-Nachfahren (leaf_descendants liefert eine
+    # Leaf-Phase als ihren eigenen einzigen Nachfahren, daher ohne Fallunterscheidung).
+    leaf_ids = [leaf.id for leaf in planning_calc.leaf_descendants(db, plan_phase.id)]
+    assignment_rows = (
+        db.query(models.ResourceAssignment, models.Person)
+        .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
+        .join(models.Person, models.Person.id == models.ResourceAssignment.person_id)
+        .filter(models.ResourceDemand.plan_phase_id.in_(leaf_ids))
+        .all()
+        if leaf_ids
+        else []
+    )
+    planned_by_person_id: dict[int, dict] = {}
+    for assignment, person in assignment_rows:
+        entry = planned_by_person_id.setdefault(
+            person.id, {"person_id": person.id, "person_name": person.display_name, "fte": 0.0}
+        )
+        entry["fte"] += assignment.fte
+    planned_person_ids = set(planned_by_person_id.keys())
+
+    persons_out = []
+    for account_id, hours in person_hours.items():
+        person = persons_by_account.get(account_id)
+        if person is not None:
+            display_name = person.display_name
+        elif account_id in unassigned_by_account:
+            display_name = unassigned_by_account[account_id].display_name
+        else:
+            display_name = account_id
+        persons_out.append(
+            schemas.PersonActualOut(
+                jira_account_id=account_id,
+                person_id=person.id if person is not None else None,
+                display_name=display_name,
+                hours=hours,
+                planned=person is not None and person.id in planned_person_ids,
+            )
+        )
+    persons_out.sort(key=lambda p: -p.hours)
+
+    actual_person_ids = {p.id for p in persons_by_account.values()}
+    planned_without_actual = [
+        schemas.PlanPhaseAssignedPersonOut(person_id=e["person_id"], person_name=e["person_name"], fte=round(e["fte"], 4))
+        for e in sorted(planned_by_person_id.values(), key=lambda e: e["person_name"])
+        if e["person_id"] not in actual_person_ids
+    ]
+
+    unplanned_actual_hours = (
+        None if ist_hours is None else round(sum(p.hours for p in persons_out if not p.planned), 2)
+    )
+
+    return schemas.PlanPhasePersonActualsOut(
+        plan_phase_id=plan_phase.id,
+        ist_hours=ist_hours,
+        persons=persons_out,
+        unplanned_actual_hours=unplanned_actual_hours,
+        planned_without_actual=planned_without_actual,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Worklog Phase Overrides (P20.1, BD-1B CLOSED, siehe
 # P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 14/25) - manuelle

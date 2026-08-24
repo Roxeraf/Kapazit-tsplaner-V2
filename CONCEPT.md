@@ -947,8 +947,13 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
   P20.5 zusätzlich eine additive **"Steuerung"-Karte** unterhalb der Kapazität-Kopfzeile:
   dieselben Phasen-Ist-Rohmetriken wie im Übersicht-Tab, plus eine "Ist-Zuordnung (Projekt)"-
   Zeile aus der **projektweiten** Coverage (P20.3, `GET /projects/{id}/actuals-coverage`) -
-  bewusst als "(Projekt)" gekennzeichnet, da Coverage keine Phasen-Kennzahl ist. **Keine
-  Ampel** (BD-3 bleibt separat offen).
+  bewusst als "(Projekt)" gekennzeichnet, da Coverage keine Phasen-Kennzahl ist. Seit P20.6
+  klappt "Details ▾" neben "Ist-Aufwand" (nur sichtbar, wenn `ist_hours` gesetzt ist) den
+  **Personen-Drilldown** auf (`GET .../person-actuals`, lazy geladen): eine Zeile je Person
+  mit Ist-Stunden, ungeplante Personen mit dem Hinweis "nicht eingeplant" markiert, darunter
+  "Eingeplant, bisher kein Ist: ..." und "Davon durch nicht eingeplante Ressourcen: X h" -
+  reine Anzeige, **keine automatische Änderung der Ressourcenplanung**. **Keine Ampel** (BD-3
+  bleibt separat offen).
 - **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-/Planstand-Ereignisse) +
   Kommentare (inkl. Threading über `parent_id` mit einer Einrückungsebene, "aus Objekt
   erstellen" direkt in der Kommentarliste), Aufgaben, Entscheidungen, Blocker im
@@ -1038,7 +1043,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 
 | ID | Frage | Status |
 |---|---|---|
-| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert inkl. Workspace-UX** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3), Phase-Metriken-Verdrahtung (P20.4) und Plan-vs-Actual-Workspace-UX (P20.5: Label-Picker mit Mapping-Preview im Übersicht-Tab, "Steuerung"-Karte im Kapazität-Tab, Abschnitt 16.19–16.23) sind implementiert und per Playwright-Browserlauf verifiziert. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Noch offen: Personen-Drilldown/Planned-vs-Actual (P20.6), Projekt-Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7) — reine Frontend-/Aggregations-Pakete, keine fachliche Restfrage mehr. |
+| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert inkl. Workspace-UX und Personen-Drilldown** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3), Phase-Metriken-Verdrahtung (P20.4), Plan-vs-Actual-Workspace-UX (P20.5) und Personen-Drilldown/Planned-vs-Actual (P20.6: `GET .../person-actuals`, "Details ▾" im Kapazität-Tab, Abschnitt 16.19–16.24) sind implementiert und per Playwright-Browserlauf verifiziert. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Noch offen: Projekt-Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7) — reines Frontend-/Anzeige-Paket, keine fachliche Restfrage mehr. |
 | BD-3 | Bewertungs-Thresholds für Phasenmetriken (🟢/🟡/🔴 auf `plan_hours`/`time_progress_pct`/Reconciliation)? | offen — Metriken werden aktuell ohne Ampel gezeigt |
 | BD-4 | Feiertags-Handling für Planstunden (aktuell Mo–Fr ohne Feiertagsabzug) | offen, dokumentierter Scope-Cut, keine stille Baseline-Änderung |
 | BD-5 | `ResourceAssignment` mit Teil-Zeiträumen (Sub-Ranges) statt einer FTE über die ganze Demand-Periode? | offen |
@@ -1074,10 +1079,10 @@ Werktage-Logik ableitbar, keine offene Frage.
 
 ## 15. Deferred Features
 
-- Tempo→PlanPhase-Mapping: **fachlich vollständig implementiert inkl. Kern-Workspace-UX**
-  (P20.1–P20.5, Abschnitt 16.19–16.23, BD-1 CLOSED) — nur noch Personen-Drilldown/
-  Planned-vs-Actual (P20.6) und die Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7, reine
-  Frontend-/Anzeige-Pakete) bleiben deferred
+- Tempo→PlanPhase-Mapping: **fachlich vollständig implementiert inkl. Workspace-UX und
+  Personen-Drilldown** (P20.1–P20.6, Abschnitt 16.19–16.24, BD-1 CLOSED) — nur noch die
+  Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7, reines Frontend-/Anzeige-Paket) bleibt
+  deferred
 - `PlanPhase.progress`-Spalte tatsächlich droppen (Schema-Cleanup erst, wenn alle Consumer
   entfernt sind — kein destruktives Cleanup nur für UX)
 - `phase_control_status`/🟢🟡🔴-Bewertung der Phasenmetriken (BD-3)
@@ -2613,6 +2618,55 @@ Steuerung-Karte plus "Ist-Zuordnung (Projekt): 75 % (20 h nicht zugeordnet)"; ei
 einem bereits vergebenen Label wird mit `409` abgelehnt und als Fehlertext angezeigt, ohne
 den vorherigen Zustand zu verändern. Keine Browser-Konsolenfehler außer dem erwarteten
 `409`-Netzwerkeintrag selbst. Alle elf Backend-Testskripte grün.
+
+### 16.24 P20.6 — Person Actual Drilldown / Planned vs. Actual (dieser Durchgang)
+
+**Auftrag:** sechstes von acht additiven P20-Paketen (abhängig von P20.4, Abschnitt 16.22) -
+gruppiert dieselben Resolver-zugeordneten Worklog-Zeilen zusätzlich nach Person und
+vergleicht sie mit den geplanten `ResourceAssignment`s (Auftrag Abschnitt 17/18/24/25/28) -
+keine neue Personendatenquelle, keine automatische Änderung der Ressourcenplanung.
+
+**Backend:**
+
+- **Neue Funktionen in `worklog_actuals.py`:** `person_hours_by_matched_phase()` (wie
+  `hours_by_matched_phase()` aus P20.4, zusätzlich nach `jira_account_id` aufgeschlüsselt)
+  und `person_hours_for_phase()` (Leaf **oder** Parent - `leaf_descendants()` liefert eine
+  Leaf-Phase als ihren eigenen einzigen Nachfahren, daher deckt eine Funktion beide Fälle
+  ohne Sonderfall ab, analog zu `parent_ist_hours()`).
+- **Neuer Endpoint `GET /plan-phases/{id}/person-actuals`** (`routers/planning.py`), neue
+  Schemas `PersonActualOut`/`PlanPhasePersonActualsOut`: `ist_hours` (identische Quelle wie
+  `PhaseMetricsOut.ist_hours`, keine zweite Formel), `persons` (Account → lokale `Person`
+  falls über `jira_account_id` auflösbar, sonst `UnassignedJiraAuthor.display_name`, sonst
+  die rohe Account-ID; je Zeile `planned: bool`), `unplanned_actual_hours` (`None` unter
+  derselben Bedingung wie `ist_hours` - kein Mapping konfiguriert, sonst der Anteil ohne
+  `ResourceAssignment`, kann `0.0` sein) und `planned_without_actual` (Personen mit
+  Assignment auf dieser Phase bzw. ihren Leaf-Nachfahren, aber noch keinem Ist-Eintrag).
+  "Geplant" wird über alle `ResourceDemand`s der betroffenen Leaf-Phase(n) aggregiert (analog
+  zu `_plan_phase_assignment_summary`), bei einer Parent-Phase rekursiv über
+  `planning_calc.leaf_descendants()`.
+
+**Frontend (`PlanPhaseCapacityTab.tsx`):** "Details ▾"-Toggle neben "Ist-Aufwand" in der
+"Steuerung"-Karte (P20.5) - nur sichtbar, wenn `ist_hours` gesetzt ist; lazy geladen (kein
+Call beim bloßen Öffnen des Tabs). Aufgeklappt: eine Zeile je Person mit Ist-Stunden,
+ungeplante Personen mit "nicht eingeplant" markiert, darunter "Eingeplant, bisher kein Ist:
+..." und "Davon durch nicht eingeplante Ressourcen: X h", falls > 0. Neue Typen
+`PersonActual`/`PlanPhasePersonActuals` in `types.ts`, `api.getPlanPhasePersonActuals()`.
+
+**Bewusst nicht Teil von P20.6:** keine automatische Anpassung von `ResourceAssignment`
+(reine Anzeige, wie im Auftrag mehrfach betont), keine neue Health-Regel aus
+`unplanned_actual_hours` abgeleitet, keine Projekt-weite Personen-Aggregation (bleibt
+phasenscoped) - nur die Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7) fehlt noch.
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_person_actuals.py` - AT1-
+Personen (32/20/8 = 60h, keine Doppelzählung), AT8 (Dominik geplant+Ist, Anna Ist ohne
+Planung, Lisa geplant ohne Ist), Unplanned Actual Hours, Kein-Mapping-Zustand (`ist_hours`/
+`unplanned_actual_hours` beide `null`, `persons` leer), Parent-Aggregation über zwei
+Kind-Phasen hinweg (dieselbe Person in beiden Kindern wird korrekt zusammengeführt, keine
+getrennten Zeilen) und ein unbekannter Jira-Account (Account-ID als Anzeigename,
+`planned=false`). `npm run build`/`lint` sauber. Zusätzlich ein echter Playwright-
+Browserlauf: "Details ▾" aufgeklappt zeigt Dominik (32h), Anna ("nicht eingeplant", 8h),
+"Eingeplant, bisher kein Ist: Max", "Davon durch nicht eingeplante Ressourcen: 8h" - exakt
+wie im seedenden Testszenario, keine Konsolenfehler. Alle zwölf Backend-Testskripte grün.
 
 ---
 

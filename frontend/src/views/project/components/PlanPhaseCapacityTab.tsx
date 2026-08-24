@@ -6,6 +6,7 @@ import type {
   CandidatePerson,
   PhaseMetricsOut,
   PlanPhaseAssignmentSummary,
+  PlanPhasePersonActuals,
   ProjectActualsCoverage,
   ResourceDemand,
 } from "../../../types";
@@ -233,6 +234,15 @@ export default function PlanPhaseCapacityTab({
   useEffect(() => {
     api.getProjectActualsCoverage(projectId).then(setCoverage).catch(() => setCoverage(null));
   }, [projectId]);
+  // P20.6 (Personen-Drilldown + Planned-vs-Actual, siehe
+  // P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 17/18/24/25): erst bei Bedarf
+  // geladen ("Details ▾" aufklappen), kein zusätzlicher Call beim bloßen Öffnen des Tabs.
+  const [showPersonDetails, setShowPersonDetails] = useState(false);
+  const [personActuals, setPersonActuals] = useState<PlanPhasePersonActuals | null>(null);
+  useEffect(() => {
+    if (!showPersonDetails) return;
+    api.getPlanPhasePersonActuals(planPhaseId).then(setPersonActuals).catch(() => setPersonActuals(null));
+  }, [showPersonDetails, planPhaseId]);
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [showRoleBreakdown, setShowRoleBreakdown] = useState(demands.length > 0);
   const [roles, setRoles] = useState<AdminResourceRole[]>([]);
@@ -321,9 +331,20 @@ export default function PlanPhaseCapacityTab({
       <div className="card" style={{ marginBottom: "0.75rem" }}>
         <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Steuerung</h4>
         <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem" }}>
-          <div>
-            <strong>Ist-Aufwand:</strong>{" "}
-            {metrics.ist_hours == null ? "Noch nicht eindeutig zugeordnet" : `${metrics.ist_hours} h`}
+          <div className="toolbar" style={{ justifyContent: "flex-start", gap: "0.5rem" }}>
+            <span>
+              <strong>Ist-Aufwand:</strong>{" "}
+              {metrics.ist_hours == null ? "Noch nicht eindeutig zugeordnet" : `${metrics.ist_hours} h`}
+            </span>
+            {metrics.ist_hours != null && (
+              <button
+                type="button"
+                onClick={() => setShowPersonDetails((v) => !v)}
+                style={{ border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: "0.78rem", color: "var(--blau)" }}
+              >
+                {showPersonDetails ? "Details ▴" : "Details ▾"}
+              </button>
+            )}
           </div>
           <div>
             <strong>Aufwandsverbrauch:</strong>{" "}
@@ -351,6 +372,46 @@ export default function PlanPhaseCapacityTab({
             </div>
           )}
         </div>
+
+        {/* P20.6 (Personen-Drilldown + Planned-vs-Actual, siehe
+            P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 17/18/24/25): keine
+            automatische Änderung der Ressourcenplanung, reine Anzeige. */}
+        {showPersonDetails && (
+          <div style={{ marginTop: "0.6rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)", fontSize: "0.82rem" }}>
+            {personActuals == null ? (
+              <p style={{ color: "var(--text-muted)" }}>Lädt …</p>
+            ) : (
+              <>
+                {personActuals.persons.length === 0 ? (
+                  <p style={{ color: "var(--text-muted)" }}>Keine Ist-Stunden mit bekanntem Autor.</p>
+                ) : (
+                  personActuals.persons.map((p) => (
+                    <div key={p.jira_account_id} className="toolbar" style={{ padding: "0.1rem 0" }}>
+                      <span>{p.display_name}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        {!p.planned && (
+                          <span style={{ color: "var(--orange, #a65b00)", fontSize: "0.75rem" }}>nicht eingeplant</span>
+                        )}
+                        <strong>{p.hours} h</strong>
+                      </span>
+                    </div>
+                  ))
+                )}
+                {personActuals.planned_without_actual.length > 0 && (
+                  <p style={{ color: "var(--text-muted)", margin: "0.4rem 0 0" }}>
+                    Eingeplant, bisher kein Ist:{" "}
+                    {personActuals.planned_without_actual.map((p) => p.person_name).join(", ")}
+                  </p>
+                )}
+                {personActuals.unplanned_actual_hours != null && personActuals.unplanned_actual_hours > 0 && (
+                  <p style={{ color: "var(--text-muted)", margin: "0.3rem 0 0" }}>
+                    Davon durch nicht eingeplante Ressourcen: {personActuals.unplanned_actual_hours} h
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* P19.2 (visuelle Hierarchie Direct-Assignment vs. optionale Rollenaufschlüsselung,

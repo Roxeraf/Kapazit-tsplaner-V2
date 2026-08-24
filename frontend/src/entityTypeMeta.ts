@@ -12,7 +12,7 @@ export const ENTITY_TYPE_META: Record<EntityType, { icon: string; label: string 
   plan_phase: { icon: "📌", label: "Phase" },
   milestone: { icon: "🚩", label: "Milestone" },
   document: { icon: "📄", label: "Dokument" },
-  baseline_snapshot: { icon: "📸", label: "Planstand" },
+  baseline_snapshot: { icon: "📸", label: "Snapshot" },
 };
 
 // P19.4 (Tag-Dossier-Drilldown): bildet ActivityItem.entity_type auf die Sub-Ansicht im

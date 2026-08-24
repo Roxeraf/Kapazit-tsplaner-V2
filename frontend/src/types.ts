@@ -169,7 +169,8 @@ export interface Comment {
 export interface PlanHistoryEntry {
   id: number;
   subproject_id: number | null;
-  bereich: "phase" | "fte" | "stammdaten";
+  plan_phase_id?: number | null;
+  bereich: string;
   monat: string | null;
   feld: string;
   alter_wert: string | null;
@@ -177,6 +178,11 @@ export interface PlanHistoryEntry {
   geaendert_am: string;
   batch_id: string | null;
   kommentar: Comment | null;
+  entity_type: string | null;
+  entity_id: number | null;
+  entity_label: string | null;
+  action: string | null;
+  actor_person_id: number | null;
 }
 
 // entity_type-Vokabular, geteilt zwischen Tags und Document-Verknüpfungen (siehe

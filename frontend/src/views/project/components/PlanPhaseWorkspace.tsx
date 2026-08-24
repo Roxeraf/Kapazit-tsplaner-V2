@@ -35,14 +35,9 @@ import {
 // forecast_end erscheinen hier nur als "Start"/"Ende" (= "aktueller Plan") - baseline_*/
 // progress erscheinen im Normalflow gar nicht mehr (Progress deprecatet seit P6).
 //
-// P20.1 (Auftrag Abschnitt 17-20): bewusst NICHT mehr Bestandteil des normalen Workspace -
-// der permanente "Seit Planstand VX"-Kurzvergleich (gehört auf Projektebene, siehe
-// BaselineList/ProjectHistoryTab: Projekt → Planstände → Vergleich), die "Tatsächlicher
-// Verlauf"-Karte (actual_start/actual_end bleiben in DB/API aus Compat-Gründen bestehen, aber
-// P20 liefert mit Tempo/Jira-Ist-Aufwand einen wesentlich relevanteren Ist-Begriff - ein
-// Projektleiter soll sie nicht zusätzlich manuell pflegen müssen) und der "Planstand"-Eintrag
-// im phasenscoped Activity-Filter (BaselineSnapshot ist ein projektweiter Snapshot ohne
-// plan_phase_id-Spalte, gehört in Projekt-Historie/Planstände, nicht in den Phasenfilter).
+// P20.1 / P20.3: bewusst NICHT mehr Bestandteil des normalen Workspace - kein Planstand-
+// Vergleich, keine "Tatsächlicher Verlauf"-Karte (actual_start/actual_end bleiben in DB/API
+// aus Compat-Gründen). Nachvollziehbarkeit liegt im projektweiten Historie-Tab.
 const PHASE_ACTIVITY_TYPES: EntityType[] = ["comment", "decision", "task", "blocker", "milestone"];
 
 type Tab = "uebersicht" | "kapazitaet" | "aktivitaet" | "dateien";

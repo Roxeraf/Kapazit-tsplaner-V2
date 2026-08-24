@@ -4,49 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import actuals_coverage, capacity_calc, documents_storage, entity_links, jira_sync, models, schemas
+from .. import actuals_coverage, capacity_calc, documents_storage, entity_links, history, jira_sync, models, schemas
 from ..constants import berechne_monate
 from ..database import get_db
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-
-
-def _log_change(
-    db: Session,
-    *,
-    project_id: int,
-    subproject_id: int | None,
-    bereich: str,
-    monat: str | None,
-    feld: str,
-    alt: str | None,
-    neu: str | None,
-    kommentar_id: int | None,
-    batch_id: str | None = None,
-) -> None:
-    """Schreibt einen PlanHistory-Eintrag, wenn sich ein Wert tatsächlich geändert hat.
-
-    batch_id gruppiert alle Einträge eines Speichern-Klicks zu einer "Revision" für die
-    Historie-Ansicht (siehe HistoryTimeline.tsx) - unabhängig von kommentar_id, das die
-    fachliche Begründung ist (optional).
-    """
-    if alt == neu:
-        return
-    db.add(
-        models.PlanHistory(
-            project_id=project_id,
-            subproject_id=subproject_id,
-            bereich=bereich,
-            monat=monat,
-            feld=feld,
-            alter_wert=alt,
-            neuer_wert=neu,
-            geaendert_am=datetime.now(timezone.utc).isoformat(),
-            kommentar_id=kommentar_id,
-            batch_id=batch_id,
-        )
-    )
-
 
 def _subproject_detail(sp: models.Subproject) -> schemas.SubprojectDetail:
     return schemas.SubprojectDetail(id=sp.id, name=sp.name, reihenfolge=sp.reihenfolge)
@@ -115,6 +77,15 @@ def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)
     max_reihenfolge = db.query(func.max(models.Project.reihenfolge)).scalar()
     project = models.Project(**payload.model_dump(), reihenfolge=(max_reihenfolge or 0) + 1)
     db.add(project)
+    db.flush()
+    history.record_created(
+        db,
+        project_id=project.id,
+        entity_type="project",
+        entity_id=project.id,
+        entity_label=project.name,
+        fields=history.snapshot(project, "project"),
+    )
     db.commit()
     db.refresh(project)
     return _project_detail(db, project)
@@ -160,22 +131,20 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, db: Session 
     changes = payload.model_dump(exclude_unset=True)
     kommentar_id = changes.pop("kommentar_id", None)
     batch_id = changes.pop("batch_id", None)
+    old = history.snapshot(project, "project")
     for field, value in changes.items():
-        alt = getattr(project, field)
-        if alt != value:
-            _log_change(
-                db,
-                project_id=project_id,
-                subproject_id=None,
-                bereich="stammdaten",
-                monat=None,
-                feld=field,
-                alt=str(alt) if alt is not None else None,
-                neu=str(value) if value is not None else None,
-                kommentar_id=kommentar_id,
-                batch_id=batch_id,
-            )
         setattr(project, field, value)
+    history.record_updated(
+        db,
+        project_id=project_id,
+        entity_type="project",
+        entity_id=project.id,
+        entity_label=project.name,
+        old=old,
+        new=history.snapshot(project, "project"),
+        batch_id=batch_id,
+        kommentar_id=kommentar_id,
+    )
     db.commit()
     db.refresh(project)
     return _project_detail(db, project)
@@ -495,18 +464,26 @@ def _history_out(db: Session, entry: models.PlanHistory) -> schemas.PlanHistoryO
         geaendert_am=entry.geaendert_am,
         batch_id=entry.batch_id,
         kommentar=_comment_out(db, kommentar) if kommentar is not None else None,
+        entity_type=entry.entity_type,
+        entity_id=entry.entity_id,
+        entity_label=entry.entity_label,
+        action=entry.action,
+        actor_person_id=entry.actor_person_id,
     )
 
 
 @router.get("/{project_id}/history", response_model=list[schemas.PlanHistoryOut])
 def get_project_history(project_id: int, db: Session = Depends(get_db)):
-    """Änderungshistorie auf Projekt-Ebene (subproject_id IS NULL) - Teilprojekte haben eine
-    eigene, getrennte Historie über GET /projects/subprojects/{subproject_id}/history."""
+    """Projektweiter Audit Trail (P20.3). Read-only — History-Einträge sind immutable.
+
+    Liefert alle Einträge des Projekts (auch Legacy-Zeilen mit subproject_id), neueste zuerst.
+    Filter (Planung/Kapazität/Team/Zusammenarbeit) sind reine View-Filter im Frontend.
+    """
     _get_project_or_404(db, project_id)
     entries = (
         db.query(models.PlanHistory)
-        .filter(models.PlanHistory.project_id == project_id, models.PlanHistory.subproject_id.is_(None))
-        .order_by(models.PlanHistory.geaendert_am.desc())
+        .filter(models.PlanHistory.project_id == project_id)
+        .order_by(models.PlanHistory.geaendert_am.desc(), models.PlanHistory.id.desc())
         .all()
     )
     return [_history_out(db, e) for e in entries]

@@ -312,12 +312,18 @@ class Comment(Base):
 
 
 class PlanHistory(Base):
-    """Automatisches Änderungsprotokoll: Alt-/Neu-Wert je tatsächlich geänderter Zelle/Feld.
+    """Automatisches, unveränderliches Änderungsprotokoll (P20.3).
 
-    Wird beim Speichern in den betroffenen PUT-Endpunkten (siehe routers/projects.py,
-    _log_change) geschrieben, sobald sich ein Wert wirklich ändert. Der Alt-Wert des
-    ältesten Eintrags je (project_id/subproject_id, bereich, monat, feld) gilt als
-    Ursprungsplanung.
+    Jede fachlich relevante Source-of-Truth-Änderung an einem Projekt oder einer
+    projektbezogenen Entität erzeugt automatisch einen Eintrag. Keine Benutzeraktion
+    "Planstand festhalten", keine konfigurierbare Historisierung. Schreiben ausschließlich
+    über app/history.py an den Domain-Routern. Einträge werden im normalen Produkt nicht
+    bearbeitet oder gelöscht (Audit Trail).
+
+    Additive Identifikationsspalten (entity_type/entity_id/entity_label/action/
+    actor_person_id) ergänzen die bestehenden Feld-Diff-Spalten (feld/alter_wert/neuer_wert),
+    ohne Legacy-Zeilen umzuschreiben. actor_person_id bleibt nullable: das Repo hat bewusst
+    kein Auth-/Login-System (CONCEPT.md Abschnitt 8).
     """
 
     __tablename__ = "plan_history"
@@ -333,9 +339,13 @@ class PlanHistory(Base):
     plan_phase_id: Mapped[int | None] = mapped_column(
         ForeignKey("plan_phases.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    bereich: Mapped[str] = mapped_column(String(20))  # "phase" | "fte" | "stammdaten"
+    # View-Kategorie bzw. Legacy-Bereich: "stammdaten" | "plan_phase" | "assignment" |
+    # "milestone" | "task" | "blocker" | "decision" | "tag_link" | "document_link" |
+    # "jira_mapping" sowie Legacy-Werte "phase" | "fte" | "phase_struktur" |
+    # "phase_subtree_delete".
+    bereich: Mapped[str] = mapped_column(String(20))
     monat: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    feld: Mapped[str] = mapped_column(String(50))  # z.B. Phasencode "p" oder "start_monat"
+    feld: Mapped[str] = mapped_column(String(50))  # z.B. "plan_fte", "forecast_end", "_entity"
     alter_wert: Mapped[str | None] = mapped_column(String(500), nullable=True)
     neuer_wert: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # 40 statt 30 Zeichen: datetime.isoformat() mit Mikrosekunden + UTC-Offset kann bis zu
@@ -345,9 +355,16 @@ class PlanHistory(Base):
     # Gruppiert alle PlanHistory-Einträge eines Speichern-Klicks zu einer "Revision" für die
     # Historie-Ansicht (siehe HistoryTimeline.tsx) — bewusst getrennt von kommentar_id, da
     # kommentar_id die fachliche Begründung ist (optional) und batch_id rein technisch die
-    # Gruppierung, damit auch Saves ohne Begründungstext gruppierbar bleiben. Wird clientseitig
-    # pro Speichern-Klick per crypto.randomUUID() erzeugt (siehe ProjectPlanningTab.handleSave).
+    # Gruppierung, damit auch Saves ohne Begründungstext gruppierbar bleiben.
     batch_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # P20.3: generische Entitätszuordnung. Ergänzt plan_phase_id, das nur Phasen abdeckt.
+    entity_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    entity_id: Mapped[int | None] = mapped_column(nullable=True)
+    entity_label: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    action: Mapped[str | None] = mapped_column(String(20), nullable=True)  # created | updated | deleted
+    actor_person_id: Mapped[int | None] = mapped_column(
+        ForeignKey("persons.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -673,10 +690,13 @@ class Milestone(Base):
 
 
 class BaselineSnapshot(Base):
-    """Eingefrorener, benannter Planstand eines Projekts zu einem Zeitpunkt (Phase 18,
-    Master-MD Abschnitt 12). Zielarchitektur-native Entität, englische Feldnamen wie
-    PlanPhase/Milestone. Erst sinnvoll seit Phase 17 (PlanPhase/Milestone liefern die
-    Baseline-/Forecast-Felder, die hier eingefroren werden)."""
+    """Legacy/Compatibility: eingefrorener, benannter Snapshot eines Projekts (Phase 18).
+
+    P20.3: kein Benutzerkonzept "Planstand" mehr. Das Modell und die /baselines-APIs bleiben
+    für Bestandsdaten, Exports und Controlling-Consumer (baseline_calc) erhalten, sind aber
+    kein Bestandteil des normalen Userflows. Neue fachliche Nachvollziehbarkeit läuft über
+    PlanHistory (app/history.py).
+    """
 
     __tablename__ = "baseline_snapshots"
 

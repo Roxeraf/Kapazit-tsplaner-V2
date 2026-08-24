@@ -658,7 +658,8 @@ class MilestoneOut(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Baseline Management (Phase 18, siehe CONCEPT.md Abschnitt 12 / Master-MD Abschnitt 12) -
-# eingefrorener, benannter Planstand (PlanPhase/Milestone-Felder) zu einem Zeitpunkt.
+# Legacy/Compatibility: eingefrorener, benannter Snapshot (kein normales Userkonzept mehr,
+# P20.3). APIs bleiben für Bestandsdaten und Controlling-Consumer erhalten.
 # ---------------------------------------------------------------------------
 
 
@@ -1100,6 +1101,12 @@ class PlanHistoryOut(BaseModel):
     geaendert_am: str
     batch_id: str | None = None
     kommentar: CommentOut | None = None
+    # P20.3: generische Entitätszuordnung. Legacy-Zeilen ohne diese Spalten liefern None.
+    entity_type: str | None = None
+    entity_id: int | None = None
+    entity_label: str | None = None
+    action: str | None = None
+    actor_person_id: int | None = None
 
 
 # ---------------------------------------------------------------------------

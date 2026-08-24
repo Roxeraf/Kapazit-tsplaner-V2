@@ -84,8 +84,8 @@ export default function TagDossierPanel({ projectId }: { projectId?: number }) {
         navigate(`/projekte/${projectId}/kommunikation?section=${section}`);
         return;
       }
-      // baseline_snapshot (projektweit, keine eigene Detailansicht) landet in der Planung, wo
-      // BaselineList.tsx lebt; document taucht in "Aktuelle Lage" ohnehin nicht auf.
+      // document und Legacy-Snapshots haben keine eigene Detailansicht; Planung ist der
+      // nächstliegende Workspace. Planstände sind seit P20.3 kein Userkonzept mehr.
       navigate(`/projekte/${projectId}/planung`);
     } catch (e) {
       setError(String(e));

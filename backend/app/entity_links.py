@@ -19,7 +19,7 @@ _ENTITY_LABEL_PREFIX = {
     "blocker": "Blocker",
     "plan_phase": "Planphase",
     "milestone": "Milestone",
-    "baseline_snapshot": "Planstand",
+    "baseline_snapshot": "Snapshot",
 }
 
 # Registry für den Knowledge Query Layer (Phase 15, siehe CONCEPT.md Abschnitt 12/46):
@@ -48,6 +48,8 @@ ENTITY_TYPES: tuple[str, ...] = tuple(_ENTITY_REGISTRY.keys())
 # Zeitbasis nutzen kann statt eine zweite Registry zu pflegen. "document" fehlt bewusst
 # (Dateien sind keine Aktivität) - "plan_phase"/"milestone" ergänzt (Phase 17 lieferte die
 # Modelle, war hier aber noch nicht nachgezogen worden).
+# P20.3: baseline_snapshot bewusst NICHT mehr im Activity-Feed — "Planstand erstellt" ist
+# kein fachliches Benutzerereignis mehr. Bestandsdaten bleiben in der Tabelle lesbar.
 _ACTIVITY_TIMESTAMP_FIELD: dict[str, str] = {
     "comment": "erstellt_am",
     "decision": "erstellt_am",
@@ -57,7 +59,6 @@ _ACTIVITY_TIMESTAMP_FIELD: dict[str, str] = {
     "blocker": "erstellt_am",
     "plan_phase": "erstellt_am",
     "milestone": "erstellt_am",
-    "baseline_snapshot": "created_at",
 }
 
 ACTIVITY_ENTITY_TYPES: tuple[str, ...] = tuple(_ACTIVITY_TIMESTAMP_FIELD.keys())

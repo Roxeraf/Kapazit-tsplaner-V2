@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import documents_storage, entity_links, jira_sync, models, schemas
+from .. import actuals_coverage, documents_storage, entity_links, jira_sync, models, schemas
 from ..constants import berechne_monate
 from ..database import get_db
 
@@ -136,6 +136,22 @@ def reorder_projects(payload: schemas.ProjectReorder, db: Session = Depends(get_
 def get_project(project_id: int, db: Session = Depends(get_db)):
     project = _get_project_or_404(db, project_id)
     return _project_detail(db, project)
+
+
+@router.get("/{project_id}/actuals-coverage", response_model=schemas.ProjectActualsCoverageOut)
+def get_project_actuals_coverage(project_id: int, db: Session = Depends(get_db)):
+    """P20.3: wie viele der Projekt-Ist-Stunden sind eindeutig einer PlanPhase zugeordnet
+    (siehe app/actuals_coverage.py). Reine Vertrauenskennzahl, keine Health-Ampel."""
+    _get_project_or_404(db, project_id)
+    coverage = actuals_coverage.project_coverage(db, project_id)
+    return schemas.ProjectActualsCoverageOut(
+        project_id=project_id,
+        project_ist_total=coverage.project_ist_total,
+        mapped_total=coverage.mapped_total,
+        ambiguous_total=coverage.ambiguous_total,
+        unmapped_total=coverage.unmapped_total,
+        coverage_pct=coverage.coverage_pct,
+    )
 
 
 @router.put("/{project_id}", response_model=schemas.ProjectDetail)

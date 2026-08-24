@@ -85,6 +85,20 @@ class ProjectDetail(ProjectSummary):
     subprojects: list[SubprojectDetail]
 
 
+class ProjectActualsCoverageOut(BaseModel):
+    """P20.3 (BD-1C/D CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 19)
+    - Vertrauenskennzahl, keine Health-Ampel. project_ist_total = mapped_total +
+    ambiguous_total + unmapped_total (immer, per Konstruktion) - Projekt-Ist bleibt führend,
+    wird nie aus den Phasen zurückgerechnet."""
+
+    project_id: int
+    project_ist_total: float
+    mapped_total: float
+    ambiguous_total: float
+    unmapped_total: float
+    coverage_pct: float | None  # None bei project_ist_total == 0
+
+
 # ---------------------------------------------------------------------------
 # Zentrale Dokumentenablage, Tags & Kommunikation (siehe CONCEPT.md Abschnitt 6a)
 # ---------------------------------------------------------------------------

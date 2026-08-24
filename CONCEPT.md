@@ -769,14 +769,18 @@ Mapping-Kriterium ist **CLOSED** (BD-1A–G) — Jira-Label pro Leaf-Phase (`Pla
 matcht gegen `jira_issue_cache.labels`) mit manuellem Issue-Key-Override
 (`worklog_phase_overrides`, höchste Priorität) als Ausnahme. Kein Datum als primäres
 Kriterium, keine generische Regelmaschine. **Implementiert:** Datenmodell, Sync-Erweiterung, Override-CRUD, Konfliktprüfung (P20.1,
-Abschnitt 16.19). **Resolver-Modul implementiert** (P20.2, `app/worklog_resolver.py`,
-Abschnitt 16.20): `resolve_project_issues()` löst pro Projekt jedes im `jira_issue_cache`
-stehende Issue eindeutig auf einen Status auf (`matched`/`unmapped`/`ambiguous`), inkl.
-Erklärbarkeit (`mapping_source`/`mapping_value`) und Projekt-Scope. **Noch nicht
-implementiert:** die Aggregation zu Coverage/Unmapped/Ambiguous-Kennzahlen (P20.3) und die
-Verdrahtung in `phase_metrics_calc.effort_consumption()`/`PhaseMetricsOut` (P20.4) — kein
-API-Endpoint konsumiert den Resolver bisher, `ist_hours`/`effort_consumption_pct` liefern
-deshalb weiterhin konsequent `null`, nie eine Datumsheuristik oder ein Fake-Ist.
+Abschnitt 16.19). Resolver-Modul (P20.2, `app/worklog_resolver.py`, Abschnitt 16.20):
+`resolve_project_issues()` löst pro Projekt jedes im `jira_issue_cache` stehende Issue
+eindeutig auf einen Status auf (`matched`/`unmapped`/`ambiguous`), inkl. Erklärbarkeit
+(`mapping_source`/`mapping_value`) und Projekt-Scope. **Mapping Coverage implementiert**
+(P20.3, `app/actuals_coverage.py`, `GET /projects/{id}/actuals-coverage`, Abschnitt 16.21):
+aggregiert den Resolver über alle Issues eines Projekts zu `mapped_total`/`ambiguous_total`/
+`unmapped_total`/`coverage_pct` — `project_ist_total` bleibt dabei per Konstruktion exakt die
+Summe aus `jira_worklogs_cache` (nie aus den Phasen zurückgerechnet), `coverage_pct` ist
+`null` statt `0`/`100`, wenn das Projekt noch keine Ist-Stunden hat. **Noch nicht
+implementiert:** die Verdrahtung in `phase_metrics_calc.effort_consumption()`/
+`PhaseMetricsOut` (P20.4) — bis dahin liefert diese `ist_hours`/`effort_consumption_pct`
+weiterhin konsequent `null`, nie eine Datumsheuristik oder ein Fake-Ist.
 
 Konfiguration über `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`; ohne diese bleibt der
 Sync deaktiviert (`GET /jira/status`), die übrige Planung funktioniert unabhängig davon.
@@ -991,7 +995,8 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 | Planstunden | berechnet (`phase_metrics_calc.plan_hours`) | nicht editierbar | `plan_fte` × Werktage × Wochenstunden/5 | aktuell |
 | Aufschlüsselung | `ResourceDemand` (mit `plan_phase_id`) | Drawer "Kapazität" | — | aktuell, optional, keine Sync-Pflicht zu `plan_fte` |
 | Besetzung | `ResourceAssignment` | Drawer "Kapazität" | — | aktuell |
-| Ist-Aufwand (Phase) | — | — | Tempo/Jira via `worklog_resolver.resolve_project_issues` | Mapping-Kriterium **CLOSED**, Datenmodell (P20.1) + Resolver-Modul (P20.2, Abschnitt 16.19/16.20) **IMPLEMENTIERT** — noch kein API-Endpoint/keine Metriken-Verdrahtung (P20.3/P20.4), `PhaseMetricsOut` liefert bis dahin weiterhin `null` |
+| Ist-Aufwand (Phase) | — | — | Tempo/Jira via `worklog_resolver.resolve_project_issues` | Mapping-Kriterium **CLOSED**, Datenmodell (P20.1) + Resolver (P20.2) **IMPLEMENTIERT** — noch keine Metriken-Verdrahtung in `PhaseMetricsOut` (P20.4), dort weiterhin `null` |
+| Mapping Coverage | berechnet (`actuals_coverage.project_coverage`) | nicht editierbar | `GET /projects/{id}/actuals-coverage`, aus `jira_worklogs_cache` + Resolver | **IMPLEMENTIERT (P20.3, Abschnitt 16.21)** — reine Vertrauenskennzahl (Abschnitt 19 des P20-Dokuments), keine Health-Ampel; Projekt-Ist bleibt führend, wird nie aus Phasen zurückgerechnet |
 | Phase-Jira-Zuordnung | `PlanPhase.jira_label` | Drawer "Übersicht" (Label-Picker folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, nur auf Leaf-Phasen, gleicher Lifecycle wie `plan_fte` |
 | Worklog-Metadaten-Cache | `jira_issue_cache` | nicht editierbar (Sync-Ergebnis) | Jira-Issue-Suche bei `POST /jira/sync` | **IMPLEMENTIERT (P20.1)** |
 | Manuelle Worklog-Zuordnung | `worklog_phase_overrides` | `POST/DELETE .../worklog-overrides` (UI folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, ändert nie Jira/Tempo-Originaldaten, höchste Resolver-Priorität sobald P20.2 existiert |
@@ -1011,7 +1016,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 
 | ID | Frage | Status |
 |---|---|---|
-| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | Kriterium **CLOSED** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1) und Resolver-Modul (P20.2, `worklog_resolver.py`, Abschnitt 16.20) sind implementiert. Die Metriken-Verdrahtung (P20.4: `ist_hours`/`effort_consumption_pct` in `PhaseMetricsOut`) und Coverage/Unmapped/Ambiguous-Aggregation (P20.3) fehlen noch — `PhaseMetricsOut` liefert bis dahin weiterhin konsequent `null`, keine Heuristik. |
+| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | Kriterium **CLOSED** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2) und Mapping-Coverage (P20.3, `GET /projects/{id}/actuals-coverage`, Abschnitt 16.19–16.21) sind implementiert. Die Metriken-Verdrahtung in `PhaseMetricsOut` (P20.4: `ist_hours`/`effort_consumption_pct` je Phase) fehlt noch — dort weiterhin konsequent `null`, keine Heuristik. |
 | BD-3 | Bewertungs-Thresholds für Phasenmetriken (🟢/🟡/🔴 auf `plan_hours`/`time_progress_pct`/Reconciliation)? | offen — Metriken werden aktuell ohne Ampel gezeigt |
 | BD-4 | Feiertags-Handling für Planstunden (aktuell Mo–Fr ohne Feiertagsabzug) | offen, dokumentierter Scope-Cut, keine stille Baseline-Änderung |
 | BD-5 | `ResourceAssignment` mit Teil-Zeiträumen (Sub-Ranges) statt einer FTE über die ganze Demand-Periode? | offen |
@@ -1047,9 +1052,9 @@ Werktage-Logik ableitbar, keine offene Frage.
 
 ## 15. Deferred Features
 
-- Tempo→PlanPhase-Mapping: **Mapping-Domain (P20.1) + Resolver-Modul (P20.2, Abschnitt
-  16.19/16.20) implementiert** — Coverage/Metriken-Verdrahtung/UX (P20.3–P20.7) bleiben
-  deferred
+- Tempo→PlanPhase-Mapping: **Mapping-Domain (P20.1), Resolver-Modul (P20.2) und
+  Mapping-Coverage (P20.3, Abschnitt 16.19–16.21) implementiert** —
+  Metriken-Verdrahtung/UX (P20.4–P20.7) bleiben deferred
 - `PlanPhase.progress`-Spalte tatsächlich droppen (Schema-Cleanup erst, wenn alle Consumer
   entfernt sind — kein destruktives Cleanup nur für UX)
 - `phase_control_status`/🟢🟡🔴-Bewertung der Phasenmetriken (BD-3)
@@ -2436,6 +2441,45 @@ Ambiguous mit korrekten `candidate_phase_ids`, Override mit und ohne Cache-Eintr
 Projekt-Scope-Trennung, parallele Phasen mit identischem Zeitraum die ausschließlich über
 Labels unterschieden werden, AT5). Alle acht Backend-Testskripte (sechs bestehende + beide
 P20-Skripte) grün.
+
+### 16.21 P20.3 — Unmapped / Ambiguous / Coverage (dieser Durchgang)
+
+**Auftrag:** drittes von acht additiven P20-Paketen (abhängig von P20.2, Abschnitt 16.20) —
+aggregiert den Resolver über ein ganzes Projekt zur zentralen Vertrauenskennzahl "Mapping
+Coverage" (Auftrag Abschnitt 12–14/19, BD-1C/D CLOSED). Erster tatsächlicher API-Endpoint der
+P20-Serie.
+
+**Umsetzung:**
+
+- **Neues Modul `app/actuals_coverage.py`**, Funktion `project_coverage(db, project_id)`:
+  summiert `jira_worklogs_cache.stunden` je Issue (unverändert, exakt dieselbe Quelle wie
+  `jira_sync.berechne_ist_fte`), löst jedes Issue über `worklog_resolver.resolve_project_issues()`
+  auf und verteilt die Stunden auf `mapped_total`/`ambiguous_total`; `unmapped_total` wird
+  **nie eigenständig gezählt**, sondern immer als Rest berechnet
+  (`project_ist_total - mapped_total - ambiguous_total`) — ein Issue ohne Resolver-Ergebnis
+  (z. B. noch nicht im `jira_issue_cache`, weil der letzte Sync es nicht mehr traf) landet
+  dadurch automatisch im Unmapped-Topf statt stillschweigend zu verschwinden (Auftrag
+  Abschnitt 14). `coverage_pct = mapped_total / project_ist_total × 100`, explizit `None`
+  (nicht `0` oder `100`) bei `project_ist_total == 0` (Auftrag Abschnitt 19).
+- **Neuer Endpoint `GET /projects/{id}/actuals-coverage`** (`routers/projects.py`), neues
+  Schema `ProjectActualsCoverageOut`. Reine Vertrauens-/Vollständigkeitskennzahl, **keine**
+  Health-Ampel — `health_calc` bleibt unverändert, konsumiert diesen Endpoint nicht.
+- Projekt-Ist bleibt strukturell unveränderbar von unten: `mapped_total + ambiguous_total +
+  unmapped_total == project_ist_total` gilt per Konstruktion, nicht nur zufällig in den
+  Testfällen (Auftrag Abschnitt 20/28 "Project Actual bleibt führend").
+
+**Bewusst nicht Teil von P20.3:** keine Verdrahtung in `PhaseMetricsOut`/
+`phase_metrics_calc.effort_consumption()` (P20.4 - eine einzelne Phase kennt nach P20.3
+weiterhin nur `null` als `ist_hours`, nur das Projekt-Coverage-Aggregat ist neu). Keine
+Migration (reine Aggregation über bestehende Tabellen).
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_actuals_coverage.py` — AT2
+(Unmapped: Projekt-Ist bleibt vollständig, Lücke sichtbar), AT3 (Ambiguous: ein Issue mit
+zwei Phasen-Labels zählt einmal, keine Doppelzählung, Projekt-Ist unverändert), manueller
+Override löst eine Ambiguous-Zuordnung auf und erhöht `mapped_total`, ohne
+`project_ist_total` zu ändern, sowie ein Projekt ohne Worklogs (`coverage_pct == null`).
+Alle neun Backend-Testskripte (sechs bestehende + drei P20-Skripte) grün, OpenAPI-Schema
+geprüft.
 
 ---
 

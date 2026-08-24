@@ -248,6 +248,7 @@ History-Ereignisse „Planstand erstellt“. Historische Snapshot-Zeilen bleiben
 | `POST /projects` | **ACTIVE REQUIRED** | schreibt Create-History |
 | `PUT /projects/{id}` | **ACTIVE REQUIRED** | schreibt nur relevante Diffs |
 | PlanPhase / Assignment / Milestone CRUD | **ACTIVE REQUIRED** | History-Writes |
+| `POST/DELETE /projects/plan-phases/{id}/assign-person` | **ACTIVE REQUIRED** | UI-Pfad der Personenbesetzung, schreibt History (P20.3) |
 | Task / Blocker / Decision CRUD | **ACTIVE REQUIRED** | History-Writes |
 | Worklog-Override CRUD | **ACTIVE REQUIRED** | History-Writes |
 | Document upload/link (Phase/Milestone/Projekt) | **ACTIVE REQUIRED** | History-Writes |

@@ -117,7 +117,8 @@ Das Tool liefert heute zusätzlich:
 
 ## 2. Fachlicher Scope
 
-- Projektplanung (PlanPhase, Milestone, Teilprojekte, Planstände, Gantt-Visualisierung)
+- Projektplanung (PlanPhase-Baum, Milestone, Planstände, Gantt-Visualisierung; Teilprojekte
+  nur noch Legacy/Compat bis B-8, siehe Abschnitt 5.4)
 - Beraterkapazität (Plan-FTE, ResourceDemand/-Assignment, Available Capacity)
 - Projektsteuerung (Health, GAP Engine, Cockpit)
 - Tempo-Ist (Jira-Worklogs, projektweit; Phasenebene deferred, siehe BD-1)

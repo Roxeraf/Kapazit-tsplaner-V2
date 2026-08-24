@@ -796,12 +796,28 @@ class ResourceAssignmentCreate(BaseModel):
 
 class ResourceAssignmentOut(BaseModel):
     id: int
-    resource_demand_id: int
+    # P20.1 (Direct Assignment Foundation): ein Assignment traegt entweder resource_demand_id
+    # (Legacy/Compat) ODER plan_phase_id (neuer Standardpfad), nie beide leer - siehe
+    # models.ResourceAssignment-Docstring. Migrierte Zeilen tragen beide.
+    resource_demand_id: int | None = None
+    plan_phase_id: int | None = None
     person_id: int
     person_name: str
     fte: float
     erstellt_am: str
     aktualisiert_am: str
+
+
+class PlanPhaseResourceAssignmentCreate(BaseModel):
+    """P20.1 (Auftrag Abschnitt 27, phasenscoped Assignment-API): Personenzuweisung DIREKT an
+    einer Leaf-PlanPhase, ohne ResourceDemand/ResourceRole als technische Zwischenebene."""
+
+    person_id: int
+    fte: float = 0
+
+
+class PlanPhaseResourceAssignmentUpdate(BaseModel):
+    fte: float
 
 
 class ResourceDemandOut(BaseModel):
@@ -1732,6 +1748,10 @@ class PlanPhaseSubtreeImpactOut(BaseModel):
     documents_affected: int
     resource_demands_affected: int
     resource_assignments_affected: int
+    # P20.1G (Delete Stabilization, Auftrag Abschnitt 25): additiv - Worklog-Overrides, die
+    # gemeinsam mit dem Zweig gelöscht werden (CASCADE, siehe planning._cleanup_phase_
+    # resource_dependencies-Docstring).
+    worklog_overrides_affected: int = 0
 
 
 class PlanPhaseDeleteSubtreeRequest(BaseModel):

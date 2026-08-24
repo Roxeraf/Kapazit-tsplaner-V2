@@ -2,13 +2,18 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import LegacyCapacityDiagnostics from "./LegacyCapacityDiagnostics";
 import type { AdminAppRole, AdminCapacityCalendar, AdminHealthThreshold, AdminPermission, AdminPerson, AdminProjectRole, AdminResourceRole, AdminSkill, AdminTag, AdminTagCategory } from "../types";
 
-type Section = "people" | "roles" | "capacity" | "taxonomy" | "health" | "configuration";
+type Section = "people" | "roles" | "capacity" | "taxonomy" | "health" | "configuration" | "legacy";
 const sections: { id: Section; label: string }[] = [
   { id: "people", label: "Personen & Teams" }, { id: "roles", label: "Rollen & Permissions" },
   { id: "capacity", label: "Ressourcen & Skills" }, { id: "taxonomy", label: "Tags & Taxonomie" },
   { id: "health", label: "Project Health" }, { id: "configuration", label: "Konfiguration & Integrationen" },
+  // P20.1 (Auftrag Abschnitt 15): einziger erreichbarer Pfad für die alte
+  // Teilprojekt-/ResourceDemand-Grobplanung, seit sie aus dem normalen Projekt-Planning-Tab
+  // entfernt wurde - bewusst als eigene Sektion, nicht unter "Ressourcen & Skills" gemischt.
+  { id: "legacy", label: "Legacy-Kapazitätsplanung" },
 ];
 
 function NewItemForm({ fields, onSubmit, submitLabel = "Anlegen" }: { fields: { name: string; label: string }[]; onSubmit: (values: Record<string, string>) => Promise<void>; submitLabel?: string }) {
@@ -57,6 +62,8 @@ export default function Administration() {
     {section === "configuration" && <div className="admin-grid"><section className="card admin-card"><h3>Capacity-Konfiguration</h3><NewItemForm fields={[{ name: "name", label: "Kalendername" }, { name: "description", label: "Beschreibung" }]} onSubmit={values => perform(() => api.createCapacityCalendar({ name: values.name, description: values.description }))} /><div className="admin-list">{calendars.map(calendar => <div className="admin-row" key={calendar.id}><div><strong>{calendar.name}</strong><small>{calendar.description || "Ohne Beschreibung"}</small></div><StatusToggle active={calendar.active} onChange={active => void perform(() => api.updateCapacityCalendar(calendar.id, { active }))} /></div>)}</div></section>
       <section className="card admin-card"><h3>Integrationen</h3><div className="integration-tile"><div><strong>Jira Cloud</strong><small>Actual Effort und Projektmetadaten</small></div><span className={jira?.configured ? "status-ok" : "status-off"}>{jira?.configured ? "Verbunden" : "Nicht konfiguriert"}</span></div><div className="integration-tile"><div><strong>Tempo Timesheets</strong><small>Optionale Worklog-Quelle</small></div><span className={jira?.tempo_configured ? "status-ok" : "status-off"}>{jira?.tempo_configured ? "Verbunden" : "Optional"}</span></div><p className="admin-help">Zugangsdaten werden sicher über Umgebungsvariablen bereitgestellt und nicht in der UI gespeichert.</p><Link className="button-link" to="/jira-projekte">Jira-Projekte öffnen</Link></section>
       <section className="card admin-card"><h3>Blocker- & Risiko-Konfiguration</h3><p>Severity und Risikolevel verwenden aktuell das etablierte Fachvokabular der Activity-Objekte. Eigene Kategorien benötigen vor einer UI einen expliziten Domänenentscheid.</p><span className="admin-readonly">Aktuell systemverwaltet</span></section></div>}
+
+    {section === "legacy" && <LegacyCapacityDiagnostics />}
   </div>;
 }
 

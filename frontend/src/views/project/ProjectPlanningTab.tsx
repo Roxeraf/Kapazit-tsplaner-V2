@@ -1,90 +1,29 @@
-import { useEffect, useState } from "react";
-import { api } from "../../api/client";
-import CollapsiblePanel from "../../components/CollapsiblePanel";
-import ConfirmDialog from "../../components/ConfirmDialog";
-import type { ProjectDetail as ProjectDetailT } from "../../types";
 import BaselineList from "./components/BaselineList";
 import MilestoneList from "./components/MilestoneList";
 import PlanPhaseList from "./components/PlanPhaseList";
 import ProjectMonthlyCapacityCard from "./components/ProjectMonthlyCapacityCard";
-import ResourceDemandGrid from "./components/ResourceDemandGrid";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
 
 // P11 (Planungs-/Kapazitätskonsolidierung): Der Planning-Tab konzentriert sich jetzt
-// ausschließlich auf Planung (PlanPhase/Milestone/Kapazität/Planstände/Teilprojekte). Die
-// Projektstammdaten (Name/Kunde/Startmonat/Anzahl Monate) inkl. des batch-/grund-basierten
-// Speichern-Workflows (PlanHistory) sind in den Einstellungen-Tab umgezogen (siehe
-// ProjectSettingsTab) - das waren reine Stammdaten, kein Planungs-Arbeitsschritt, und das
-// globale "Speichern"-Paradigma stand im Widerspruch zum Sofort-Speichern der Phasen/
-// Milestones/Baselines darunter (zwei konkurrierende Bedienkonzepte auf derselben Seite).
+// ausschließlich auf Planung (PlanPhase/Milestone/Kapazität/Planstände). Die Projektstammdaten
+// (Name/Kunde/Startmonat/Anzahl Monate) inkl. des batch-/grund-basierten Speichern-Workflows
+// (PlanHistory) sind in den Einstellungen-Tab umgezogen (siehe ProjectSettingsTab).
 //
 // P19.7 (PlanPhase-Baum ist die EINZIGE operative Planungsebene, CONCEPT.md Abschnitt 16):
-// reine visuelle Umstrukturierung, keine Funktionsänderung. Die PlanPhase-Liste steht jetzt
-// unangefochten oben und immer offen; Milestones/Projektkapazität/Planstände bleiben als
-// projektweite Zusatzbereiche direkt sichtbar daneben (Audit §16: "Projektweite
-// Zusatzbereiche ... bleiben als eigene Karten daneben"). Der alte Bedienweg (Teilprojekt-CRUD
-// + ResourceDemandGrid, beide @deprecated P18/B-8) wandert unverändert - nur verpackt - in
-// einen standardmäßig eingeklappten Legacy-Block, der bis zum produktiven B-8-Cutover
-// vollständig funktionsfähig bleibt (CONCEPT.md Abschnitt 6.15).
+// die PlanPhase-Liste steht oben und immer offen; Milestones/Projektkapazität/Planstände
+// bleiben als projektweite Zusatzbereiche direkt sichtbar daneben.
+//
+// P20.1 (Auftrag Abschnitt 15): der alte Bedienweg (Teilprojekt-CRUD + ResourceDemandGrid,
+// beide @deprecated P18/B-8) ist HIER ENTFERNT - ein normaler Projektleiter sieht diese
+// Legacy-Kapazitätsplanung nicht mehr. Bleibt bis zum produktiven B-8-Cutover ausschließlich
+// über Administration → "Legacy-Kapazitätsplanung" erreichbar (siehe
+// LegacyCapacityDiagnostics.tsx) - keine Datenlöschung, reiner Sichtbarkeits-/Ortswechsel.
 export default function ProjectPlanningTab() {
-  const { project, reload: reloadWorkspace } = useProjectWorkspace();
+  const { project } = useProjectWorkspace();
   const projectId = project.id;
-
-  const [draft, setDraft] = useState<ProjectDetailT | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [newSubprojectName, setNewSubprojectName] = useState("");
-  const [subprojectToDelete, setSubprojectToDelete] = useState<{ id: number; name: string } | null>(null);
-
-  const load = () => {
-    api
-      .getProject(projectId)
-      .then((p) => setDraft(p))
-      .catch((e) => setError(String(e)));
-  };
-
-  useEffect(load, [projectId]);
-
-  const handleAddSubproject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!draft) return;
-    await api.createSubproject(draft.id, newSubprojectName, draft.subprojects.length);
-    setNewSubprojectName("");
-    load();
-    reloadWorkspace();
-  };
-
-  const handleDeleteSubproject = async () => {
-    if (!subprojectToDelete) return;
-    await api.deleteSubproject(subprojectToDelete.id);
-    setSubprojectToDelete(null);
-    load();
-    reloadWorkspace();
-  };
-
-  if (!draft) return <p>Lade Planung …</p>;
 
   return (
     <div>
-      {error && (
-        <div
-          className="card"
-          style={{
-            marginBottom: "1rem",
-            borderColor: "var(--rot)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "1rem",
-          }}
-        >
-          <span style={{ color: "var(--rot)" }}>{error}</span>
-          <button type="button" className="btn secondary" onClick={() => setError(null)}>
-            Schließen
-          </button>
-        </div>
-      )}
-
       {/* Primäre, immer offene Planungsebene (P19.7: PlanPhase-Baum ist die einzige operative
           Planungsebene, CONCEPT.md Abschnitt 16). */}
       <div className="card" style={{ marginBottom: "1.25rem" }}>
@@ -103,67 +42,6 @@ export default function ProjectPlanningTab() {
       <div className="card" style={{ marginBottom: "1.25rem" }}>
         <BaselineList projectId={projectId} />
       </div>
-
-      {/* P19.7: Legacy-Block (Subproject-CRUD + ResourceDemandGrid, beide bereits
-          @deprecated P18/B-8) - reine Sichtbarkeits-Politur, standardmäßig eingeklappt, keine
-          Funktionsänderung. Bleibt bis zum produktiven B-8-Cutover voll nutzbar
-          (CONCEPT.md Abschnitt 6.15). */}
-      <CollapsiblePanel title="Legacy-Kapazitätsplanung — wird nach Migration ersetzt" defaultOpen={false} style={{ marginBottom: "1.25rem" }}>
-        <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: 0 }}>
-          Alter Bedienweg (Teilprojekte, projektweites Ressourcenbedarf-Raster) für noch nicht migrierte Projekte.
-          Bleibt bis zum abgeschlossenen Cutover voll funktionsfähig - für neue Planung bitte die Phasen-Struktur
-          oben verwenden.
-        </p>
-
-        <div className="card" style={{ marginBottom: "1.25rem" }}>
-          <ResourceDemandGrid projectId={projectId} periods={draft.monate} />
-        </div>
-
-        {draft.subprojects.length > 0 && (
-          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
-            Teilprojekte (optionale Gruppierung für Phasen/Milestones oben):
-          </p>
-        )}
-
-        {draft.subprojects.map((sp) => (
-          <div key={sp.id} className="toolbar" style={{ marginBottom: "0.4rem" }}>
-            <span>{sp.name}</span>
-            <button
-              type="button"
-              className="btn secondary"
-              style={{ color: "var(--rot)", borderColor: "var(--rot)" }}
-              onClick={() => setSubprojectToDelete({ id: sp.id, name: sp.name })}
-            >
-              Teilprojekt löschen
-            </button>
-          </div>
-        ))}
-
-        <form className="card" onSubmit={handleAddSubproject}>
-          <div className="field-row" style={{ marginTop: 0 }}>
-            <label>
-              Neues Teilprojekt
-              <input
-                required
-                value={newSubprojectName}
-                onChange={(e) => setNewSubprojectName(e.target.value)}
-                placeholder="z. B. Rollout Nord"
-              />
-            </label>
-          </div>
-          <button className="btn" type="submit" style={{ marginTop: "0.75rem" }}>
-            Teilprojekt hinzufügen
-          </button>
-        </form>
-      </CollapsiblePanel>
-
-      <ConfirmDialog
-        open={subprojectToDelete !== null}
-        title="Teilprojekt löschen"
-        message={`Teilprojekt "${subprojectToDelete?.name}" wirklich löschen? Alle diesem Teilprojekt zugeordneten Phasen und Milestones werden dabei ebenfalls gelöscht.`}
-        onConfirm={handleDeleteSubproject}
-        onCancel={() => setSubprojectToDelete(null)}
-      />
     </div>
   );
 }

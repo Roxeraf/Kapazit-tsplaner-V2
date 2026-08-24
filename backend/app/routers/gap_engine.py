@@ -89,16 +89,9 @@ def get_progress_gap(project_id: int, db: Session = Depends(get_db)):
 @router.get("/people/{person_id}/gaps/utilization", response_model=schemas.UtilizationGapOut)
 def get_utilization_gap(person_id: int, period: str, db: Session = Depends(get_db)):
     _get_person_or_404(db, person_id)
-    assigned_fte = round(
-        sum(
-            a.fte
-            for a in db.query(models.ResourceAssignment)
-            .join(models.ResourceDemand, models.ResourceDemand.id == models.ResourceAssignment.resource_demand_id)
-            .filter(models.ResourceAssignment.person_id == person_id, models.ResourceDemand.period == period)
-            .all()
-        ),
-        2,
-    )
+    # P20.1: über BEIDE Ressourcenwege summiert (Legacy ResourceDemand + direkte
+    # PlanPhase-Assignments), siehe capacity_calc.assigned_fte_for_person_period.
+    assigned_fte = capacity_calc.assigned_fte_for_person_period(db, person_id, period)
     capacity = capacity_calc.compute_person_capacity(db, person_id, period)
     available_fte = capacity.available_fte if capacity is not None else 0.0
     utilization_pct = round(assigned_fte / available_fte * 100, 1) if available_fte else None

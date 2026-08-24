@@ -455,6 +455,8 @@ dafür):
 | Derived Monthly Capacity (read-only, keine Monatsplanung) | 6.6 |
 | Portfolio Capacity (dieselbe zentrale Aggregation, keine Doppelzählung) | 6.6 |
 | Legacy / Pending Cutover | 6.15 |
+| **Direct `ResourceAssignment` ohne `ResourceDemand`-Adapter (P20.1, aktueller Stand)** | **6.16** |
+| **Delete Stabilization — Root Cause & Fix (P20.1)** | **6.17** |
 
 **Zusammenfassung des Umsetzungsstands (Details: Abschnitt 16.7–16.17):** B-1 (Hierarchy
 Domain Foundation), B-3 (Phase Tree API), B-4 (Direct Assignment/Available Capacity Range),
@@ -555,6 +557,15 @@ ersatzlos.
 
 ### 6.4 Rollen-Aufschlüsselung bleibt optional (ohne neues Modell)
 
+> **P20.1-Korrektur (siehe 6.16 für den aktuellen Stand):** Der in diesem Abschnitt
+> beschriebene "Ohne Rolle"-Systemrollen-Carrier-Mechanismus wird seit P20.1 **nicht mehr**
+> verwendet, um eine direkte Personenzuordnung technisch zu tragen — `ResourceAssignment`
+> hängt jetzt direkt an der `PlanPhase` (`plan_phase_id`), ohne `ResourceDemand`/`ResourceRole`
+> als Zwischenebene. Dieser Abschnitt bleibt als **historische Beschreibung des B-4-Entwurfs**
+> stehen (die Systemrolle "Ohne Rolle" existiert weiterhin als Legacy/Compat-Datensatz für
+> Alt-Zuordnungen, die noch nicht migriert sind, siehe `scripts/migrate_resource_assignments_
+> to_plan_phase.py`), ist aber **nicht mehr der Weg, wie neue Zuordnungen entstehen**.
+
 `ResourceDemand.resource_role_id` ist heute NOT NULL — bereits jetzt, unabhängig von Grob/Fein.
 Damit ein Projektleiter eine Person direkt mit FTE zuordnen kann, ohne vorher eine Rolle zu
 wählen: eine System-`ResourceRole` ("Ohne Rolle"/"Allgemein", per Migration geseedet) wird von
@@ -639,6 +650,10 @@ eine Sammelphase ab, nicht eine einzelne Detailphase.
 
 ### 6.9 Löschverhalten (BD-11, **CLOSED** — Korrektur gegenüber dem ursprünglichen Entwurf)
 
+> **P20.1-Ergänzung:** Die hier beschriebene Blockier-/Bestätigungs-Semantik ist unverändert
+> gültig. P20.1G behebt zusätzlich einen konkreten technischen Bug in ihrer Umsetzung — Details
+> und Root Cause in **6.17**.
+
 **Der ursprüngliche Pass-2-Entwurf empfahl ein kaskadierendes Löschen** (analog zum heutigen
 `delete_subproject`-Verhalten). **Diese Empfehlung wurde revidiert.** Standard-`DELETE` einer
 Parent-Phase mit Kindern wird **blockiert** (`409`), nicht automatisch kaskadierend gelöscht.
@@ -669,6 +684,10 @@ Verlust nicht durch einen einzelnen, unauffälligen `DELETE`-Aufruf ausgelöst w
 
 ### 6.10 Assignment-Semantik
 
+> **P20.1:** Bedarf/Besetzt/Offen-Formeln unten gelten unverändert. Was sich ändert, ist NUR
+> der Speicherweg von "Besetzung" (`ResourceAssignment.plan_phase_id` statt eines
+> `ResourceDemand`-Umwegs) — siehe 6.16.
+
 Eine direkte Personenbesetzung darf **nie** `plan_fte` verändern — `plan_fte` bleibt der Bedarf
 (Abschnitt 3), Assignments zeigen ausschließlich die Besetzung:
 
@@ -691,6 +710,12 @@ Unterdeckung, z. B. "Benötigt 0,40 / Verfügbar 0,25 / Unterdeckung 0,15" — u
 Capacity-Engine.
 
 ### 6.12 Migration bestehender Daten
+
+> **P20.1-Ergänzung:** Eine dritte, unabhängige Migration ist seit P20.1 verfügbar —
+> bestehende `ResourceAssignment`-Zeilen auf den direkten `plan_phase_id`-Pfad überführen
+> (`scripts/migrate_resource_assignments_to_plan_phase.py`), siehe 6.16. Sie setzt **nicht**
+> voraus, dass die hier beschriebene Subproject-/Grobplanungs-Migration bereits gelaufen ist,
+> und ersetzt sie nicht — beide sind unabhängige, additive Migrationsschritte.
 
 Zwei bestehende, potenziell befüllte Konzepte müssen migriert werden, additiv und ohne
 Informationsverlust (vollständiges Vorgehen und Migrationsreport-Anforderungen:
@@ -749,6 +774,13 @@ Migration nur noch `PlanPhase`-Felder.
 Nur zur Diagnose/Nachvollziehbarkeit — **keine Zielarchitektur**, volles Detail in Abschnitt
 17.8:
 
+> **P20.1-Ergänzung:** `ResourceDemandGrid`/Teilprojekt-CRUD sind seit P20.1 **nicht mehr** im
+> normalen Planung-Tab sichtbar (vorher: eingeklappter Block ganz unten, siehe P19-Absatz
+> unten) — ein normaler Projektleiter sieht diesen Bereich nicht mehr. Erreichbar nur noch
+> über `Administration → Legacy-Kapazitätsplanung` (`LegacyCapacityDiagnostics.tsx`), mit
+> Projektauswahl. Keine Datenlöschung, keine Funktionsänderung — reiner Sichtbarkeits-/
+> Ortswechsel, siehe 6.16.
+
 - **`ResourceDemandGrid` existiert weiterhin** für unmigrierte Alt-Projekte
   (`ResourceDemand.plan_phase_id = NULL`) — einziger Bedienweg für deren Kapazität, bis B-2
   produktiv ausgeführt ist.
@@ -766,11 +798,227 @@ Nur zur Diagnose/Nachvollziehbarkeit — **keine Zielarchitektur**, volles Detai
 - Entfernung von `ResourceDemandGrid`/Subproject-UI/Compat-Schema ist **nicht** Teil dieses
   Abschnitts, sondern erfolgt erst nach erfolgreichem produktivem B-8-Cutover, in einem
   separaten, explizit freigegebenen Auftrag (Abschnitt 16.17, Cutover-Runbook).
-- Seit P19 ist dieser Legacy-Block im Planung-Tab (`ProjectPlanningTab.tsx`) visuell klar
-  als sekundär gekennzeichnet: standardmäßig eingeklappt, mit der Überschrift
-  "Legacy-Kapazitätsplanung — wird nach Migration ersetzt". Der `PlanPhase`-Baum ist
-  darüber die primäre, immer offene Ansicht. Reine Darstellungsänderung — keine Funktion
-  wurde entfernt oder verändert (siehe Abschnitt 16.18).
+- Seit P19 (bis P20.1) war dieser Legacy-Block im Planung-Tab (`ProjectPlanningTab.tsx`)
+  visuell klar als sekundär gekennzeichnet: standardmäßig eingeklappt, mit der Überschrift
+  "Legacy-Kapazitätsplanung — wird nach Migration ersetzt". Seit P20.1 ist er **aus dem
+  Planung-Tab entfernt** (nicht nur eingeklappt) und lebt in `Administration → Legacy-
+  Kapazitätsplanung`, siehe P20.1-Ergänzung oben und 6.16.
+
+### 6.16 Direct `ResourceAssignment` ohne `ResourceDemand`-Adapter (P20.1)
+
+**Status:** Fachlich final gelockt und gegen Code **CONFIRMED implementiert**. Dieser
+Abschnitt beschreibt den **aktuellen, gültigen Stand** der Personenbesetzung — er löst NICHT
+die in 6.4/6.10 dokumentierte Grundformel (Bedarf/Besetzt/Offen, `plan_fte` bleibt führend)
+ab, sondern **entfernt eine technische Zwischenebene**, die vorher nötig war, um sie
+umzusetzen.
+
+**Auslöser:** Nach B-4 (Abschnitt 6.4) hing jede direkte Personenzuordnung technisch an einer
+`ResourceDemand` mit der internen Systemrolle "Ohne Rolle" — eine reine UX-Abstraktion, aber
+mit realen Nebenwirkungen: pro Phase mit mind. einer Zuordnung entstand automatisch eine
+`ResourceDemand`-Zeile (die z. B. beim Löschen der Phase mit aufgeräumt werden musste, siehe
+6.17), und mehrere Kapazitäts-/Auslastungs-Consumer mussten über `ResourceDemand` **joinen**,
+um überhaupt an "wer ist zugeordnet" zu kommen.
+
+**Neues Zielmodell (fachliche Source of Truth, unverändert gegenüber Abschnitt 3):**
+
+```
+PLANUNGSBEDARF EINER PHASE      PlanPhase.plan_fte
+PERSONENBESETZUNG EINER PHASE   ResourceAssignment (plan_phase_id, person_id, fte)
+IST-AUFWAND                     Jira/Tempo Worklogs über den P20-Resolver
+MONATLICHE KAPAZITÄT            Derived aus Leaf-PlanPhases (unverändert, Abschnitt 6.6)
+PORTFOLIO-KAPAZITÄT             Derived aus Leaf-PlanPhases (unverändert, Abschnitt 6.6)
+```
+
+Keine zweite operative Bedarfsebene — `ResourceDemand` ist **keine Source of Truth mehr für
+die normale PlanPhase-Planung** (siehe Governance-Tabelle unten).
+
+**Schema (additiv, migrationssicher, kein Big-Bang-Drop):**
+
+- `resource_assignments.plan_phase_id` (nullable, FK → `plan_phases.id`, `ON DELETE CASCADE`,
+  indiziert) — neuer Standardpfad.
+- `resource_assignments.resource_demand_id` wurde **nullable** (vorher `NOT NULL`) — Legacy/
+  Compat, bleibt erhalten.
+- `ck_resource_assignments_has_target`: mindestens einer der beiden FKs muss gesetzt sein.
+- `uq_resource_assignments_phase_person` (`plan_phase_id`, `person_id`) — analog zur
+  bestehenden Eindeutigkeit je Demand.
+- Migration: `backend/alembic/versions/0007_p20_1_direct_plan_phase_assignment.py`.
+
+**Neuer Assignment-Flow (`POST /plan-phases/{id}/assign-person` sowie die phasenscoped
+Ressource unten) erzeugt KEINE `ResourceDemand` mehr.** Upsert-Semantik bleibt: erneutes
+Zuweisen derselben Person aktualisiert nur die FTE. Trifft der Flow auf eine **bereits
+bestehende** Legacy-Zuordnung derselben Person über die alte "Ohne Rolle"-Carrier-Demand,
+wird diese Zeile aktualisiert statt eine zweite, doppelt zählende Zeile anzulegen — eine
+echte Rollen-Aufschlüsselung über eine andere (Nicht-System-)Rolle bleibt davon unberührt.
+
+**API-Zielbild (phasenscoped, konsolidiert):**
+
+```
+GET    /projects/{project_id}/plan-phases/{phase_id}/assignments
+POST   /projects/{project_id}/plan-phases/{phase_id}/assignments
+PATCH  /projects/{project_id}/plan-phases/{phase_id}/assignments/{assignment_id}
+DELETE /projects/{project_id}/plan-phases/{phase_id}/assignments/{assignment_id}
+```
+
+Diese CRUD-Ressource arbeitet ausschließlich auf dem direkten Pfad (`plan_phase_id`).
+`GET .../assignment-summary` bzw. das eingebettete `PlanPhaseDetail.assignment_summary`
+bleiben die **zusammengeführte** Sicht (direkter Pfad + Legacy-`ResourceDemand`-Pfad
+gemeinsam summiert, eine migrierte Zeile mit beiden FKs zählt nur einmal) — Bedarf/Besetzt/
+Offen bleibt für den Projektleiter immer vollständig, unabhängig davon, über welchen
+historischen Pfad eine Zuordnung entstand. Legacy-`ResourceDemand`-Endpunkte
+(`/resource-demands/...`) bleiben unverändert bestehen, werden vom neuen Flow aber nicht mehr
+benötigt (Auftrag Abschnitt 27: "der normale Frontend-Flow darf sie nicht mehr benötigen").
+
+**Governance-Tabelle — welches Modell gilt, was ist Legacy:**
+
+| Konzept | Rolle im Zielmodell |
+|---|---|
+| `PlanPhase.plan_fte` | Bedarf — einzige Source of Truth, eindeutige primäre Bearbeitungsstelle: Kapazität-Tab |
+| `ResourceAssignment.plan_phase_id` | Besetzung — neuer Standardpfad, keine `ResourceDemand`-Zwischenebene |
+| `ResourceDemand`/`ResourceRole` | **Legacy/Compat** — keine operative Source of Truth mehr; Tabellen bleiben bestehen (kein Drop, B-8 bleibt ein separater Cutover), erreichbar nur noch über `Administration → Legacy-Kapazitätsplanung` bzw. die bestehenden Legacy-Endpunkte |
+| "Ohne Rolle"-Systemrolle | **Legacy/Compat** — trägt nur noch historische, unmigrierte Zuordnungen; kein neuer Verwendungszweck |
+| `AppRole`/`Permission`/`ProjectRole` (User-/Permission-Rollen) | **Separates, zukünftiges Thema** — siehe Begriffstrennung unten. Nicht Teil dieses Pakets. |
+
+**Begriffstrennung Resource Role vs. User/Permission Role (wichtig, oft verwechselt):**
+
+`ResourceRole` (Kapazitätsplanungsdomäne, z. B. "Senior Consultant") ist **nicht dasselbe**
+wie eine künftige **User-/Permission-Role** (Zugriffssteuerung, z. B. "Admin",
+"Projektleiter", "Berater", "Viewer" — `AppRole`/`Permission`, Abschnitt 12). Eine
+Permission-Role bestimmt **Sichtbarkeit/Schreibrechte/Administrationsrechte** eines
+eingeloggten Benutzers — sie bestimmt **niemals** `plan_fte`, Planstunden, Personenbesetzung
+oder Available Capacity. Keine RBAC-/Permission-Architektur wird in P20.1 umgebaut
+(`AppRole`/`Permission` bleiben unverändert reine Vorbereitung, kein Auth-System im Repo,
+Abschnitt 7 der Master-Dokumentation) — diese Trennung wird hier nur explizit festgeschrieben,
+weil `ResourceRole` und `AppRole`/`ProjectRole` in früheren Entwürfen leicht verwechselt
+wurden.
+
+**Migration bestehender `ResourceAssignment`-Zeilen (additiv, sicher, kein stiller Datenfix):**
+
+`scripts/migrate_resource_assignments_to_plan_phase.py` (Dry-Run per Default, `--apply` zum
+Schreiben, analog zu `migrate_to_planphase_hierarchy.py`, Abschnitt 6.12). Für jede Zeile mit
+gesetztem `resource_demand_id` und leerem `plan_phase_id`:
+
+```
+ResourceAssignment → ResourceDemand → plan_phase_id
+```
+
+Eindeutig auflösbar und ohne Konflikt zur bestehenden `uq_resource_assignments_phase_person`
+→ `plan_phase_id` wird **gesetzt** (`resource_demand_id` bleibt als Compat-Verweis
+unverändert stehen — keine Zeile wird "umgehängt", nur ergänzt). Nicht eindeutig auflösbar
+wird **nicht geraten**, sondern kategorisiert reportet: `legacy_unmapped` (Demand ohne
+`plan_phase_id`, alte Grobplanung), `conflicts` (Zielkombination existiert bereits als
+direkte Zuordnung), `orphans` (Dateninkonsistenz). Report-Felder: `assignments_total`,
+`migrated_to_plan_phase`, `already_direct`, `legacy_unmapped`, `conflicts`, `orphans`.
+Idempotent (ein zweiter Lauf findet nichts mehr zu migrieren). **Nicht** automatisch gegen
+Produktivdaten ausgeführt — das ist wie bei der Subproject-/Grobplanungs-Migration (6.12) ein
+separater, explizit freigegebener Schritt.
+
+**Kapazitäts-/Auslastungs-Consumer-Rewiring:** `capacity_calc.compute_portfolio_utilization`
+(Team-Auslastung), `gap_engine.get_utilization_gap` (Utilization Gap), `health_calc.
+_capacity_health` und `routers/health.py._cockpit_capacity` (Cockpit-Kapazität) summierten
+bisher "zugeordnetes FTE" ausschließlich über den `ResourceDemand`-Join — seit P20.1 über
+`capacity_calc.assigned_fte_for_person_period`/`assigned_fte_for_project_period`, die BEIDE
+Wege (Legacy-Periode-basiert + direkt phasen-bereichs-basiert) summieren, ohne eine migrierte
+Zeile (beide FKs gesetzt) doppelt zu zählen. **Nicht** angefasst: `compute_capacity_gap`/
+`get_allocation_gaps`/`get_role_analysis` (Controlling) — diese sind bewusst weiterhin
+rein rollen-/`ResourceDemand`-scoped, da sie die optionale, legacy Rollen-Aufschlüsselung
+selbst auswerten (kein Regressionsrisiko, keine neue Bedeutung). **Derived Monthly/Portfolio
+Capacity bleibt strikt unverändert `plan_fte`-basiert** (Abschnitt 6.6) — Assignments
+beantworten WER, `plan_fte` beantwortet WIE VIEL, diese Trennung wurde durch P20.1 nicht
+angetastet (Regressionstest: `test_p20_1_capacity_consumer_rewiring.py`).
+
+**Kapazitäts-UX (Kapazität-Tab, `PlanPhaseCapacityTab.tsx`) radikal vereinfacht:** Rollen-
+Picker, "Rollen aufschlüsseln", "Ohne Rolle", "Bedarf je Rolle"/"Besetzt je Rolle",
+"Aufgeschlüsselt"/"Noch nicht aufgeschlüsselt" sind aus dem normalen Kapazität-Tab entfernt —
+ein Projektleiter muss diese technischen Konzepte nicht mehr kennen. Übrig bleibt der
+vollständige normale Flow: Plan-FTE (jetzt **hier** editierbar, einzige primäre
+Bearbeitungsstelle, nicht mehr im Übersicht-Tab), Planstunden, Personenbesetzung
+(`+ Mitarbeiter zuweisen` inkl. Available Capacity im Phasenzeitraum/"Rest danach"),
+Bedarf/Besetzt/Offen(/Überbesetzt), sowie die unveränderte "Steuerung"-Karte (Ist-Aufwand,
+Aufwandsverbrauch, Zeitfortschritt, Planned-vs-Actual — Abschnitt 10, keine Ampellogik).
+
+**PlanPhase-Workspace-Vereinfachung (`PlanPhaseWorkspace.tsx`):** aus dem normalen
+Übersicht-Tab entfernt: die permanente "Seit Planstand VX geändert"-Zeile (gehört auf
+Projektebene: Projekt → Planstände → Vergleich, `BaselineList`/`ProjectHistoryTab`
+unverändert), die "Tatsächlicher Verlauf"-Karte (`actual_start`/`actual_end` bleiben in
+DB/API aus Compat-Gründen bestehen, P20 liefert mit Tempo/Jira einen relevanteren
+Ist-Begriff — ein Projektleiter pflegt sie nicht mehr manuell). "Planstand" ist zusätzlich aus
+dem phasenscoped Activity-Filter entfernt (`BaselineSnapshot` ist ein projektweiter Snapshot
+ohne `plan_phase_id`-Spalte, gehörte dort ohnehin nie fachlich hin — lieferte serverseitig nie
+einen Treffer). `BaselineSnapshot`/`BaselineEntry` selbst: **unverändert**, keine
+Baseline-Engine angefasst.
+
+### 6.17 Delete Stabilization — Root Cause & Fix (P20.1G)
+
+**Reproduzierter Bug:** Beim Löschen einer PlanPhase/Unterphase mit bestehenden
+`ResourceDemand`- oder `WorklogPhaseOverride`-Zeilen erschien im Frontend ein rohes
+`TypeError: Failed to fetch` statt einer fachlichen Fehlermeldung.
+
+**Root Cause (zweiteilig):**
+
+1. `resource_demands.plan_phase_id` und `worklog_phase_overrides.plan_phase_id` trugen **kein
+   DB-seitiges `ON DELETE`** (unbenannte Alt-Constraints aus den Migrationen 0001/0006). Der
+   frühere Einzel-`DELETE`-Endpunkt (`routers/planning.py::delete_plan_phase`) räumte diese
+   Zeilen **gar nicht** auf (nur `delete-subtree` tat das teilweise, für `ResourceDemand`,
+   aber ebenfalls nicht für `WorklogPhaseOverride`) — auf Postgres löst ein `db.delete(phase)`
+   in diesem Zustand eine `ForeignKeyViolation` aus. Auf SQLite (FK-Pragma standardmäßig aus,
+   `backend/app/database.py`) bliebe derselbe Aufruf dagegen unbemerkt "erfolgreich" mit
+   verwaisten Zeilen zurück — genau die in Abschnitt 25 des Auftrags ausgeschlossenen
+   "zufälligen Unterschiede zwischen SQLite Tests und PostgreSQL".
+2. Ohne einen registrierten globalen Exception-Handler läuft eine unbehandelte Exception aus
+   einer Route an `CORSMiddleware` **vorbei** direkt in Starlettes `ServerErrorMiddleware` (die
+   äußerste, automatisch vorhandene Schicht) — die von dort generierte 500-Antwort trägt
+   dadurch **keine CORS-Header**. Der Browser behandelt eine Cross-Origin-Antwort ohne
+   CORS-Header als Netzwerkfehler: `fetch()` wirft `TypeError: Failed to fetch` statt den
+   500-Status erkennbar zu machen — der eigentliche Fehler (1) wird für Nutzer:in und
+   Entwickler:in unsichtbar.
+
+**Fix (beide Ebenen, dialektunabhängig):**
+
+- **App-seitige Aufräumung statt DB-`ON DELETE`-Verlass:** neue Funktion
+  `capacity_calc.cleanup_phase_resource_dependencies(db, phase_ids)` — löscht
+  `WorklogPhaseOverride`, direkte `ResourceAssignment` (`plan_phase_id`) und Legacy-
+  `ResourceAssignment`/`ResourceDemand` (über `ResourceDemand.plan_phase_id`) für die
+  übergebenen Phasen-IDs, **bevor** die Phase(n) selbst gelöscht werden. Gemeinsam genutzt von
+  `delete_plan_phase` (Einzel-DELETE, vorher komplett ohne diese Aufräumung), `delete_subtree`
+  (vorher nur `ResourceDemand`, jetzt zusätzlich `WorklogPhaseOverride` + direkte
+  Assignments) und `routers/projects.py::delete_project` (Reihenfolge korrigiert — die
+  Aufräumung lief vorher fälschlich **nach** dem `PlanPhase`-Bulk-Delete). Dialektunabhängig:
+  funktioniert identisch auf SQLite und Postgres, unabhängig vom DB-seitigen `ON DELETE`.
+- **Globaler Exception-Handler** (`app.exception_handler(Exception)`, `backend/app/main.py`):
+  fängt jede unbehandelte Exception app-weit innerhalb des FastAPI-Handlings ab, bevor sie zu
+  einer echten unbehandelten Exception eskaliert — die Antwort durchläuft dadurch den
+  normalen ASGI-Stack inkl. `CORSMiddleware` wie jede andere Antwort. Ändert nichts an
+  bestehendem `HTTPException`-Verhalten (bleibt spezifischer, wird bevorzugt aufgelöst), nur
+  an echten unerwarteten 500-Fehlern — bewusst app-weit, nicht nur für Delete-Routen, da
+  dieselbe CORS-Header-Lücke bei jeder unerwarteten 500-Exception auftreten kann.
+- **Sicherheitsnetz:** `delete_plan_phase`/`delete_subtree` fangen zusätzlich eine verbleibende
+  `IntegrityError` beim `commit()` ab und liefern einen strukturierten `409` statt eine
+  Exception durchschlagen zu lassen (sollte nach der Aufräumung oben nicht mehr erreichbar
+  sein — reine Verteidigungsebene für eine künftige, hier noch nicht bekannte FK-Beziehung).
+
+**CASCADE/SET NULL/BLOCK je Beziehung (explizit):**
+
+| Beziehung | Verhalten | Begründung |
+|---|---|---|
+| `WorklogPhaseOverride.plan_phase_id` | CASCADE | Feld ist `NOT NULL`, kann nicht `SET NULL` werden — eine Zuordnungskorrektur ohne Zielphase ergibt keinen Sinn mehr |
+| `ResourceAssignment.plan_phase_id` (direkt) | CASCADE | gehört fachlich zur Phase (6.16) |
+| `ResourceAssignment.resource_demand_id` (Legacy, über eine `ResourceDemand` der Phase) | CASCADE | analog zum bisherigen `delete-subtree`-Verhalten |
+| `ResourceDemand.plan_phase_id` | CASCADE | ergibt ohne ihre Phase keinen eigenständigen Sinn mehr; projektweite Legacy-Demands (`plan_phase_id IS NULL`) sind nicht betroffen |
+| `Comment`/`Task`/`Blocker`/`Decision`/`Milestone`/`PlanHistory`.`plan_phase_id` | SET NULL | unverändert, DB-seitig bereits korrekt (Migrationen 0004/0005) — Historie/Collaboration-Inhalte bleiben erhalten |
+| `PlanPhase.parent_phase_id` (Kinder) | BLOCK (`409`) | unverändert seit BD-11 — Standard-DELETE einer Parent-Phase mit Kindern bleibt blockiert, nicht kaskadierend (6.9) |
+
+**Delete-Semantik (unverändert bestätigt, jetzt fehlerfrei):** Leaf ohne Children → erfolgreich.
+Unterphase/Leaf ohne Children → erfolgreich, Parent-Aggregation aktualisiert sich. Parent mit
+Children → `409` mit `{message, child_count}`, nie ein roher Fehler. Letztes Kind gelöscht →
+Parent wird wieder Leaf, `plan_fte` bleibt `NULL` (keine implizite Reaktivierung, 6.1a
+unverändert). Kein verwaister Zustand nach jedem Löschpfad (Regressionstest:
+`test_p20_1_delete_stabilization.py`).
+
+**Frontend-Fehlerbehandlung** (`api/client.ts`, `PlanPhaseDeleteDialog.tsx`): neue `ApiError`-
+Klasse (Status + geparster JSON-`detail`) und `formatApiError()` — unterscheidet
+Netzwerkfehler ("Der Server ist derzeit nicht erreichbar"), strukturierte `409`-Konflikte
+(Backend-`message`) und sonstige API-Fehler. Niemals mehr eine rohe `TypeError: Failed to
+fetch` im Dialog.
 
 ---
 
@@ -950,10 +1198,13 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
 (unverändert seit P19 — P19 ergänzt Inhalte **innerhalb** der Tabs, baut keine neuen):
 
 - **Übersicht** — editierbar: Name, Start/Ende (= "Zeitraum"), Status, Owner, Teilprojekt,
-  Tags, Plan-FTE, alles sofort speichernd (kein Batch-/Grund-Workflow, siehe unten). Seit
-  P20.5 zusätzlich (nur auf Leaf-Phasen): eine **"Ist-Daten"-Karte** mit Freitext+Datalist-
-  Feld für `jira_label` (Vorschläge aus `GET /jira/projects/{key}/labels`, falls das Projekt
-  über `jira_project_key` verknüpft ist) und einer darunterliegenden **Mapping-Preview**
+  Tags, alles sofort speichernd (kein Batch-/Grund-Workflow, siehe unten). **Seit P20.1 NICHT
+  mehr hier editierbar: Plan-FTE** — eindeutige primäre Bearbeitungsstelle ist jetzt der
+  Kapazität-Tab (6.16); der Übersicht-Tab zeigt Plan-FTE nur noch als read-only Referenz mit
+  Verweis auf den Kapazität-Tab (keine doppelte Editierstelle). Seit P20.5 zusätzlich (nur auf
+  Leaf-Phasen): eine **"Ist-Daten"-Karte** mit Freitext+Datalist-Feld für `jira_label`
+  (Vorschläge aus `GET /jira/projects/{key}/labels`, falls das Projekt über
+  `jira_project_key` verknüpft ist) und einer darunterliegenden **Mapping-Preview**
   ("2 Issues · 3 Worklogs · 60 h (WMX-100, WMX-101)"), die sich nach jedem Speichern
   automatisch aktualisiert (`GET .../jira-matches?label=...`, rein lesend gegen den
   Sync-Cache, keine Live-Jira-Abfrage). Ein Speicherversuch mit einem bereits vergebenen
@@ -961,18 +1212,24 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
   BD-1G). Read-only/berechnet: Planstunden, Zeitfortschritt, **Ist-Aufwand/Aufwandsverbrauch/
   Verbleibender Planaufwand/Überverbrauch** (seit P20.5 reale Werte aus `PhaseMetricsOut`,
   siehe Abschnitt 16.22 - `null` bleibt "noch nicht eindeutig zugeordnet", nie eine
-  irreführende 0). Sekundär: "Tatsächlicher Verlauf" (Gestartet/Abgeschlossen), mit Aktion
-  "Ist-Daten korrigieren" für die seltene manuelle Nachpflege. Header zeigt seit P19 den
-  vollen Breadcrumb-Pfad von der Wurzel bis zur aktuellen Phase (klickbare Vorfahren,
-  wechselt die im Drawer offene Phase ohne den Drawer zu schließen). Zusätzlich seit P19: eine
-  kompakte "Verknüpfte Themen"-Karte (Tags + Entscheidungen-/Blocker-/Dokumente-Counts, aus dem
-  bereits geladenen Detail abgeleitet) und, falls ein Planstand existiert, die
-  "Seit Planstand VX geändert"-Zeile (Abschnitt 5.3).
-- **Kapazität** — Plan-FTE/Planstunden-Kopfzeile, Personenbesetzung (Primärpfad, visuell
-  hervorgehoben) + optionale Rollen-Aufschlüsselung (eingeklappt, sekundär) in Fachsprache
-  (siehe Abschnitt 6). Seit P19 liefert `PlanPhaseDetail` Assignment-Summary und die
-  Assignments je Rolle bereits eingebettet (Round-Trip-Reduktion, kein neuer Endpoint). Seit
-  P20.5 zusätzlich eine additive **"Steuerung"-Karte** unterhalb der Kapazität-Kopfzeile:
+  irreführende 0). Header zeigt seit P19 den vollen Breadcrumb-Pfad von der Wurzel bis zur
+  aktuellen Phase (klickbare Vorfahren, wechselt die im Drawer offene Phase ohne den Drawer zu
+  schließen). Zusätzlich seit P19: eine kompakte "Verknüpfte Themen"-Karte (Tags +
+  Entscheidungen-/Blocker-/Dokumente-Counts, aus dem bereits geladenen Detail abgeleitet).
+  **Seit P20.1 entfernt** (6.16): die permanente "Seit Planstand VX geändert"-Zeile (gehört auf
+  Projektebene, Abschnitt 5.3) und die "Tatsächlicher Verlauf"-Karte
+  (Gestartet/Abgeschlossen/"Ist-Daten korrigieren") — `actual_start`/`actual_end` bleiben in
+  DB/API aus Compat-Gründen bestehen, sind aber kein Bestandteil des normalen Workspace mehr.
+- **Kapazität** — Plan-FTE (seit P20.1 **hier** editierbar)/Planstunden-Kopfzeile,
+  Personenbesetzung (`+ Mitarbeiter zuweisen`, Available Capacity im Phasenzeitraum),
+  Bedarf/Besetzt/Offen(/Überbesetzt) in Fachsprache (siehe Abschnitt 6.16). **Seit P20.1
+  entfernt:** Rollen-Picker/"Rollen aufschlüsseln"/"Ohne Rolle"/"Bedarf je Rolle"/"Besetzt je
+  Rolle"/"Aufgeschlüsselt" — ein Projektleiter muss diese technischen Konzepte nicht mehr
+  kennen (die optionale Rollen-Aufschlüsselung bleibt Legacy/Compat-Backend, kein normaler
+  UI-Pfad mehr). Seit P19 liefert `PlanPhaseDetail` die Assignment-Summary bereits eingebettet
+  (Round-Trip-Reduktion, kein neuer Endpoint) — seit P20.1 als Zusammenführung aus direktem und
+  Legacy-Pfad (6.16). Seit P20.5 zusätzlich eine additive **"Steuerung"-Karte** unterhalb der
+  Kapazität-Kopfzeile:
   dieselben Phasen-Ist-Rohmetriken wie im Übersicht-Tab, plus eine "Ist-Zuordnung (Projekt)"-
   Zeile aus der **projektweiten** Coverage (P20.3, `GET /projects/{id}/actuals-coverage`) -
   bewusst als "(Projekt)" gekennzeichnet, da Coverage keine Phasen-Kennzahl ist. Seit P20.6
@@ -982,7 +1239,10 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
   "Eingeplant, bisher kein Ist: ..." und "Davon durch nicht eingeplante Ressourcen: X h" -
   reine Anzeige, **keine automatische Änderung der Ressourcenplanung**. **Keine Ampel** (BD-3
   bleibt separat offen).
-- **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-/Planstand-Ereignisse) +
+- **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-Ereignisse; **Planstand seit
+  P20.1 aus dem phasenscoped Filter entfernt** — `BaselineSnapshot` ist ein projektweiter
+  Snapshot ohne `plan_phase_id`-Spalte und lieferte hier ohnehin nie einen Treffer, siehe
+  6.16) +
   Kommentare (inkl. Threading über `parent_id` mit einer Einrückungsebene, "aus Objekt
   erstellen" direkt in der Kommentarliste), Aufgaben, Entscheidungen, Blocker im
   Phasenkontext (Tags dieser drei sind seit P19 nachbearbeitbar). Seit P19 zusätzlich eine
@@ -1008,9 +1268,11 @@ derived monthly capacity read-only (Balken/Stunden/FTE-Äquivalent je Monat, Kli
 Monat schlüsselt ihn nach beitragender Leaf-PlanPhase auf) — Quelle ist unverändert
 `compute_project_monthly_capacity` (Abschnitt 6.6), keine neue Berechnung, keine
 Ampel-/Erfüllungsbewertung. Die Legacy-Karten (Teilprojekt-Verwaltung, `ResourceDemandGrid`)
-liegen seit P19 gebündelt in einem eingeklappten "Legacy-Kapazitätsplanung"-Block ganz unten
-(Abschnitt 6.15) — unverändert funktionsfähig, aber visuell klar sekundär zur
-`PlanPhase`-Struktur.
+lagen von P19 bis P20.1 gebündelt in einem eingeklappten "Legacy-Kapazitätsplanung"-Block
+ganz unten im Planung-Tab — **seit P20.1 sind sie aus dem Planung-Tab entfernt** und liegen
+unter `Administration → Legacy-Kapazitätsplanung` (`LegacyCapacityDiagnostics.tsx`, mit
+Projektauswahl), siehe Abschnitt 6.15/6.16/12. Unverändert funktionsfähig, aber ein normaler
+Projektleiter sieht diesen Bereich im Planung-Tab nicht mehr.
 
 ---
 
@@ -1034,7 +1296,16 @@ Verwaltungsseite außerhalb der zwei Navigations-Ebenen bestehen.
 `/administration`: Personen/Teams (lokal editierbar, extern verwaltete Personen read-only),
 Rollen/Permissions (`AppRole`/`Permission`, reine Vorbereitung — kein Auth-System im Repo),
 Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), Health-Schwellen
-(`health_thresholds`), Kapazitätskalender (`Holiday`).
+(`health_thresholds`), Kapazitätskalender (`Holiday`), seit P20.1 zusätzlich
+**Legacy-Kapazitätsplanung** (Projektauswahl + `ResourceDemandGrid`/Teilprojekt-CRUD, siehe
+Abschnitt 6.15/6.16 — der einzige verbleibende Zugang zum alten Bedienweg, seit er aus dem
+normalen Planung-Tab entfernt wurde).
+
+**Begriffstrennung (siehe 6.16):** "Ressourcenrollen" hier sind `ResourceRole`
+(Kapazitätsplanungsdomäne, Legacy/Compat seit P20.1) — **nicht** dasselbe wie "Rollen/
+Permissions" (`AppRole`/`Permission`, Zugriffssteuerung für eingeloggte Benutzer, ein
+separates, zukünftiges Thema). Eine Permission-Role bestimmt niemals `plan_fte`,
+Planstunden, Personenbesetzung oder Available Capacity.
 
 ---
 
@@ -1045,11 +1316,11 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 | Projektstammdaten | `Project` | Einstellungen-Tab | — | aktuell |
 | Phasen-Termine ("Plan") | `PlanPhase.forecast_start/end` | Planung-Tab → Drawer "Übersicht" | — | aktuell (UI zeigt technischen Begriff "forecast" nicht) |
 | Planstand | `BaselineSnapshot`/`BaselineEntry` | Planung-Tab, Aktion "Planstand festhalten" | Snapshot von PlanPhase/Milestone-Feldern zum Zeitpunkt X | aktuell; `PlanPhase.baseline_start/end` sind compat-only, nicht mehr die UX-Quelle |
-| Tatsächlicher Verlauf | `PlanPhase.actual_start/end` | Drawer "Übersicht" → "Ist-Daten korrigieren" | — | aktuell, sekundär |
-| Plan-Aufwand | `PlanPhase.plan_fte` | Drawer "Übersicht"/Create-Modal | — | aktuell, führend |
+| Tatsächlicher Verlauf | `PlanPhase.actual_start/end` | nirgends im normalen Workspace (Feld bleibt in DB/API, P20.1 entfernte die UI-Karte) | — | Compat-only seit P20.1 (Abschnitt 6.16) — P20 Tempo/Jira ist der relevantere Ist-Begriff |
+| Plan-Aufwand | `PlanPhase.plan_fte` | Drawer "Kapazität" (seit P20.1 einzige primäre Bearbeitungsstelle, vorher zusätzlich im Übersicht-Tab editierbar) / Create-Modal | — | aktuell, führend |
 | Planstunden | berechnet (`phase_metrics_calc.plan_hours`) | nicht editierbar | `plan_fte` × Werktage × Wochenstunden/5 | aktuell |
-| Aufschlüsselung | `ResourceDemand` (mit `plan_phase_id`) | Drawer "Kapazität" | — | aktuell, optional, keine Sync-Pflicht zu `plan_fte` |
-| Besetzung | `ResourceAssignment` | Drawer "Kapazität" | — | aktuell |
+| Aufschlüsselung | `ResourceDemand` (mit `plan_phase_id`) | nur noch über Legacy-Endpunkte (`/resource-demands/...`), kein normaler UI-Pfad mehr | — | **Legacy/Compat seit P20.1** (Abschnitt 6.16) — keine operative Source of Truth mehr, optional, keine Sync-Pflicht zu `plan_fte` |
+| Besetzung | `ResourceAssignment` (seit P20.1 primär über `plan_phase_id`, ohne `ResourceDemand`-Adapter) | Drawer "Kapazität" | — | aktuell, führend (Abschnitt 6.16); `resource_demand_id` bleibt nullable Compat-Verweis für unmigrierte Alt-Zeilen |
 | Ist-Aufwand (Phase) | berechnet (`worklog_actuals.leaf_ist_hours`/`parent_ist_hours`) | nicht editierbar | Tempo/Jira via `worklog_resolver.resolve_project_issues` | **IMPLEMENTIERT (P20.4, Abschnitt 16.22), BD-1 CLOSED** — `PhaseMetricsOut.ist_hours` liefert reale Werte, `null` nur ohne Mapping-Konfiguration |
 | Mapping Coverage | berechnet (`actuals_coverage.project_coverage`) | nicht editierbar | `GET /projects/{id}/actuals-coverage`, aus `jira_worklogs_cache` + Resolver | **IMPLEMENTIERT (P20.3, Abschnitt 16.21)** — reine Vertrauenskennzahl (Abschnitt 19 des P20-Dokuments), keine Health-Ampel; Projekt-Ist bleibt führend, wird nie aus Phasen zurückgerechnet |
 | Phase-Jira-Zuordnung | `PlanPhase.jira_label` | Drawer "Übersicht" (Label-Picker folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, nur auf Leaf-Phasen, gleicher Lifecycle wie `plan_fte` |
@@ -1061,7 +1332,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 | Tags | `Tag`/`TagLink` | überall wo taggbar | — | aktuell |
 | Available Capacity | berechnet (`capacity_calc.compute_person_capacity`) | nicht editierbar | `WorkingTime`/`ResourceProfile` − `Holiday` − `Absence` − `InternalAllocation` | aktuell |
 | Gantt-Balken | — | nicht editierbar (read-only Visualisierung) | `PlanPhase.forecast_start/end` | aktuell |
-| Grobplanung (Monats-FTE, Alt-Projekte) | `ResourceDemand` mit `plan_phase_id = NULL` | Planning-Tab → `ResourceDemandGrid` | — | **Legacy, aktiv nur bis B-2-Migration** (Abschnitt L6.1 (Historie 17.8)); fließt in die fünf zentralen Portfolio-/Cockpit-/GAP-Endpunkte seit B-5 **nicht mehr** ein (Lücke Abschnitt L6.3 (Historie 17.8) dort strukturell aufgelöst) — zwei sekundäre Auswertungen (Effort-Gap-Track, PPTX-Export) lesen sie weiterhin direkt |
+| Grobplanung (Monats-FTE, Alt-Projekte) | `ResourceDemand` mit `plan_phase_id = NULL` | seit P20.1: `Administration → Legacy-Kapazitätsplanung` (vorher: Planning-Tab → `ResourceDemandGrid`, Abschnitt 6.16) | — | **Legacy, aktiv nur bis B-2-Migration** (Abschnitt L6.1 (Historie 17.8)); fließt in die fünf zentralen Portfolio-/Cockpit-/GAP-Endpunkte seit B-5 **nicht mehr** ein (Lücke Abschnitt L6.3 (Historie 17.8) dort strukturell aufgelöst) — zwei sekundäre Auswertungen (Effort-Gap-Track, PPTX-Export) lesen sie weiterhin direkt |
 | Grobplanstunden/Feinplanstunden/Konsumption/Konkretisierungsgrad | berechnet (P18 Pass 1-Vorschlag, **superseded**) | nicht editierbar | `ResourceDemand`(Grob)/`PlanPhase.plan_fte`(Fein) × Werktage-Monatsverteilung | **P18 Pass 1 — Design, superseded durch Pass 2** (Abschnitt 6a.3 (Historie 17.7)/6a.6/6a.10), nie implementiert |
 | Projektmonatskapazität (unter P18 Pass 2) | berechnet (`capacity_calc.compute_project_monthly_capacity`) | nicht editierbar | `SUM` über `monthly_distribution` aller Leaf-`PlanPhase`s | **P18 Pass 2 — final gelockt, IMPLEMENTIERT, gegen Code CONFIRMED** (Abschnitt 6.6/16.15) |
 
@@ -2797,6 +3068,64 @@ weiterhin BLOCKED (Auftrag Abschnitt 54, Abschnitt 16.16/16.17 hier).
 **Ergebnis:** BD-1 ist **CLOSED**, alle acht P20-Pakete sind implementiert, getestet
 (automatisiert + Playwright-verifiziert) und dokumentiert. Keine offene fachliche Frage zu
 Tempo/Jira → PlanPhase-Mapping mehr.
+
+### 16.27 P20.1 — PlanPhase Simplification, Direct Assignment Domain Cleanup & Delete Stabilization (dieser Durchgang)
+
+**Auftrag:** gezielter Simplification-/Cleanup-Pass nach P20 — keine neue Planungsarchitektur,
+sondern (1) `ResourceAssignment` direkt an die Leaf-`PlanPhase` hängen statt über einen
+`ResourceDemand`-Adapter ("Ohne Rolle"-Systemrolle), (2) `ResourceDemand`/`ResourceRole` aus
+dem normalen Planungsflow entfernen (Legacy/Compat bleibt bestehen, kein Drop), (3) den
+reproduzierten Delete-Bug (`TypeError: Failed to fetch` beim Löschen einer PlanPhase mit
+Referenzen) beheben, (4) die Kapazitäts-/Workspace-UX entsprechend vereinfachen.
+
+**Umsetzung — vollständiges fachliches Detail in Abschnitt 6.16/6.17, hier nur die
+Paket-Übersicht (P20.1A–H):**
+
+- **P20.1A (Dependency Audit):** Dependency-Matrix über alle `ResourceDemand`/
+  `ResourceAssignment`/`ResourceRole`/`plan_fte`-Konsumenten erstellt (Router, Calc-Module,
+  Frontend, Migrationsskripte, Tests) — Root Cause des Delete-Bugs bereits hier identifiziert
+  (fehlendes `ON DELETE` + fehlende App-seitige Aufräumung + fehlender globaler
+  Exception-Handler, Abschnitt 6.17).
+- **P20.1B (Schema Foundation):** Migration `0007_p20_1_direct_plan_phase_assignment` —
+  `resource_assignments.plan_phase_id` (additiv, `ON DELETE CASCADE`), `resource_demand_id`
+  nullable, `ck_resource_assignments_has_target`, `uq_resource_assignments_phase_person`.
+  `check_migrations.py` grün (kein Drift, sauberer Roundtrip).
+- **P20.1C (Migration/Compat Script):** `scripts/migrate_resource_assignments_to_plan_phase.py`
+  (Dry-Run-Default, `--apply`, Report `assignments_total/migrated_to_plan_phase/
+  already_direct/legacy_unmapped/conflicts/orphans`), idempotent, **nicht** automatisch gegen
+  Produktivdaten ausgeführt.
+- **P20.1D (Capacity Consumer Rewiring):** phasenscoped Assignment-API (Abschnitt 6.16),
+  `assign-person`/`unassign-person` ohne Carrier-`ResourceDemand`, `assignment_summary` als
+  Zusammenführung beider Pfade, `capacity_calc.assigned_fte_for_person_period`/
+  `assigned_fte_for_project_period` neu und in Portfolio Utilization/Cockpit-Kapazität/
+  Utilization Gap verdrahtet. Derived Monthly/Portfolio Capacity bewusst **nicht** angefasst
+  (bleibt strikt `plan_fte`-basiert).
+- **P20.1E/F (UX Simplification):** `PlanPhaseCapacityTab.tsx` ohne Rollen-Picker/"Ohne
+  Rolle"/ResourceDemand-Begriffe, Plan-FTE-Edit dorthin verschoben; `PlanPhaseWorkspace.tsx`
+  ohne permanente Planstand-Zeile/"Tatsächlicher Verlauf"-Karte/Planstand-im-Phasenfilter;
+  `ResourceDemandGrid`/Teilprojekt-CRUD aus dem Planung-Tab entfernt, neu unter
+  `Administration → Legacy-Kapazitätsplanung`.
+- **P20.1G (Delete Stabilization):** Root Cause + Fix vollständig in Abschnitt 6.17 —
+  `capacity_calc.cleanup_phase_resource_dependencies()`, globaler
+  `app.exception_handler(Exception)` (CORS-Header-Fix), strukturierte Frontend-Fehler
+  (`ApiError`/`formatApiError`).
+- **P20.1H (CONCEPT/Tests):** dieser Abschnitt + Abschnitt 6.16/6.17/10/12/13; sechzehn
+  Backend-Testskripte grün (drei neu: `test_p20_1_direct_plan_phase_assignments` via
+  bestehendem `test_direct_assignment_and_capacity_range.py` aktualisiert,
+  `test_p20_1_delete_stabilization.py`, `test_p20_1_capacity_consumer_rewiring.py`,
+  `test_migrate_resource_assignments_to_plan_phase.py`), Frontend `tsc -b && vite build` +
+  `oxlint` grün, `check_migrations.py` grün.
+
+**Bewusst nicht Teil dieses Durchgangs** (Auftrag Abschnitt 41, unverändert): Permission-/
+RBAC-Implementierung, B-8-Produktiv-Cutover, `ResourceDemand`/`ResourceRole`-Tabellen droppen,
+automatische Health-Ampeln, Forecast-Engine, Personio, Gantt Drag & Drop, neue
+Monatsplanung, neue Capacity-/Baseline-Engine, AI-Ressourcenoptimierung.
+
+**Ergebnis:** Ein Projektleiter versteht jetzt ohne technisches Vorwissen: WANN (Zeitraum),
+WIE VIEL (`plan_fte`), WER (`ResourceAssignment`, direkt an der Phase), WAS TATSÄCHLICH
+GEARBEITET WURDE (Tempo/Jira, unverändert P20), WAS NOCH OFFEN IST (Plan vs. Ist/Capacity,
+unverändert P20) — ohne `ResourceDemand`, `ResourceRole`, "Ohne Rolle", Legacy Capacity
+Planning, `BaselineSnapshot`-Internals oder `actual_start`/`actual_end` kennen zu müssen.
 
 ---
 

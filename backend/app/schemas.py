@@ -85,6 +85,20 @@ class ProjectDetail(ProjectSummary):
     subprojects: list[SubprojectDetail]
 
 
+class ProjectActualsCoverageOut(BaseModel):
+    """P20.3 (BD-1C/D CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 19)
+    - Vertrauenskennzahl, keine Health-Ampel. project_ist_total = mapped_total +
+    ambiguous_total + unmapped_total (immer, per Konstruktion) - Projekt-Ist bleibt führend,
+    wird nie aus den Phasen zurückgerechnet."""
+
+    project_id: int
+    project_ist_total: float
+    mapped_total: float
+    ambiguous_total: float
+    unmapped_total: float
+    coverage_pct: float | None  # None bei project_ist_total == 0
+
+
 # ---------------------------------------------------------------------------
 # Zentrale Dokumentenablage, Tags & Kommunikation (siehe CONCEPT.md Abschnitt 6a)
 # ---------------------------------------------------------------------------
@@ -493,6 +507,9 @@ class PlanPhaseCreate(BaseModel):
     status: str = "geplant"  # Zielvokabular: geplant/laufend/abgeschlossen/entfaellt (siehe models.PlanPhase.status)
     progress: float | None = None
     plan_fte: float | None = None
+    # P20.1 (BD-1A CLOSED): Jira-Label fuer den automatischen Worklog-Resolver, nur auf
+    # Leaf-Phasen sinnvoll - gleicher Lifecycle wie plan_fte (siehe models.PlanPhase.jira_label).
+    jira_label: str | None = None
     owner_person_id: int | None = None
     owner_team_id: int | None = None
     tags: list[str] = []
@@ -517,6 +534,7 @@ class PlanPhaseUpdate(BaseModel):
     # progress mehr schreiben können, nicht nur create_plan_phase().
     progress: float | None = None
     plan_fte: float | None = None
+    jira_label: str | None = None
     owner_person_id: int | None = None
     owner_team_id: int | None = None
     tags: list[str] | None = None
@@ -538,6 +556,8 @@ class PlanPhaseOut(BaseModel):
     status: str
     progress: float | None
     plan_fte: float | None
+    # P20.1 (BD-1A CLOSED): siehe models.PlanPhase.jira_label / PlanPhaseCreate.jira_label.
+    jira_label: str | None = None
     owner_person_id: int | None
     owner_team_id: int | None
     erstellt_am: str
@@ -552,6 +572,41 @@ class PlanPhaseOut(BaseModel):
     derived_forecast_start: str | None = None
     derived_forecast_end: str | None = None
     derived_capacity: float | None = None
+
+
+class JiraMatchPreviewOut(BaseModel):
+    """P20.5 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 10) - Mapping-
+    Preview vor dem Speichern eines jira_label: rein lesend gegen den bereits vorhandenen
+    Sync-Cache (JiraIssueCache/JiraWorklogCache), keine Live-Jira-Abfrage. `as_of` ist der
+    Stand des letzten Syncs (max. `last_synced_at` der Treffer-Issues), `None` ohne Treffer."""
+
+    matched_issues: int
+    matched_worklogs: int
+    total_hours: float
+    sample_issue_keys: list[str]
+    as_of: str | None
+
+
+class WorklogPhaseOverrideCreate(BaseModel):
+    """P20.1 (BD-1B CLOSED): manuelle Worklog->PlanPhase-Zuordnung auf Issue-Key-Ebene, siehe
+    models.WorklogPhaseOverride. previous_status wird optional mitgegeben, da der Resolver
+    (P20.2), der ihn eigentlich berechnet, in diesem Paket noch nicht existiert."""
+
+    jira_issue_key: str
+    previous_status: str | None = None
+    note: str | None = None
+    created_by_person_id: int | None = None
+
+
+class WorklogPhaseOverrideOut(BaseModel):
+    id: int
+    project_id: int
+    jira_issue_key: str
+    plan_phase_id: int
+    previous_status: str | None
+    note: str | None
+    created_by_person_id: int | None
+    created_at: str
 
 
 class MilestoneCreate(BaseModel):
@@ -1566,8 +1621,13 @@ class PhaseMetricsOut(BaseModel):
     # Rohmetriken nur - keine control_status/Ampel-Logik (folgt erst nach BD-3).
     time_progress_pct: float | None
     plan_hours: float | None
-    effort_consumption_pct: float | None  # BD-1: aktuell immer None (keine Ist-Stunden-Quelle)
-    ist_hours: float | None  # BD-1: aktuell immer None
+    # P20.4 (BD-1 CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 16):
+    # null bleibt "noch nicht zugeordnet" (kein jira_label bzw. kein Leaf-Nachfahre mit
+    # jira_label) - niemals eine irreführende 0.
+    effort_consumption_pct: float | None
+    ist_hours: float | None
+    remaining_plan_hours: float | None = None
+    overrun_hours: float | None = None
     reconciliation: ReconciliationOut
 
 
@@ -1577,6 +1637,38 @@ class PlanPhaseAssignedPersonOut(BaseModel):
     person_id: int
     person_name: str
     fte: float
+
+
+class PersonActualOut(BaseModel):
+    """P20.6 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 17/18/24/25) -
+    eine Zeile je Person (bzw. Jira-Account, falls (noch) keiner lokalen Person zugeordnet)
+    mit tatsächlichen Buchungen auf dieser Phase. `planned` = trägt diese Person eine
+    ResourceAssignment auf dieser Phase (bzw. ihren Leaf-Nachfahren bei einer Parent-Phase)."""
+
+    jira_account_id: str
+    person_id: int | None
+    display_name: str
+    hours: float
+    planned: bool
+
+
+class PlanPhasePersonActualsOut(BaseModel):
+    """P20.6 - Personen-Drilldown + Planned-vs-Actual-Vergleich einer Phase. `ist_hours`
+    dupliziert bewusst denselben Wert wie `PhaseMetricsOut.ist_hours` (identische Quelle,
+    keine zweite Formel) - Konsistenzprüfung: SUM(persons[].hours) == ist_hours, außer bei
+    `None` (kein Mapping konfiguriert). `unplanned_actual_hours` ist `None` unter derselben
+    Bedingung wie `ist_hours` (kein Mapping), sonst der Anteil der Ist-Stunden von Personen
+    ohne ResourceAssignment auf dieser Phase (Auftrag Abschnitt 26, kann `0.0` sein, wenn
+    alle aktiven Personen auch eingeplant waren)."""
+
+    plan_phase_id: int
+    ist_hours: float | None
+    persons: list[PersonActualOut]
+    unplanned_actual_hours: float | None
+    # Personen mit ResourceAssignment auf dieser Phase, aber (noch) keinem Ist-Eintrag
+    # (Auftrag Abschnitt 25: "Max, eingeplant, bisher kein Ist") - keine automatische
+    # Änderung der Ressourcenplanung, reine Anzeige.
+    planned_without_actual: list[PlanPhaseAssignedPersonOut]
 
 
 class PlanPhaseAssignmentSummaryOut(BaseModel):

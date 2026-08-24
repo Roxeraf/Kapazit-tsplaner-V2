@@ -1,9 +1,22 @@
 # Kapazitätsplaner im plx.crew Portal — Konzept
 
-**Version:** v0.23 (P18 Finalization — CONCEPT.md als Rebuild-Spezifikation bereinigt,
-realistischer Migrations-Dry-Run bewertet, B-8 weiterhin BLOCKED — siehe Abschnitt 16.17)
+**Version:** v0.24 (P20 — Tempo/Jira→PlanPhase-Mapping vollständig implementiert, BD-1
+CLOSED, siehe Abschnitt 16.19–16.25) **Vorherige Marke:** v0.23 (P18 Finalization —
+CONCEPT.md als Rebuild-Spezifikation bereinigt, realistischer Migrations-Dry-Run bewertet,
+B-8 weiterhin BLOCKED — siehe Abschnitt 16.17)
 **Stand:** Alle in Abschnitt 16 gelisteten Phasen bis P17 sind umgesetzt. **P18 ist fachlich/
-dokumentarisch abgeschlossen bis auf den produktiven Cutover (B-8).** Die P18-Zielarchitektur
+dokumentarisch abgeschlossen bis auf den produktiven Cutover (B-8).** **P19** hat die
+`PlanPhase`-Workspace-UX konsolidiert (Abschnitt 16.18). **P20** hat die zuvor offene
+Business Decision BD-1 (Tempo/Jira-Worklog → PlanPhase-Mapping) in acht additiven Paketen
+vollständig geschlossen — Mapping-Domain (`PlanPhase.jira_label`, `JiraIssueCache`,
+`WorklogPhaseOverride`), deterministischer Resolver (Manual Override → Label-Match →
+Unmapped/Ambiguous), Mapping Coverage, Phase-Ist-Metriken (`ist_hours`/
+`effort_consumption_pct`/`remaining_plan_hours`/`overrun_hours`), Workspace-UX (Label-Picker
++ Mapping-Preview, "Steuerung"-Karte), Personen-Drilldown/Planned-vs-Actual und die
+projektweite Coverage-Anzeige (Details Abschnitt 16.19–16.25) — **ohne** die P18/P19-
+Planungsarchitektur anzutasten: `PlanPhase.plan_fte`/Planstunden bleiben unverändert führend,
+Projekt-Ist (`GET /gap`/`GET /forecast`/`GET .../health`) bleibt byte-identisch (regressions-
+getestet), B-8 bleibt unabhängig davon weiterhin BLOCKED. Die P18-Zielarchitektur
 (`PlanPhase`-only, Abschnitt 6) ist **fachlich final gelockt und gegen Code CONFIRMED
 implementiert** (B-1–B-7, Details Abschnitt 16.7–16.17) und in acht Umsetzungspaketen
 realisiert:
@@ -121,7 +134,8 @@ Das Tool liefert heute zusätzlich:
   nur noch Legacy/Compat bis B-8, siehe Abschnitt 5.4)
 - Beraterkapazität (Plan-FTE, ResourceDemand/-Assignment, Available Capacity)
 - Projektsteuerung (Health, GAP Engine, Cockpit)
-- Tempo-Ist (Jira-Worklogs, projektweit; Phasenebene deferred, siehe BD-1)
+- Tempo-Ist (Jira-Worklogs, projektweit **und** phasenscoped über Label-Resolver + manuellen
+  Override, seit P20, siehe BD-1/Abschnitt 7/16.19–16.25)
 - Zusammenarbeit (Kommentare inkl. Threading, Tasks, Blocker, Decisions, Risks, Meeting
   Minutes, Dokumente)
 - Knowledge Layer (Tags, TagCategories, EntityRelations, Volltextsuche, Wissenskarten)
@@ -185,7 +199,17 @@ darauf.
 - **Zeitfortschritt ist berechnet, nicht manuell** — reiner Datumsanteil (wie viel Prozent
   des geplanten Zeitraums vergangen sind), kein Health-/Fortschrittswert.
 - **Tempo/Jira-Worklogs sind die Ist-Aufwandsquelle**, kein Personio/HR-System. Projekt-Level
-  funktioniert; Phase-Level ist deferred (BD-1).
+  funktioniert seit jeher; Phase-Level ist seit P20 (BD-1 CLOSED, Abschnitt 16.19–16.25)
+  ebenfalls implementiert.
+- **Worklog→PlanPhase-Mapping ist deterministisch, nie datumsbasiert** (BD-1, P20): ein
+  Jira-Issue wird über die feste Prioritätskette **manueller Override → Label-Match →
+  UNMAPPED/AMBIGUOUS** genau einer Leaf-Phase zugerechnet (`worklog_resolver.py`), niemals
+  über `forecast_start`/`forecast_end`. Ein Issue trägt seine Stunden immer in genau einen
+  Topf (gemappt/ambiguous/unmapped) ein — keine Doppelzählung, keine verschwindenden
+  Stunden. Projekt-Ist (`jira_sync.berechne_ist_fte`, `GET /gap`, `GET /forecast`) bleibt
+  davon strukturell unberührt: Phase-Mapping ist eine zusätzliche, rein lesende
+  Aufschlüsselung derselben `jira_worklogs_cache`-Zeilen, nie eine zweite Ist-Quelle
+  (Abschnitt 7, verifiziert per Regressionstest in Abschnitt 16.25).
 - **Tags sind eine Querschnittsschicht** mit generischer `TagLink`-Verknüpfung — kein
   Admin-Zwang zum Anlegen eines neuen Tags im normalen Arbeitsfluss.
 - **`PlanPhase` ist die einzige operative Planungseinheit (P18 Pass 2, Abschnitt 6, final
@@ -234,7 +258,7 @@ weiterhin `plan_phase_id = NULL`-Demands/`subprojects` parallel zum neuen Baum.
 |---|---|
 | `projects` | Projektstammdaten (Name, Kunde, Startmonat, Anzahl Monate, Status, Jira-Verknüpfung, `projektleiter_person_id`) |
 | `subprojects` | Teilprojekte (reine Gruppierung für Phasen/Milestones, kein eigenes Jira-Mapping). **Fachlich durch hierarchische `PlanPhase` (`parent_phase_id`) abgelöst** (Abschnitt 6.7, P18/B-2 IMPLEMENTIERT) — Tabelle/Router/Schemas bleiben bewusst compat-only bestehen (kein Drop-and-Pray), Backend-Endpoints sind explizit `@deprecated` dokumentiert. Frontend nutzt sie noch aktiv in `ProjectPlanningTab.tsx` (CRUD), `ProjectHistoryTab.tsx` (Historie) und `ProjectCommunicationTab.tsx` (Kommentar-Gruppierung) — Entfernung ist B-8-Scope, blockiert bis zur produktiven Migration (Abschnitt 16.15). |
-| `plan_phases` | **Die** Planungseinheit — tagegenau, siehe Abschnitt 5. **Hierarchisch** (P18/B-1 IMPLEMENTIERT): `parent_phase_id` (self-referencing, nullable, max. 3 Ebenen, backend-validiert) und `reihenfolge` (int). Leaf/Parent-Baum operativ über `routers/planning.py`/`planning_calc.py` (B-3, IMPLEMENTIERT). |
+| `plan_phases` | **Die** Planungseinheit — tagegenau, siehe Abschnitt 5. **Hierarchisch** (P18/B-1 IMPLEMENTIERT): `parent_phase_id` (self-referencing, nullable, max. 3 Ebenen, backend-validiert) und `reihenfolge` (int). Leaf/Parent-Baum operativ über `routers/planning.py`/`planning_calc.py` (B-3, IMPLEMENTIERT). Zusätzlich `jira_label` (nullable, P20.1 IMPLEMENTIERT, Abschnitt 16.19) — Jira-Label für den Worklog-Resolver, nur auf Leaf-Phasen gepflegt, gleicher Lifecycle wie `plan_fte` (wird beim Parent-Übergang serverseitig auf `NULL` gesetzt und historisiert), Konfliktprüfung verhindert identische Werte auf zwei Leaf-Phasen desselben Projekts (409). |
 | `milestones` | Eigenständige Milestone-Entität. `plan_phase_id` (nullable, zeigt auf Leaf **oder** Parent) ist die primäre Verknüpfung (P18/B-7 IMPLEMENTIERT) — löst `subproject_id` operativ ab; `subproject_id` bleibt compat-only im Schema, aber nicht mehr in der UI (`MilestoneList.tsx` zeigt nur noch "Übergeordnete Phase"). |
 | `baseline_snapshots` / `baseline_entries` | Planstände (eingefrorene Feldwerte je PlanPhase/Milestone). `_SNAPSHOT_FIELDS` umfasst `parent_phase_id`/`reihenfolge` (PlanPhase) und `plan_phase_id` (Milestone) (P18/B-7 IMPLEMENTIERT, Abschnitt 6.13/16.15) — Deviation-Erkennung deckt Parent-Wechsel/Zeitraum/`plan_fte` ab **und erkennt seit P18.1 (Abschnitt 16.16) zusätzlich strukturelle Baum-Änderungen**: "Phase hinzugefügt" (`type="added"`) und "Phase entfernt" (`type="removed"`, Name aus dem eingefrorenen `phase_type` rekonstruiert, kein `#<id>`-Roh-Fallback) werden beide erkannt und im Frontend (`BaselineList.tsx`) als eigene Zeilen dargestellt — der frühere Gap (Abschnitt 16.15) ist behoben. |
 | `resource_roles`, `skills`, `person_skills` | Rollen-/Skill-Vokabular für Kapazitätsplanung. Interne, per Migration geseedete System-Rolle "Ohne Rolle" (`is_system_role`, P18/B-1 IMPLEMENTIERT) — im normalen Picker ausgeblendet, aus Rollenauswertungen ausgeblendet (P18/B-4/B-5 IMPLEMENTIERT). **Bekannter Gap:** es existiert aktuell kein `DELETE`-Endpoint für `resource_roles` überhaupt — die dokumentierte "nicht löschbar"-Regel ist damit faktisch, aber nicht durch einen Backend-Guard erzwungen (Abschnitt 16.15). |
@@ -250,7 +274,9 @@ weiterhin `plan_phase_id = NULL`-Demands/`subprojects` parallel zum neuen Baum.
 | `tags`, `tag_links`, `tag_categories` | Tag-System inkl. AI-Metadaten (`ai_relevant`, `ai_description`, `synonyms`) |
 | `entity_relations` | Generische, typisierte Beziehung zwischen zwei beliebigen Entitäten (z. B. `resulted_in`, `depends_on`, `resolves`) |
 | `health_thresholds` | Admin-konfigurierbare Schwellen für die neun Health-Dimensionen |
-| `jira_worklogs_cache` | Ist-Daten-Cache aus Jira/Tempo |
+| `jira_worklogs_cache` | Ist-Daten-Cache aus Jira/Tempo (Projekt-Ebene, `projekt_mapping`) |
+| `jira_issue_cache` | Issue-Metadaten (Labels/Component/Summary) aus demselben Sync-Suchergebnis wie `jira_worklogs_cache` (P20.1 IMPLEMENTIERT, Abschnitt 16.19) — Grundlage für den Worklog→PlanPhase-Resolver (P20.2, noch nicht implementiert). Upsert per Issue-Key bei jedem `POST /jira/sync`, kein zusätzlicher Jira-API-Call. |
+| `worklog_phase_overrides` | Manuelle Worklog→PlanPhase-Korrektur auf Issue-Key-Ebene (P20.1 IMPLEMENTIERT, BD-1B CLOSED, Abschnitt 16.19) — höchste Priorität im künftigen Resolver, ändert nie Jira/Tempo-Originaldaten. CRUD über `/projects/plan-phases/{id}/worklog-overrides`. |
 | `gap_snapshots` | Modell existiert, wird aktuell nicht befüllt — GAP Engine rechnet live (siehe Abschnitt 9) |
 | `plan_history` | Änderungsprotokoll (Audit-Trail), gruppiert über `batch_id`. Additives Feld `plan_phase_id` (nullable, P18/B-1/B-3 IMPLEMENTIERT) — historisiert automatisch den `plan_fte`-Wert einer Phase, wenn sie durch das erste Kind zur Parent-Phase wird (Abschnitt 6.1a), verifiziert per Live-Testlauf (Abschnitt 16.15). |
 
@@ -306,10 +332,15 @@ sich still ändert.
 Zeitraums (`forecast_start`…`forecast_end`), der bis heute vergangen ist. Kein Health-/
 Fortschrittswert.
 
-**Aufwandsverbrauch** (`effort_consumption_pct` = Ist-Aufwand / Plan-Aufwand) ist als
-Kennzahl vorgesehen, aber das Tempo→PlanPhase-Mapping ist fachlich noch nicht entschieden
-(BD-1). Die API liefert deshalb aktuell konsequent `null`/"noch nicht eindeutig
-zugeordnet" — es gibt bewusst **keine Datumsheuristik** und **kein Fake-Ist**.
+**Aufwandsverbrauch** (`effort_consumption_pct = ist_hours / plan_hours × 100`) ist seit
+P20.4 (Abschnitt 16.22) **implementiert** — `ist_hours` kommt vom Worklog-Resolver (P20.2,
+`app/worklog_resolver.py`) über `app/worklog_actuals.py`, Rundformel in
+`phase_metrics_calc.effort_consumption`. `null`/"noch nicht eindeutig zugeordnet" bleibt für
+eine Leaf-Phase ohne `jira_label` (kein Mapping konfiguriert) oder eine Parent-Phase ohne
+gemappten Leaf-Nachfahren — bewusst **nicht** `0`, das würde fälschlich "sicher kein Aufwand"
+suggerieren. Zusätzlich `remaining_plan_hours = max(plan_hours - ist_hours, 0)` und
+`overrun_hours = max(ist_hours - plan_hours, 0)`, reine Subtraktion ohne Forecast-/
+Burn-Rate-Logik. Es gibt weiterhin bewusst **keine Datumsheuristik** und **kein Fake-Ist**.
 
 ### 5.3 Planstand (`BaselineSnapshot`)
 
@@ -757,10 +788,35 @@ keine HR-Integration.**
   `Arbeitswochen_Monat ≈ 52/12`.
 
 **Projekt-Level-Ist funktioniert** (`GET /projects/{id}` liefert `ist` je Monat, `GET
-/gap`/`GET /forecast`). **Phase-Level-Ist ist deferred (BD-1):** es gibt aktuell kein
-belastbares Mapping Tempo-Worklog → einzelne `PlanPhase`. `PhaseMetricsOut.ist_hours`/
-`effort_consumption_pct` liefern deshalb konsequent `null`, nie eine Datumsheuristik oder ein
-Fake-Ist.
+/gap`/`GET /forecast`) und bleibt die alleinige, unveränderte Quelle für diese Endpunkte —
+Phase-Mapping ist eine zusätzliche, additive Aufschlüsselung derselben
+`jira_worklogs_cache`-Zeilen, kein Ersatz.
+
+**Phase-Level-Ist (P20, siehe
+[`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md)):**
+Mapping-Kriterium ist **CLOSED** (BD-1A–G) — Jira-Label pro Leaf-Phase (`PlanPhase.jira_label`,
+matcht gegen `jira_issue_cache.labels`) mit manuellem Issue-Key-Override
+(`worklog_phase_overrides`, höchste Priorität) als Ausnahme. Kein Datum als primäres
+Kriterium, keine generische Regelmaschine. **Implementiert:** Datenmodell, Sync-Erweiterung, Override-CRUD, Konfliktprüfung (P20.1,
+Abschnitt 16.19). Resolver-Modul (P20.2, `app/worklog_resolver.py`, Abschnitt 16.20):
+`resolve_project_issues()` löst pro Projekt jedes im `jira_issue_cache` stehende Issue
+eindeutig auf einen Status auf (`matched`/`unmapped`/`ambiguous`), inkl. Erklärbarkeit
+(`mapping_source`/`mapping_value`) und Projekt-Scope. **Mapping Coverage implementiert**
+(P20.3, `app/actuals_coverage.py`, `GET /projects/{id}/actuals-coverage`, Abschnitt 16.21):
+aggregiert den Resolver über alle Issues eines Projekts zu `mapped_total`/`ambiguous_total`/
+`unmapped_total`/`coverage_pct` — `project_ist_total` bleibt dabei per Konstruktion exakt die
+Summe aus `jira_worklogs_cache` (nie aus den Phasen zurückgerechnet), `coverage_pct` ist
+`null` statt `0`/`100`, wenn das Projekt noch keine Ist-Stunden hat. **Phase-Metriken
+implementiert** (P20.4, `app/worklog_actuals.py` + `phase_metrics_calc.py`, Abschnitt 16.22):
+`PhaseMetricsOut.ist_hours`/`effort_consumption_pct`/`remaining_plan_hours`/`overrun_hours`
+liefern jetzt reale Werte für Leaf-Phasen mit `jira_label` und rekursiv aggregiert für
+Parent-Phasen — `null` bleibt ausschließlich für Phasen ohne Mapping-Konfiguration (nie eine
+Datumsheuristik oder ein Fake-Ist). **Workspace-UX implementiert** (P20.5, Abschnitt 16.23):
+Label-Picker mit Mapping-Preview im Übersicht-Tab, "Steuerung"-Karte im Kapazität-Tab.
+**Personen-Drilldown/Planned-vs-Actual implementiert** (P20.6, Abschnitt 16.24). **Projekt-
+Coverage-Anzeige implementiert** (P20.7, `ProjectJiraTab.tsx`, Abschnitt 16.25). **BD-1 ist
+damit vollständig geschlossen** — es bleibt keine offene fachliche Frage zu Tempo/Jira→
+PlanPhase-Mapping mehr.
 
 Konfiguration über `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`; ohne diese bleibt der
 Sync deaktiviert (`GET /jira/status`), die übrige Planung funktioniert unabhängig davon.
@@ -875,7 +931,7 @@ Navigations-Gruppierung, keine Zugriffskontrolle (kein Rollen-/Login-System im R
 | Kommunikation | Diskussionen, Aufgaben, Entscheidungen, Risiken, Meetingprotokolle (projektweit; phasenbezogene Sicht siehe Planung-Tab-Drawer) |
 | Dokumente | Zentrale Dokumentenablage des gesamten Projekts, Suche/Filter, "Verwendet in"-Backlinks |
 | Historie | Automatisches Änderungsprotokoll (Audit), nach Datum/Revision (`batch_id`) gruppiert |
-| Jira | Sync-Status, Ist-FTE-Tabelle, "Jetzt synchronisieren" |
+| Jira | Sync-Status, Ist-FTE-Tabelle, "Jetzt synchronisieren", seit P20.7 zusätzlich eine "Ist-Zuordnung zu PlanPhasen"-Karte (projektweite Mapping Coverage, P20.3) |
 | Einstellungen | **Projektstammdaten** (Name/Kunde/Startmonat/Anzahl Monate, mit Grund-/Batch-Speichern-Workflow), Projektparameter (Status/Projektleiter), Projektteam/Berechtigungen, Jira-Verknüpfung. **Nicht** hier: PlanPhase-Planung, Kapazitätsplanung, Assignments, Planstände, Tag-Verwendung, Kommentare/Tasks/Blocker/Milestones — das bleibt Planungsarbeit im Planung-Tab. |
 
 ### Planung-Tab im Detail
@@ -894,11 +950,20 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
 (unverändert seit P19 — P19 ergänzt Inhalte **innerhalb** der Tabs, baut keine neuen):
 
 - **Übersicht** — editierbar: Name, Start/Ende (= "Zeitraum"), Status, Owner, Teilprojekt,
-  Tags, Plan-FTE, alles sofort speichernd (kein Batch-/Grund-Workflow, siehe unten).
-  Read-only/berechnet: Planstunden, Zeitfortschritt, Ist-Aufwand (aktuell "noch nicht
-  eindeutig zugeordnet", BD-1). Sekundär: "Tatsächlicher Verlauf" (Gestartet/Abgeschlossen),
-  mit Aktion "Ist-Daten korrigieren" für die seltene manuelle Nachpflege. Header zeigt seit
-  P19 den vollen Breadcrumb-Pfad von der Wurzel bis zur aktuellen Phase (klickbare Vorfahren,
+  Tags, Plan-FTE, alles sofort speichernd (kein Batch-/Grund-Workflow, siehe unten). Seit
+  P20.5 zusätzlich (nur auf Leaf-Phasen): eine **"Ist-Daten"-Karte** mit Freitext+Datalist-
+  Feld für `jira_label` (Vorschläge aus `GET /jira/projects/{key}/labels`, falls das Projekt
+  über `jira_project_key` verknüpft ist) und einer darunterliegenden **Mapping-Preview**
+  ("2 Issues · 3 Worklogs · 60 h (WMX-100, WMX-101)"), die sich nach jedem Speichern
+  automatisch aktualisiert (`GET .../jira-matches?label=...`, rein lesend gegen den
+  Sync-Cache, keine Live-Jira-Abfrage). Ein Speicherversuch mit einem bereits vergebenen
+  Label wird vom Backend mit `409` abgelehnt und als Fehlertext angezeigt (Abschnitt 16.19,
+  BD-1G). Read-only/berechnet: Planstunden, Zeitfortschritt, **Ist-Aufwand/Aufwandsverbrauch/
+  Verbleibender Planaufwand/Überverbrauch** (seit P20.5 reale Werte aus `PhaseMetricsOut`,
+  siehe Abschnitt 16.22 - `null` bleibt "noch nicht eindeutig zugeordnet", nie eine
+  irreführende 0). Sekundär: "Tatsächlicher Verlauf" (Gestartet/Abgeschlossen), mit Aktion
+  "Ist-Daten korrigieren" für die seltene manuelle Nachpflege. Header zeigt seit P19 den
+  vollen Breadcrumb-Pfad von der Wurzel bis zur aktuellen Phase (klickbare Vorfahren,
   wechselt die im Drawer offene Phase ohne den Drawer zu schließen). Zusätzlich seit P19: eine
   kompakte "Verknüpfte Themen"-Karte (Tags + Entscheidungen-/Blocker-/Dokumente-Counts, aus dem
   bereits geladenen Detail abgeleitet) und, falls ein Planstand existiert, die
@@ -906,7 +971,17 @@ Plan-FTE, Tags. Dateien gehören **nicht** ins Create-Formular — sie werden na
 - **Kapazität** — Plan-FTE/Planstunden-Kopfzeile, Personenbesetzung (Primärpfad, visuell
   hervorgehoben) + optionale Rollen-Aufschlüsselung (eingeklappt, sekundär) in Fachsprache
   (siehe Abschnitt 6). Seit P19 liefert `PlanPhaseDetail` Assignment-Summary und die
-  Assignments je Rolle bereits eingebettet (Round-Trip-Reduktion, kein neuer Endpoint).
+  Assignments je Rolle bereits eingebettet (Round-Trip-Reduktion, kein neuer Endpoint). Seit
+  P20.5 zusätzlich eine additive **"Steuerung"-Karte** unterhalb der Kapazität-Kopfzeile:
+  dieselben Phasen-Ist-Rohmetriken wie im Übersicht-Tab, plus eine "Ist-Zuordnung (Projekt)"-
+  Zeile aus der **projektweiten** Coverage (P20.3, `GET /projects/{id}/actuals-coverage`) -
+  bewusst als "(Projekt)" gekennzeichnet, da Coverage keine Phasen-Kennzahl ist. Seit P20.6
+  klappt "Details ▾" neben "Ist-Aufwand" (nur sichtbar, wenn `ist_hours` gesetzt ist) den
+  **Personen-Drilldown** auf (`GET .../person-actuals`, lazy geladen): eine Zeile je Person
+  mit Ist-Stunden, ungeplante Personen mit dem Hinweis "nicht eingeplant" markiert, darunter
+  "Eingeplant, bisher kein Ist: ..." und "Davon durch nicht eingeplante Ressourcen: X h" -
+  reine Anzeige, **keine automatische Änderung der Ressourcenplanung**. **Keine Ampel** (BD-3
+  bleibt separat offen).
 - **Aktivität** — Activity Feed (zeigt seit P19 auch Milestone-/Planstand-Ereignisse) +
   Kommentare (inkl. Threading über `parent_id` mit einer Einrückungsebene, "aus Objekt
   erstellen" direkt in der Kommentarliste), Aufgaben, Entscheidungen, Blocker im
@@ -975,7 +1050,11 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 | Planstunden | berechnet (`phase_metrics_calc.plan_hours`) | nicht editierbar | `plan_fte` × Werktage × Wochenstunden/5 | aktuell |
 | Aufschlüsselung | `ResourceDemand` (mit `plan_phase_id`) | Drawer "Kapazität" | — | aktuell, optional, keine Sync-Pflicht zu `plan_fte` |
 | Besetzung | `ResourceAssignment` | Drawer "Kapazität" | — | aktuell |
-| Ist-Aufwand (Phase) | — | — | Tempo/Jira, Mapping offen | **deferred (BD-1)**, liefert `null` |
+| Ist-Aufwand (Phase) | berechnet (`worklog_actuals.leaf_ist_hours`/`parent_ist_hours`) | nicht editierbar | Tempo/Jira via `worklog_resolver.resolve_project_issues` | **IMPLEMENTIERT (P20.4, Abschnitt 16.22), BD-1 CLOSED** — `PhaseMetricsOut.ist_hours` liefert reale Werte, `null` nur ohne Mapping-Konfiguration |
+| Mapping Coverage | berechnet (`actuals_coverage.project_coverage`) | nicht editierbar | `GET /projects/{id}/actuals-coverage`, aus `jira_worklogs_cache` + Resolver | **IMPLEMENTIERT (P20.3, Abschnitt 16.21)** — reine Vertrauenskennzahl (Abschnitt 19 des P20-Dokuments), keine Health-Ampel; Projekt-Ist bleibt führend, wird nie aus Phasen zurückgerechnet |
+| Phase-Jira-Zuordnung | `PlanPhase.jira_label` | Drawer "Übersicht" (Label-Picker folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, nur auf Leaf-Phasen, gleicher Lifecycle wie `plan_fte` |
+| Worklog-Metadaten-Cache | `jira_issue_cache` | nicht editierbar (Sync-Ergebnis) | Jira-Issue-Suche bei `POST /jira/sync` | **IMPLEMENTIERT (P20.1)** |
+| Manuelle Worklog-Zuordnung | `worklog_phase_overrides` | `POST/DELETE .../worklog-overrides` (UI folgt in P20.5) | — | **IMPLEMENTIERT (P20.1)**, ändert nie Jira/Tempo-Originaldaten, höchste Resolver-Priorität sobald P20.2 existiert |
 | Zeitfortschritt | berechnet (`phase_metrics_calc.time_progress`) | nicht editierbar | Datumsanteil | aktuell |
 | Progress (%) | `PlanPhase.progress` | nirgends (deprecatet) | — | **deprecated**, compat-only |
 | Status | `PlanPhase.status`/`Milestone.status` (Freitext) | Drawer/Liste, Zielvokabular in Dropdown | — | aktuell; historische Werte lesbar, siehe Abschnitt 16.1 |
@@ -992,7 +1071,7 @@ Ressourcenrollen/Skills, Tags/Tag-Kategorien (Governance, siehe Abschnitt 8), He
 
 | ID | Frage | Status |
 |---|---|---|
-| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | offen — `effort_consumption_pct`/`ist_hours` liefern bis dahin konsequent `null`, keine Heuristik |
+| BD-1 | Tempo/Jira-Worklog → PlanPhase-Mapping: welches Kriterium (Datum, Ticket-Feld, manuelle Zuordnung)? | **CLOSED, vollständig implementiert (P20.1–P20.8)** (siehe BD-1A–G, [`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md) Abschnitt 28) — Label-Match + manueller Issue-Key-Override. Datenmodell (P20.1), Resolver-Modul (P20.2), Mapping-Coverage (P20.3), Phase-Metriken-Verdrahtung (P20.4), Plan-vs-Actual-Workspace-UX (P20.5), Personen-Drilldown/Planned-vs-Actual (P20.6), Projekt-Coverage-Anzeige (P20.7) und finale Gesamtregression + CONCEPT-Konsistenzpass (P20.8, Abschnitt 16.19–16.26) sind implementiert und per Playwright-Browserlauf verifiziert; dedizierte Regressionstests bestätigen `GET /projects/{id}`/`GET /gap`/`GET /forecast`/`GET .../health` byte-identisch trotz voll konfigurierter Phase-Mapping-Domain, alle acht Auftrags-Akzeptanztests (AT1–AT8) sind automatisierte Regressionsskripte. `null` bleibt für Phasen ohne Mapping-Konfiguration, nie eine Datumsheuristik oder ein Fake-Ist. Keine fachliche Restfrage mehr. |
 | BD-3 | Bewertungs-Thresholds für Phasenmetriken (🟢/🟡/🔴 auf `plan_hours`/`time_progress_pct`/Reconciliation)? | offen — Metriken werden aktuell ohne Ampel gezeigt |
 | BD-4 | Feiertags-Handling für Planstunden (aktuell Mo–Fr ohne Feiertagsabzug) | offen, dokumentierter Scope-Cut, keine stille Baseline-Änderung |
 | BD-5 | `ResourceAssignment` mit Teil-Zeiträumen (Sub-Ranges) statt einer FTE über die ganze Demand-Periode? | offen |
@@ -1028,7 +1107,6 @@ Werktage-Logik ableitbar, keine offene Frage.
 
 ## 15. Deferred Features
 
-- Tempo→PlanPhase-Mapping (BD-1)
 - `PlanPhase.progress`-Spalte tatsächlich droppen (Schema-Cleanup erst, wenn alle Consumer
   entfernt sind — kein destruktives Cleanup nur für UX)
 - `phase_control_status`/🟢🟡🔴-Bewertung der Phasenmetriken (BD-3)
@@ -2305,6 +2383,420 @@ Gantt-Drag&Drop, keine produktive B-8-Migration. Die zwei einzigen offenen
 UX-Platzierungsfragen des Audits (Planstände zentral vs. im Workspace; Milestones als Karte
 vs. eigener Tab) wurden mit begründeter Empfehlung umgesetzt (zentral/Karte) — reversibel,
 kein Business-Blocker.
+
+### 16.19 P20.1 — Jira/Tempo Mapping Domain (dieser Durchgang)
+
+**Auftrag:** P20 verbindet die (durch P18/P19 fertige, hier unveränderte) `PlanPhase`-Planung
+mit den tatsächlich gebuchten Tempo/Jira-Stunden — ausschließlich additiv, keine zweite
+FTE-Quelle, keine Datumsheuristik. Die fachliche Analyse
+([`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md),
+zweifach verifiziert gegen den realen Code) empfiehlt Option F (Label-Match + manueller
+Override) und kommt zu **READY FOR P20 IMPLEMENTATION**. Dieser Durchgang implementiert das
+erste von acht additiven Paketen: **P20.1 — Jira/Tempo Mapping Domain** (Datenmodell +
+Sync-Erweiterung + Konfliktprüfung, keine Abhängigkeiten).
+
+**Umsetzung:**
+
+- **`PlanPhase.jira_label`** (nullable `String(200)`) — Pendant zu `Project.jira_component`
+  auf Phasenebene. Gleicher Lifecycle wie `plan_fte`: `_maybe_historize_parent_fte`
+  (`routers/planning.py`) setzt bei allen drei bestehenden "Phase erhält erstes Kind"-Stellen
+  (`create_plan_phase`, `update_plan_phase`-Reparenting, `reparent_children`) jetzt zusätzlich
+  `jira_label` auf `NULL` und historisiert den alten Wert in `PlanHistory`
+  (`feld="jira_label"`) — kein neuer Code-Pfad, dieselbe bereits bestehende Funktion erweitert.
+- **Konfliktprüfung (BD-1G):** `_check_jira_label_conflict` blockiert (409) beim Anlegen
+  (`POST .../plan-phases`) und Ändern (`PUT .../plan-phases/{id}`), wenn zwei Leaf-Phasen
+  desselben Projekts denselben `jira_label`-Wert erhielten — mit Verweis auf die
+  kollidierende Phase in der Fehlermeldung.
+- **`jira_issue_cache`** (neue Tabelle: `jira_issue_key` PK, `project_id`, `labels`
+  kommagetrennt, `component`, `summary`, `last_synced_at`) — befüllt von
+  `jira_sync._upsert_issue_cache()`, aufgerufen aus `jira_sync.sync_project()` bei jedem
+  `POST /jira/sync`. **Kein zusätzlicher Jira-API-Call:**
+  `jira_client.search_issues_for_component()` fragt jetzt `fields=key,labels,components,summary`
+  statt nur `key`/`labels` ab — derselbe Suchaufruf, der zuvor nur die Issue-Keys behielt.
+  `jira_client.fetch_worklogs_for_component()` wurde zu `fetch_worklogs_for_issue_keys()`
+  (nimmt Issue-Keys statt Component+since entgegen), da `jira_sync.sync_project()` die Issues
+  jetzt ohnehin bereits einmal aufgelöst hat und sie nicht für den nativen Worklog-Fallback ein
+  zweites Mal per JQL suchen muss.
+- **`worklog_phase_overrides`** (neue Tabelle: `id` PK, `project_id`, `jira_issue_key`
+  UNIQUE, `plan_phase_id`, `previous_status`, `note`, `created_by_person_id`, `created_at`) +
+  CRUD (`GET`/`POST /projects/plan-phases/{id}/worklog-overrides`,
+  `DELETE .../worklog-overrides/{jira_issue_key}`). `POST` ist ein Upsert per
+  `jira_issue_key` (erneutes Anlegen mit anderer Ziel-Phase verschiebt den bestehenden
+  Override statt ein Duplikat zu erzeugen — fachlich "Override bearbeiten"). Ändert nie
+  Jira/Tempo-Originaldaten. Kein Auth-/Session-Mechanismus im Backend (verifiziert) —
+  `created_by_person_id` ist wie überall im Produkt ein manuell gewählter, nullable
+  Personen-Verweis, keine neue Auth-Anforderung. `previous_status` bleibt bis P20.2
+  unbefüllt/optional (der Resolver, der ihn eigentlich berechnet, existiert noch nicht).
+- **Migration `0006_p20_jira_phase_mapping`** (additiv, `down_revision =
+  "0005_p18_hierarchy_foundation"`).
+
+**Bewusst nicht Teil von P20.1** (folgt in späteren Paketen, siehe
+P20-Dokument Abschnitt 30/31): der eigentliche Worklog→PlanPhase-Resolver (P20.2), Unmapped/
+Ambiguous/Coverage (P20.3), die Verdrahtung von `ist_hours`/`effort_consumption_pct` in
+`phase_metrics_calc`/`PhaseMetricsOut` (P20.4) — beide bleiben bis dahin unverändert `null` —,
+Workspace-UX/Label-Picker/Mapping-Preview (P20.5), Personen-Drilldown (P20.6),
+Coverage-UI (P20.7). `GET /gap`, `GET /forecast`, `health_calc.compute_project_health`,
+`jira_sync.berechne_ist_fte` sind durch P20.1 unverändert (nur additiv erweitert, keine
+bestehende Formel angefasst).
+
+**Verifikation:** neues Testskript
+`backend/scripts/test_p20_jira_phase_mapping.py` (jira_label Create/Update/Konflikt/
+Parent-Übergang inkl. PlanHistory-Eintrag, WorklogPhaseOverride-CRUD inkl. Upsert/404,
+`jira_sync._upsert_issue_cache` inkl. Idempotenz) sowie alle sechs bestehenden
+Backend-Testskripte (u. a. `test_planning_phase_tree_api.py`, das denselben
+Parent-Übergangs-Pfad testet) unverändert grün — keine Regression am `plan_fte`-Lifecycle.
+App-Import, Migration auf frischer SQLite-DB und OpenAPI-Schema-Generierung geprüft.
+
+### 16.20 P20.2 — Worklog → PlanPhase Resolver (dieser Durchgang)
+
+**Auftrag:** zweites von acht additiven P20-Paketen (abhängig von P20.1, Abschnitt 16.19) —
+der eigentliche Resolver, der einem Jira-Issue anhand der in P20.1 geschaffenen Datenlage
+(`PlanPhase.jira_label`, `jira_issue_cache`, `worklog_phase_overrides`) genau einen Status
+zuweist. Reines Domain-Modul ohne API-Anbindung (folgt in P20.3/P20.4) — bewusst zuerst
+isoliert gebaut und getestet, bevor Coverage-Aggregation und Metriken-Verdrahtung darauf
+aufsetzen.
+
+**Umsetzung — neues Modul `app/worklog_resolver.py`:**
+
+- **`resolve_issue(issue_key, issue_labels, override_phase_id, phases_by_label)`** — reine
+  Funktion, kein DB-Zugriff, keine Seiteneffekte (Auftrag Abschnitt 8: "isoliert testbar").
+  Prioritätskette exakt wie im P20-Dokument (Abschnitt 8) spezifiziert: Override (falls
+  gesetzt) sticht **immer**, auch wenn die Labels für sich genommen ambiguous wären; sonst
+  Label-Match gegen `phases_by_label` — kein Treffer → `UNMAPPED`, genau ein Treffer →
+  `MATCHED` (`mapping_source="jira_label"`), mehr als ein Treffer → `AMBIGUOUS` (mit
+  `candidate_phase_ids` für die spätere UI-Erklärung, Auftrag Abschnitt 35). Kein Datum wird
+  an keiner Stelle konsultiert.
+- **`resolve_project_issues(db, project_id)`** — Orchestrierung: löst **je Issue** auf (nicht
+  je `jira_worklogs_cache`-Zeile — ein Ticket gehört über seine gesamte Laufzeit zu genau
+  einer Phase, siehe `WorklogPhaseOverride`-Docstring), damit alle Worklogs desselben Issues
+  automatisch dieselbe Zuordnung erhalten, ohne N+1 über Worklog-Zeilen. Drei DB-Queries
+  (Issues, Overrides, Leaf-Phasen mit Label), danach reine In-Memory-Berechnung. Ein
+  Override für ein Issue, das (noch) nicht im `jira_issue_cache` steht (Override vor dem
+  nächsten Sync angelegt), löst trotzdem `MATCHED` auf — ein Override verschwindet nie nur,
+  weil der Cache noch nicht nachgezogen ist. Strikt projekt-gescoped: ein zweites Projekt mit
+  identischen Label-Werten beeinflusst die Auflösung nicht.
+- `ResolutionStatus` (Enum: `matched`/`unmapped`/`ambiguous`) und `IssueResolution`
+  (Dataclass: `status`, `plan_phase_id`, `mapping_source`, `mapping_value`,
+  `candidate_phase_ids`) sind das Ergebnisformat — noch kein Pydantic-Schema/API-Response,
+  das folgt erst mit dem Endpoint in P20.3/P20.4.
+
+**Bewusst nicht Teil von P20.2:** kein API-Endpoint, keine Coverage-/Unmapped-/
+Ambiguous-Aggregation über ein ganzes Projekt (P20.3), keine Verdrahtung in
+`PhaseMetricsOut`/`phase_metrics_calc.effort_consumption()` (P20.4) — `ist_hours`/
+`effort_consumption_pct` bleiben bis dahin `null`. Keine Migration (reines Python-Modul,
+keine neue Tabelle/Spalte).
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_worklog_resolver.py` —
+`resolve_issue()` isoliert (Unmapped/Matched/Ambiguous/Override-Vorrang inkl. Override über
+ambiguous Labels hinweg) sowie `resolve_project_issues()` gegen echte DB-Zeilen (Label-Match,
+Ambiguous mit korrekten `candidate_phase_ids`, Override mit und ohne Cache-Eintrag,
+Projekt-Scope-Trennung, parallele Phasen mit identischem Zeitraum die ausschließlich über
+Labels unterschieden werden, AT5). Alle acht Backend-Testskripte (sechs bestehende + beide
+P20-Skripte) grün.
+
+### 16.21 P20.3 — Unmapped / Ambiguous / Coverage (dieser Durchgang)
+
+**Auftrag:** drittes von acht additiven P20-Paketen (abhängig von P20.2, Abschnitt 16.20) —
+aggregiert den Resolver über ein ganzes Projekt zur zentralen Vertrauenskennzahl "Mapping
+Coverage" (Auftrag Abschnitt 12–14/19, BD-1C/D CLOSED). Erster tatsächlicher API-Endpoint der
+P20-Serie.
+
+**Umsetzung:**
+
+- **Neues Modul `app/actuals_coverage.py`**, Funktion `project_coverage(db, project_id)`:
+  summiert `jira_worklogs_cache.stunden` je Issue (unverändert, exakt dieselbe Quelle wie
+  `jira_sync.berechne_ist_fte`), löst jedes Issue über `worklog_resolver.resolve_project_issues()`
+  auf und verteilt die Stunden auf `mapped_total`/`ambiguous_total`; `unmapped_total` wird
+  **nie eigenständig gezählt**, sondern immer als Rest berechnet
+  (`project_ist_total - mapped_total - ambiguous_total`) — ein Issue ohne Resolver-Ergebnis
+  (z. B. noch nicht im `jira_issue_cache`, weil der letzte Sync es nicht mehr traf) landet
+  dadurch automatisch im Unmapped-Topf statt stillschweigend zu verschwinden (Auftrag
+  Abschnitt 14). `coverage_pct = mapped_total / project_ist_total × 100`, explizit `None`
+  (nicht `0` oder `100`) bei `project_ist_total == 0` (Auftrag Abschnitt 19).
+- **Neuer Endpoint `GET /projects/{id}/actuals-coverage`** (`routers/projects.py`), neues
+  Schema `ProjectActualsCoverageOut`. Reine Vertrauens-/Vollständigkeitskennzahl, **keine**
+  Health-Ampel — `health_calc` bleibt unverändert, konsumiert diesen Endpoint nicht.
+- Projekt-Ist bleibt strukturell unveränderbar von unten: `mapped_total + ambiguous_total +
+  unmapped_total == project_ist_total` gilt per Konstruktion, nicht nur zufällig in den
+  Testfällen (Auftrag Abschnitt 20/28 "Project Actual bleibt führend").
+
+**Bewusst nicht Teil von P20.3:** keine Verdrahtung in `PhaseMetricsOut`/
+`phase_metrics_calc.effort_consumption()` (P20.4 - eine einzelne Phase kennt nach P20.3
+weiterhin nur `null` als `ist_hours`, nur das Projekt-Coverage-Aggregat ist neu). Keine
+Migration (reine Aggregation über bestehende Tabellen).
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_actuals_coverage.py` — AT2
+(Unmapped: Projekt-Ist bleibt vollständig, Lücke sichtbar), AT3 (Ambiguous: ein Issue mit
+zwei Phasen-Labels zählt einmal, keine Doppelzählung, Projekt-Ist unverändert), manueller
+Override löst eine Ambiguous-Zuordnung auf und erhöht `mapped_total`, ohne
+`project_ist_total` zu ändern, sowie ein Projekt ohne Worklogs (`coverage_pct == null`).
+Alle neun Backend-Testskripte (sechs bestehende + drei P20-Skripte) grün, OpenAPI-Schema
+geprüft.
+
+### 16.22 P20.4 — Phase Actual Metrics (dieser Durchgang)
+
+**Auftrag:** viertes von acht additiven P20-Paketen (abhängig von P20.2, Abschnitt 16.20) —
+verdrahtet den Resolver erstmals in `PhaseMetricsOut`, sodass eine einzelne Leaf- oder
+Parent-Phase reale Ist-Werte zeigt. **Mit diesem Paket ist BD-1 fachlich vollständig
+geschlossen** — die verbleibenden P20-Pakete (P20.5–P20.7) sind reine Frontend-/
+Aggregations-Arbeit, keine offene fachliche Entscheidung mehr.
+
+**Umsetzung:**
+
+- **Neues Modul `app/worklog_actuals.py`** (DB-facing, zwischen dem reinen Resolver und den
+  reinen Formeln in `phase_metrics_calc.py`, gleiches Shared-Module-Muster wie
+  `gap_calc.py`/`capacity_calc.py`): `hours_by_matched_phase()` bucketet die
+  (unveränderte) Worklog-Cache-Summe ausschließlich für `MATCHED`-Issues auf ihre Phase;
+  `leaf_ist_hours(plan_phase)` liefert `None`, wenn kein `jira_label` konfiguriert ist ("Ist-
+  Aufwand noch nicht zugeordnet", Auftrag Abschnitt 18) — **nicht** `0.0`, das würde
+  fälschlich "sicher keine Arbeit" suggerieren; `parent_ist_hours(plan_phase_id)` summiert
+  rekursiv über `planning_calc.leaf_descendants()` (Auftrag Abschnitt 15/17: keine zweite
+  Traversal-Logik, keine doppelte Worklog-Speicherung auf Parent und Leaf) und liefert
+  ebenfalls `None`, wenn KEIN Leaf-Nachfahre gemappt ist — analog zu
+  `planning_calc.derive_parent_capacity` für `plan_fte`. `actuals_coverage.py` (P20.3) wurde
+  refaktoriert, um dieselbe Worklog-Cache-Abfrage (`hours_by_issue()`) aus diesem neuen Modul
+  wiederzuverwenden statt sie ein zweites Mal zu definieren.
+- **`phase_metrics_calc.effort_consumption()`** ist jetzt die echte Formel (`ist_hours /
+  plan_hours × 100`, `None` bei fehlenden Werten oder `plan_hours == 0`) statt des bisherigen
+  Stubs. Neu: `remaining_plan_hours()` (`max(plan_hours - ist_hours, 0)`) und
+  `overrun_hours()` (`max(ist_hours - plan_hours, 0)`, `0.0` statt eines negativen Werts bei
+  Unterverbrauch) — reine Subtraktion, keine Burn-Rate-/Forecast-Logik (Auftrag Abschnitt 22,
+  weiterhin bewusst nicht Teil von P20).
+- **`PhaseMetricsOut`** um `remaining_plan_hours`/`overrun_hours` erweitert (additiv,
+  `None`-Default). `routers/planning.py::_plan_phase_metrics` ruft
+  `worklog_actuals.parent_ist_hours()` bzw. `leaf_ist_hours()` abhängig von
+  `planning_calc.has_children()` auf und reicht das Ergebnis durch alle vier Formeln.
+  `plan_hours`/`time_progress_pct`/Reconciliation bleiben unverändert (P20.4 rührt nicht an
+  `PlanPhase.plan_fte`/`forecast_start`/`forecast_end`, Auftrag Abschnitt 19: "Plan Hours
+  bleiben unverändert").
+
+**Bewusst nicht Teil von P20.4:** keine Ampel/Bewertung (BD-3 bleibt separat offen), kein
+Personen-Drilldown je Phase (P20.6), kein Label-Picker/Mapping-Preview-UI (P20.5), keine
+Verdrahtung in `GET /gap`/`GET /forecast`/`health_calc` (bleiben unverändert Projekt-weit auf
+Legacy-`ResourceDemand`/`jira_sync.berechne_ist_fte`, Auftrag Abschnitt 20/22/23/25). Keine
+Migration (reine Berechnungslogik über bestehende Tabellen).
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_phase_actual_metrics.py` — AT1
+(Happy Path: 80h Plan, 32h+20h+8h=60h eindeutig gemappt → 75 % Verbrauch, 20h Rest, keine
+Doppelzählung), Überverbrauch (95h Ist bei 80h Plan → 15h Overrun, Rest bei 0 gekappt), AT7
+(Phase ohne Mapping → `ist_hours=null`, nicht `0.0`), AT6 (Parent-Aggregation: Child 20h +
+Child 40h → Parent 60h, keine doppelte Speicherung), sowie ein Parent ganz ohne gemappten
+Nachfahren (`null`, nicht `0.0`). Alle zehn Backend-Testskripte (sechs bestehende + vier
+P20-Skripte) grün, OpenAPI-Schema geprüft.
+
+### 16.23 P20.5 — Plan-vs-Actual Workspace UX (dieser Durchgang)
+
+**Auftrag:** fünftes von acht additiven P20-Paketen (abhängig von P20.4, Abschnitt 16.22) —
+macht die seit P20.4 real berechneten Phase-Ist-Metriken und die Mapping-Konfiguration im
+PlanPhase-Workspace tatsächlich sichtbar/editierbar. Erstes Frontend-Paket der P20-Serie.
+
+**Backend (klein, additiv):**
+
+- **Neuer Endpoint `GET /plan-phases/{id}/jira-matches?label=...`** (Mapping-Preview,
+  Auftrag Abschnitt 10/31): rein lesend gegen `JiraIssueCache`/`JiraWorklogCache` (kein
+  Live-Jira-Call), liefert `matched_issues`/`matched_worklogs`/`total_hours`/
+  `sample_issue_keys`/`as_of` (Stand des letzten Syncs). Funktioniert unabhängig davon, ob
+  die Phase das Label bereits gespeichert hat (echte Vorschau vor dem Speichern). Neues
+  Schema `JiraMatchPreviewOut`.
+
+**Frontend (`PlanPhaseWorkspace.tsx`, `PlanPhaseCapacityTab.tsx`):**
+
+- **Übersicht-Tab, neue "Ist-Daten"-Karte** (nur auf Leaf-Phasen, analog zum
+  Plan-FTE-Feld): Freitext+Datalist-Eingabe für `jira_label` (Vorschläge aus dem bereits
+  vorhandenen `GET /jira/projects/{key}/labels`, sofern `project.jira_project_key` gesetzt
+  ist — sonst bleibt das Feld reiner Freitext, kein neuer Jira-Endpoint), sofort speichernd
+  wie jedes andere Übersicht-Feld. Darunter die Mapping-Preview, die sich per `useEffect` auf
+  `detail.jira_label` automatisch nach jedem Speichern aktualisiert.
+- **Übersicht-Tab, "Kennzahlen"-Karte korrigiert:** zeigte vor P20.5 trotz der seit P20.4
+  real berechneten Backend-Werte weiterhin hartkodiert "Ist-Aufwand: Noch nicht eindeutig der
+  Planphase zugeordnet" / "Aufwandsverbrauch: —" (**Bug**, da die JSX nie an `detail.metrics`
+  angepasst worden war) — jetzt zeigt sie die tatsächlichen Werte aus `PhaseMetricsOut`,
+  `null` bleibt weiterhin "Noch nicht eindeutig zugeordnet" statt einer Zahl.
+- **Kapazität-Tab, neue "Steuerung"-Karte** (additiv, unterhalb der bestehenden
+  Kapazität-Kopfzeile): Ist-Aufwand/Aufwandsverbrauch/Zeitfortschritt/Verbleibender
+  Planaufwand/Überverbrauch aus derselben `PhaseMetricsOut`, zusätzlich eine
+  "Ist-Zuordnung (Projekt)"-Zeile aus `GET /projects/{id}/actuals-coverage` (P20.3) — explizit
+  als projektweite, nicht phasenscoped Kennzahl gekennzeichnet, um keine falsche Präzision
+  vorzutäuschen. **Keine Ampel** (BD-3 bleibt unverändert offen).
+- Neue Typen `JiraMatchPreview`/`ProjectActualsCoverage`, `PlanPhase.jira_label`,
+  `PhaseMetricsOut.remaining_plan_hours`/`overrun_hours` in `types.ts`; `api.client.ts` um
+  `getPlanPhaseJiraMatches`/`getProjectActualsCoverage` und `jira_label` im
+  `updatePlanPhase`-Payload ergänzt.
+
+**Bewusst nicht Teil von P20.5:** kein Override-Bearbeitungsdialog (Auftrag Abschnitt 26
+nennt eine `WorklogMappingBadge`-Komponente, aber keines der P20-Pakete weist sie explizit
+zu — als offene, nicht business-kritische UI-Lücke dokumentiert, nicht Teil des P20-Kernauftrags),
+kein Personen-Drilldown (P20.6), keine `ProjectJiraTab.tsx`-Coverage-Zeile (P20.7).
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_jira_match_preview.py`
+(leeres Ergebnis ohne Treffer, korrekte Zählung/Summe über mehrere Issues ohne fremde Labels
+mitzuzählen, Preview unabhängig vom bereits gespeicherten `jira_label`). `npm run build`
+(`tsc -b && vite build`) und `npm run lint` sauber (ein neuer, bewusst unterdrückter
+`exhaustive-deps`-Hinweis, gleiches Muster wie die bereits bestehende Unterdrückung in
+derselben Datei). Zusätzlich ein echter **Playwright-Browserlauf** gegen den laufenden
+Dev-Stack (Backend + Vite, seedende Demo-Daten identisch zu AT1): Übersicht-Tab zeigt Label
++ Live-Mapping-Preview ("2 Issues · 3 Worklogs · 60 h") + korrekte Kennzahlen (80 h Plan,
+60 h Ist, 75 %, 20 h Rest); Kapazität-Tab zeigt dieselben Werte in der neuen
+Steuerung-Karte plus "Ist-Zuordnung (Projekt): 75 % (20 h nicht zugeordnet)"; eine Phase ohne
+`jira_label` zeigt "Noch nicht eindeutig zugeordnet" statt `0 h`; ein Speicherversuch mit
+einem bereits vergebenen Label wird mit `409` abgelehnt und als Fehlertext angezeigt, ohne
+den vorherigen Zustand zu verändern. Keine Browser-Konsolenfehler außer dem erwarteten
+`409`-Netzwerkeintrag selbst. Alle elf Backend-Testskripte grün.
+
+### 16.24 P20.6 — Person Actual Drilldown / Planned vs. Actual (dieser Durchgang)
+
+**Auftrag:** sechstes von acht additiven P20-Paketen (abhängig von P20.4, Abschnitt 16.22) -
+gruppiert dieselben Resolver-zugeordneten Worklog-Zeilen zusätzlich nach Person und
+vergleicht sie mit den geplanten `ResourceAssignment`s (Auftrag Abschnitt 17/18/24/25/28) -
+keine neue Personendatenquelle, keine automatische Änderung der Ressourcenplanung.
+
+**Backend:**
+
+- **Neue Funktionen in `worklog_actuals.py`:** `person_hours_by_matched_phase()` (wie
+  `hours_by_matched_phase()` aus P20.4, zusätzlich nach `jira_account_id` aufgeschlüsselt)
+  und `person_hours_for_phase()` (Leaf **oder** Parent - `leaf_descendants()` liefert eine
+  Leaf-Phase als ihren eigenen einzigen Nachfahren, daher deckt eine Funktion beide Fälle
+  ohne Sonderfall ab, analog zu `parent_ist_hours()`).
+- **Neuer Endpoint `GET /plan-phases/{id}/person-actuals`** (`routers/planning.py`), neue
+  Schemas `PersonActualOut`/`PlanPhasePersonActualsOut`: `ist_hours` (identische Quelle wie
+  `PhaseMetricsOut.ist_hours`, keine zweite Formel), `persons` (Account → lokale `Person`
+  falls über `jira_account_id` auflösbar, sonst `UnassignedJiraAuthor.display_name`, sonst
+  die rohe Account-ID; je Zeile `planned: bool`), `unplanned_actual_hours` (`None` unter
+  derselben Bedingung wie `ist_hours` - kein Mapping konfiguriert, sonst der Anteil ohne
+  `ResourceAssignment`, kann `0.0` sein) und `planned_without_actual` (Personen mit
+  Assignment auf dieser Phase bzw. ihren Leaf-Nachfahren, aber noch keinem Ist-Eintrag).
+  "Geplant" wird über alle `ResourceDemand`s der betroffenen Leaf-Phase(n) aggregiert (analog
+  zu `_plan_phase_assignment_summary`), bei einer Parent-Phase rekursiv über
+  `planning_calc.leaf_descendants()`.
+
+**Frontend (`PlanPhaseCapacityTab.tsx`):** "Details ▾"-Toggle neben "Ist-Aufwand" in der
+"Steuerung"-Karte (P20.5) - nur sichtbar, wenn `ist_hours` gesetzt ist; lazy geladen (kein
+Call beim bloßen Öffnen des Tabs). Aufgeklappt: eine Zeile je Person mit Ist-Stunden,
+ungeplante Personen mit "nicht eingeplant" markiert, darunter "Eingeplant, bisher kein Ist:
+..." und "Davon durch nicht eingeplante Ressourcen: X h", falls > 0. Neue Typen
+`PersonActual`/`PlanPhasePersonActuals` in `types.ts`, `api.getPlanPhasePersonActuals()`.
+
+**Bewusst nicht Teil von P20.6:** keine automatische Anpassung von `ResourceAssignment`
+(reine Anzeige, wie im Auftrag mehrfach betont), keine neue Health-Regel aus
+`unplanned_actual_hours` abgeleitet, keine Projekt-weite Personen-Aggregation (bleibt
+phasenscoped) - nur die Coverage-Anzeige in `ProjectJiraTab.tsx` (P20.7) fehlt noch.
+
+**Verifikation:** neues Testskript `backend/scripts/test_p20_person_actuals.py` - AT1-
+Personen (32/20/8 = 60h, keine Doppelzählung), AT8 (Dominik geplant+Ist, Anna Ist ohne
+Planung, Lisa geplant ohne Ist), Unplanned Actual Hours, Kein-Mapping-Zustand (`ist_hours`/
+`unplanned_actual_hours` beide `null`, `persons` leer), Parent-Aggregation über zwei
+Kind-Phasen hinweg (dieselbe Person in beiden Kindern wird korrekt zusammengeführt, keine
+getrennten Zeilen) und ein unbekannter Jira-Account (Account-ID als Anzeigename,
+`planned=false`). `npm run build`/`lint` sauber. Zusätzlich ein echter Playwright-
+Browserlauf: "Details ▾" aufgeklappt zeigt Dominik (32h), Anna ("nicht eingeplant", 8h),
+"Eingeplant, bisher kein Ist: Max", "Davon durch nicht eingeplante Ressourcen: 8h" - exakt
+wie im seedenden Testszenario, keine Konsolenfehler. Alle zwölf Backend-Testskripte grün.
+
+### 16.25 P20.7 — Project/Portfolio Rollup & Coverage UI (dieser Durchgang)
+
+**Auftrag:** siebtes von acht additiven P20-Paketen (abhängig von P20.3, Abschnitt 16.21) -
+zeigt die seit P20.3 berechnete Mapping Coverage im projektweiten Jira-Tab, und verifiziert
+explizit, dass das Projekt-Rollup (`GET /projects/{id}`, `GET /gap`, `GET /forecast`) durch
+die gesamte Phase-Mapping-Domain unverändert bleibt (Auftrag Abschnitt 20/22).
+
+**Frontend (`ProjectJiraTab.tsx`):** neue Karte "Ist-Zuordnung zu PlanPhasen" unterhalb der
+bestehenden "Ist-FTE"-Tabelle, nur sichtbar bei `project_ist_total > 0`. Zeigt Gesamt/Zu
+PlanPhasen zugeordnet/Nicht eindeutig zugeordnet (nur falls > 0)/Nicht zugeordnet/Coverage,
+lädt (neu) bei jedem `reload()` (z. B. nach "Jetzt synchronisieren"). Kein neuer Endpoint -
+derselbe `GET /projects/{id}/actuals-coverage` (P20.3) wie in der Kapazität-Tab-Karte
+"Steuerung" (P20.5). Bewusst keine Health-Ampel/Bewertung, nur ein Hinweistext, dass die
+Kennzahl die Zuordnungs-Vollständigkeit misst, nicht den Projektfortschritt.
+
+**Regressionsverifikation (neues Testskript
+`backend/scripts/test_p20_project_rollup_unchanged.py`):** baut ein Projekt mit vollständig
+konfigurierter Phase-Mapping-Domain (zwei gelabelte Leaf-Phasen, ein Issue mit zwei
+widersprüchlichen Phase-Labels → `AMBIGUOUS`, ein komplett unzugeordnetes Issue, ein Override
+für ein noch ungesynctes Issue) und vergleicht `GET /projects/{id}.ist`, `GET /gap/{id}`
+(alle Felder) und den `GET /forecast`-Eintrag dieses Projekts vor und nach Aktivierung dieser
+Konfiguration - **byte-identisch**, obwohl die resultierende Coverage bei 53 % liegt
+(Ambiguous > 0). Bestätigt experimentell, was seit P20.1 architektonisch geplant war:
+Phase-Mapping ist eine zusätzliche, rein lesende Aufschlüsselung derselben
+`jira_worklogs_cache`-Zeilen, niemals eine zweite Ist-Quelle oder ein Ersatz für
+`jira_sync.berechne_ist_fte` (Abschnitt 20).
+
+**Bewusst nicht Teil von P20.7:** keine Portfolio-weite Drilldown-Ebene (Projekt → Phase →
+Personen) über mehrere Projekte hinweg - laut Auftrag Abschnitt 21 explizit **kein** P20-Paket,
+mögliche spätere Folgearbeit. Kein Override-Bearbeitungsdialog im Coverage-Card (weiterhin
+dieselbe offene, nicht business-kritische UI-Lücke wie in P20.5 dokumentiert).
+
+**Verifikation:** `npm run build`/`lint` sauber. Playwright-Browserlauf: Jira-Tab zeigt bei
+60 h gemappten + 20 h nicht zugeordneten Worklogs korrekt "Gesamt: 80 h", "Zu PlanPhasen
+zugeordnet: 60 h", "Nicht zugeordnet: 20 h", "Coverage: 75 %", keine Konsolenfehler. Alle
+13 Backend-Testskripte grün.
+
+### 16.26 P20.8 — Regression / CONCEPT / E2E (dieser Durchgang, Abschluss von P20)
+
+**Auftrag:** achtes und letztes Paket der P20-Serie (abhängig von P20.1–P20.7, alle
+implementiert) — keine neue Funktionalität, sondern Gesamtregression und CONCEPT.md-
+Konsistenzpass, wie im Auftrag Abschnitt 33/42/52 verlangt ("alle Testfälle als
+automatisierte Tests", "Regressionscheck GET /gap/GET /forecast/health_calc unverändert",
+CONCEPT.md rebuild-safe aktualisieren).
+
+**Regression:**
+
+- **`health_calc`-Lücke geschlossen:** `test_p20_project_rollup_unchanged.py` (P20.7) prüfte
+  bereits `GET /gap`/`GET /forecast` byte-identisch vor/nach voller Phase-Mapping-Konfiguration,
+  aber noch nicht `GET /projects/{id}/health` — jetzt ergänzt (alle neun Health-Dimensionen,
+  insbesondere `effort`, das weiterhin `project_gap()` konsumiert, nicht die neue
+  Phase-Ist-Quelle). Bestätigt: **P20 fügt keine neue Health-Dimension/Ampel hinzu** (BD-3
+  bleibt unverändert offen, Abschnitt 23 des Auftrags).
+- **Alle acht Auftrags-Akzeptanztests (AT1–AT8) sind automatisierte Regressionsskripte**
+  (Auftrag Abschnitt 44–51), verteilt über die P20-Pakete, in denen die jeweilige Fähigkeit
+  entstand — keine nachträgliche Lücke gefunden:
+
+  | Test | Skript | Paket |
+  |---|---|---|
+  | AT1 (Happy Path: 80h Plan, 60h Ist, 75%, 20h Rest) | `test_p20_phase_actual_metrics.py` | P20.4 |
+  | AT2 (Unmapped: Projekt-Ist bleibt vollständig) | `test_p20_actuals_coverage.py` | P20.3 |
+  | AT3 (Ambiguous: keine Doppelzählung) | `test_p20_worklog_resolver.py` / `test_p20_actuals_coverage.py` | P20.2/P20.3 |
+  | AT4 (Manual Override) | `test_p20_jira_phase_mapping.py` / `test_p20_worklog_resolver.py` | P20.1/P20.2 |
+  | AT5 (Parallele Phasen, keine Datumsheuristik) | `test_p20_worklog_resolver.py` | P20.2 |
+  | AT6 (Parent-Aggregation) | `test_p20_phase_actual_metrics.py` / `test_p20_person_actuals.py` | P20.4/P20.6 |
+  | AT7 (Kein Mapping → `null`, nicht `0h`) | `test_p20_phase_actual_metrics.py` | P20.4 |
+  | AT8 (Planned vs. Actual) | `test_p20_person_actuals.py` | P20.6 |
+
+- **Gesamter Backend-Testlauf:** alle 13 Skripte (6 aus P18/P19 + 7 aus P20) grün in einem
+  Durchgang — keine Interferenz zwischen den Paketen, keine Test-Reihenfolge-Abhängigkeit
+  (jedes Skript baut seine eigene Wegwerf-SQLite-DB, siehe Musterkopf jedes Skripts).
+- **Frontend:** `npm run build` (`tsc -b && vite build`) und `npm run lint` sauber über den
+  gesamten P20-Diff (P20.5/P20.6/P20.7 betrafen `PlanPhaseWorkspace.tsx`,
+  `PlanPhaseCapacityTab.tsx`, `ProjectJiraTab.tsx`).
+
+**CONCEPT.md-Konsistenzpass** (Auftrag Abschnitt 52, "rebuild-safe aktualisieren"):
+
+- **Abschnitt 2 (Fachlicher Scope):** "Tempo-Ist (Jira-Worklogs, projektweit; Phasenebene
+  deferred, siehe BD-1)" war seit P20.4 sachlich falsch stehen geblieben — korrigiert auf
+  "projektweit **und** phasenscoped über Label-Resolver + manuellen Override".
+- **Abschnitt 3 (Kernprinzipien):** neuer Grundsatz **"Worklog→PlanPhase-Mapping ist
+  deterministisch, nie datumsbasiert"** ergänzt (Prioritätskette, keine Doppelzählung, keine
+  verschwindenden Stunden, Projekt-Ist bleibt strukturell unberührt) - der alte Grundsatz
+  "Tempo/Jira-Worklogs sind die Ist-Aufwandsquelle ... Phase-Level ist deferred (BD-1)" war
+  seit P20 ebenfalls überholt und wurde korrigiert.
+- **Abschnitt 7 (Ist-Daten/Tempo):** der Implementierungsstand-Absatz wurde nach jedem
+  P20.x-Paket aktualisiert, aber am Ende von P20.4 stehen gelassen ("offen bleibt nur noch
+  die Workspace-UX ... P20.5–P20.7") - jetzt final auf "BD-1 vollständig geschlossen"
+  korrigiert.
+- **Abschnitt 14/15 (Business Decisions/Deferred):** BD-1-Zeile auf P20.1–P20.8 aktualisiert;
+  der Deferred-Features-Eintrag "Tempo→PlanPhase-Mapping" **komplett entfernt** (nichts mehr
+  deferred, kein Grund für eine Zeile in dieser Liste).
+- **Versions-Header:** `v0.23` → `v0.24`, mit einer knappen P20-Zusammenfassung (Mapping-
+  Domain/Resolver/Coverage/Metriken/Workspace-UX/Personen-Drilldown/Projekt-Coverage, keine
+  Änderung an der P18/P19-Planungsarchitektur, Projekt-Ist regressionsgetestet unverändert).
+
+**Nicht Teil von P20 (unverändert, wie im Auftrag mehrfach festgehalten):** keine
+Änderung an `PlanPhase`-only Planning, Derived Monthly Capacity, Resource-Assignment-
+Semantik, Parent/Leaf-Capacity, Gantt, Planstand-Architektur, Tags/Collaboration (Auftrag
+Abschnitt 53); B-8/`ResourceDemandGrid`/Subproject-Legacy-Cutover bleibt unabhängig davon
+weiterhin BLOCKED (Auftrag Abschnitt 54, Abschnitt 16.16/16.17 hier).
+
+**Ergebnis:** BD-1 ist **CLOSED**, alle acht P20-Pakete sind implementiert, getestet
+(automatisiert + Playwright-verifiziert) und dokumentiert. Keine offene fachliche Frage zu
+Tempo/Jira → PlanPhase-Mapping mehr.
 
 ---
 

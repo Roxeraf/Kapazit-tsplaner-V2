@@ -4,8 +4,10 @@ Planstunden, Headline-vs-Aufschlüsselung-Reconciliation und Aufwandsverbrauch -
 Bewertung oder Ampel-Logik (folgt erst nach BD-3). Wiederverwendung bestehender Berechnungen
 aus gap_calc.py/capacity_calc.py/constants.py nach dem in Phase 21 etablierten
 Shared-Module-Muster (Router und Calc-Module importieren nur von gemeinsamen Modulen, nicht
-voneinander). effort_consumption ist zurückgestellt bis das Tempo→PlanPhase-Mapping vorliegt
-(BD-1)."""
+voneinander). Reine Formeln ohne DB-Zugriff - die Ist-Stunden-Ermittlung (Worklog-Resolver
++ Aggregation) lebt in worklog_resolver.py/worklog_actuals.py (P20.2/P20.4), diese Funktionen
+hier nehmen ist_hours nur als bereits berechneten Wert entgegen (P20.4, BD-1 CLOSED, siehe
+P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 16)."""
 
 import calendar
 from datetime import date
@@ -110,8 +112,28 @@ def assignment_summary(plan_fte: float | None, assigned_fte: float) -> dict:
 
 
 def effort_consumption(ist_hours: float | None, plan_hours: float | None) -> float | None:
-    """Aufwandsverbrauch = ist_hours / plan_hours × 100 (Prozent). ZURÜCKGESTELLT bis das
-    Tempo→PlanPhase-Mapping vorliegt (BD-1) - aktuell gibt es keine Ist-Stunden-Quelle auf
-    PlanPhase-Ebene. Liefert daher immer None; die Formel ist dokumentiert, damit ein
-    folgendes Paket sie implementieren kann."""
-    return None
+    """Aufwandsverbrauch = ist_hours / plan_hours × 100 (Prozent, P20.4). None, wenn
+    ist_hours oder plan_hours fehlt (keine Mapping-Konfiguration bzw. kein gültiger
+    Zeitraum/plan_fte, Abschnitt 18/21 des Auftrags - "noch nicht zugeordnet" statt einer
+    irreführenden 0%) oder wenn plan_hours 0 ist (Division durch Null vermieden)."""
+    if ist_hours is None or plan_hours is None or plan_hours == 0:
+        return None
+    return round(ist_hours / plan_hours * 100, 2)
+
+
+def remaining_plan_hours(ist_hours: float | None, plan_hours: float | None) -> float | None:
+    """Verbleibender Planaufwand = max(plan_hours - ist_hours, 0) (P20.4, Abschnitt 23 des
+    Auftrags). None, wenn ist_hours oder plan_hours fehlt."""
+    if ist_hours is None or plan_hours is None:
+        return None
+    return round(max(plan_hours - ist_hours, 0), 2)
+
+
+def overrun_hours(ist_hours: float | None, plan_hours: float | None) -> float | None:
+    """Überverbrauch = ist_hours - plan_hours, nur wenn Ist > Plan (P20.4, Abschnitt 23 des
+    Auftrags) - sonst 0.0 (kein negativer "Überverbrauch" bei Unterverbrauch, das zeigt
+    remaining_plan_hours). None, wenn ist_hours oder plan_hours fehlt. Reine Subtraktion,
+    keine Burn-Rate-/Forecast-Logik (Abschnitt 22)."""
+    if ist_hours is None or plan_hours is None:
+        return None
+    return round(max(ist_hours - plan_hours, 0), 2)

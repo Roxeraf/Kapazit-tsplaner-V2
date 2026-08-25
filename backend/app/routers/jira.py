@@ -9,7 +9,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import jira_client, jira_sync, models, schemas, tempo_client
+from .. import jira_client, jira_sync, models, scheduler, schemas, tempo_client
 from ..database import get_db
 
 router = APIRouter(prefix="/jira", tags=["jira"])
@@ -136,7 +136,14 @@ def list_jira_project_labels(project_key: str):
 
 @router.post("/sync", response_model=schemas.JiraSyncResult)
 def sync(project_id: int | None = None, db: Session = Depends(get_db)):
-    """Synchronisiert Worklogs für alle (oder ein) Projekt(e) mit gesetzter Jira-Komponente."""
+    """Synchronisiert Worklogs für alle (oder ein) Projekt(e) mit gesetzter Jira-Komponente.
+
+    P20.5 (Abschnitt 14): bleibt als "Jetzt aktualisieren"-Sonderfall bestehen, ist aber
+    seither NICHT mehr Voraussetzung für aktuelle Ist-Daten - derselbe Sync läuft automatisch
+    alle 15 Minuten im Hintergrund (siehe scheduler.py). Beide Pfade laufen über dieselbe
+    Orchestrierung (jira_sync.sync_project_and_refresh: Sync + Sync-Status + actual_start-/
+    Commitment-Ableitung), damit kein zweiter, abweichender Code-Pfad entsteht.
+    """
     if not jira_client.is_configured():
         raise HTTPException(status_code=409, detail="Jira ist nicht konfiguriert.")
 
@@ -147,28 +154,37 @@ def sync(project_id: int | None = None, db: Session = Depends(get_db)):
 
     ergebnisse = []
     for p in projects:
-        try:
-            gespeichert, unzugeordnet, unbekannte = jira_sync.sync_project(db, p)
-            ergebnisse.append(
-                schemas.JiraSyncResultItem(
-                    project_id=p.id,
-                    project_name=p.name,
-                    jira_component=p.jira_component,
-                    worklogs_synced=gespeichert,
-                    unzugeordnete_buchungen=unzugeordnet,
-                    unbekannte_beispiele=[schemas.JiraUnknownAuthor(**u) for u in unbekannte],
-                )
+        outcome = jira_sync.sync_project_and_refresh(db, p)
+        ergebnisse.append(
+            schemas.JiraSyncResultItem(
+                project_id=p.id,
+                project_name=p.name,
+                jira_component=p.jira_component,
+                worklogs_synced=outcome["worklogs_synced"],
+                unzugeordnete_buchungen=outcome["unzugeordnete_buchungen"],
+                unbekannte_beispiele=[schemas.JiraUnknownAuthor(**u) for u in outcome["unbekannte_beispiele"]],
+                error=outcome["error"],
             )
-        except Exception as exc:  # noqa: BLE001 – ein fehlgeschlagenes Projekt darf den Sync nicht abbrechen
-            ergebnisse.append(
-                schemas.JiraSyncResultItem(
-                    project_id=p.id,
-                    project_name=p.name,
-                    jira_component=p.jira_component,
-                    worklogs_synced=0,
-                    unzugeordnete_buchungen=0,
-                    error=str(exc),
-                )
-            )
+        )
 
     return schemas.JiraSyncResult(status="ok", ergebnisse=ergebnisse)
+
+
+@router.get("/sync-status/{project_id}", response_model=schemas.JiraSyncStatusOut)
+def get_sync_status(project_id: int, db: Session = Depends(get_db)):
+    """P20.5 (Abschnitt 15): Sync-Freshness für ein Projekt - unabhängig davon, ob der letzte
+    Sync manuell oder automatisch (Scheduler) ausgelöst wurde. 404, falls das Projekt nicht
+    existiert; ein Projekt OHNE bisherigen Sync-Versuch liefert alle Zeitfelder als None
+    (kein Fehler)."""
+    project = db.get(models.Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
+    status = db.get(models.JiraSyncStatus, project_id)
+    return schemas.JiraSyncStatusOut(
+        project_id=project_id,
+        last_attempt_at=status.last_attempt_at if status else None,
+        last_success_at=status.last_success_at if status else None,
+        last_error=status.last_error if status else None,
+        last_error_at=status.last_error_at if status else None,
+        autosync_enabled=scheduler.autosync_enabled() and jira_client.is_configured(),
+    )

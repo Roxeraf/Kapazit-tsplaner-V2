@@ -82,6 +82,21 @@ def _add_worklog(project_id: int, issue_key: str, account_id: str, datum: str, s
         db.close()
 
 
+def _make_capacity_person(display_name: str, account_id: str) -> None:
+    """P20.5: eine kapazitätsplanbare lokale Person (Person.active + ResourceProfile.
+    capacity_relevant) für den jeweiligen Jira-Account - ohne sie zählen Worklogs seit P20.5
+    nicht mehr zum Capacity-Ist (siehe worklog_actuals.capacity_planbare_accounts)."""
+    db = SessionLocal()
+    try:
+        person = models.Person(display_name=display_name, jira_account_id=account_id, active=True)
+        db.add(person)
+        db.flush()
+        db.add(models.ResourceProfile(person_id=person.id, weekly_hours=40, capacity_relevant=True))
+        db.commit()
+    finally:
+        db.close()
+
+
 def _cache_issue(project_id: int, issue_key: str, labels: list[str]) -> None:
     db = SessionLocal()
     try:
@@ -103,6 +118,10 @@ def _get_metrics(plan_phase_id: int) -> dict:
 
 def main() -> None:
     print("1/6  AT1 — Happy Path: 80h Plan, 60h eindeutig gemappt -> 75% Verbrauch, 20h Rest ...")
+    # P20.5: Capacity Actual zählt nur kapazitätsplanbare lokale Personen - alle in diesem
+    # Skript verwendeten Accounts brauchen daher eine Person mit ResourceProfile.
+    for name, account in [("Dominik", "acc-dominik"), ("Max", "acc-max"), ("Anna", "acc-anna")]:
+        _make_capacity_person(name, account)
     project_id = _create_project("Testprojekt P20.4")
     # 80h Plan: 0.5 FTE * 20 Werktage (Okt 2026) * 8h/Tag = 80h.
     phase = _create_phase(

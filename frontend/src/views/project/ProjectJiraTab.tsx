@@ -1,8 +1,24 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import type { JiraStatus, JiraSyncResult, ProjectActualsCoverage } from "../../types";
+import type { JiraStatus, JiraSyncResult, JiraSyncStatus, ProjectActualsCoverage } from "../../types";
 import { useProjectWorkspace } from "./ProjectWorkspaceContext";
+
+// P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 15): kompakte
+// "Aktualisiert vor X Minuten"-Anzeige für die Sync-Freshness - keine Sekundenpräzision.
+function fmtRelative(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.max(0, Math.round(diffMs / 60000));
+  if (minutes < 1) return "gerade eben";
+  if (minutes === 1) return "vor 1 Minute";
+  if (minutes < 60) return `vor ${minutes} Minuten`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1 ? "vor 1 Stunde" : `vor ${hours} Stunden`;
+}
+
+function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 
 export default function ProjectJiraTab() {
   const { project, reload } = useProjectWorkspace();
@@ -10,6 +26,9 @@ export default function ProjectJiraTab() {
   const [jiraStatus, setJiraStatus] = useState<JiraStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<JiraSyncResult | null>(null);
+  // P20.5 (Abschnitt 15): Sync-Freshness dieses Projekts - vom manuellen Sync UND vom
+  // automatischen Background-Sync (alle 15 Minuten, siehe scheduler.py) gepflegt.
+  const [syncStatus, setSyncStatus] = useState<JiraSyncStatus | null>(null);
   // P20.7 (siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 19/26): dieselbe
   // Vertrauens-/Vollständigkeitskennzahl wie im Kapazität-Tab einer einzelnen Phase (P20.5),
   // hier projektweit im Jira-Tab - kein neuer Endpoint, wiederverwendet GET
@@ -23,6 +42,15 @@ export default function ProjectJiraTab() {
       .catch((e) => setError(`Integrationsstatus konnte nicht geladen werden: ${String(e)}`));
   }, []);
 
+  const loadSyncStatus = () => {
+    api.jiraSyncStatus(project.id).then(setSyncStatus).catch(() => setSyncStatus(null));
+  };
+
+  useEffect(() => {
+    loadSyncStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
+
   useEffect(() => {
     api.getProjectActualsCoverage(project.id).then(setCoverage).catch(() => setCoverage(null));
   }, [project.id, project.ist]);
@@ -33,6 +61,7 @@ export default function ProjectJiraTab() {
     try {
       const result = await api.jiraSync(project.id);
       setLastSyncResult(result);
+      loadSyncStatus();
       reload();
     } catch (e) {
       setError(String(e));
@@ -103,9 +132,33 @@ export default function ProjectJiraTab() {
             </tbody>
           </table>
         )}
+        {/* P20.5 (Abschnitt 13-15): der automatische Background-Sync (alle 15 Minuten) ist
+            seither die Voraussetzung für aktuelle Ist-Daten, nicht mehr dieser Button - er
+            bleibt als "Jetzt aktualisieren"-Sonderfall bestehen (z.B. um nicht auf den
+            nächsten Zyklus zu warten). */}
+        {syncStatus && (
+          <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+            {syncStatus.last_success_at ? (
+              <>
+                Stand: {fmtDateTime(syncStatus.last_success_at)} ({fmtRelative(syncStatus.last_success_at)})
+              </>
+            ) : (
+              <>Noch keine erfolgreiche Synchronisierung.</>
+            )}
+            {syncStatus.autosync_enabled && (
+              <span> · automatische Aktualisierung alle 15 Minuten aktiv</span>
+            )}
+            {syncStatus.last_error && (
+              <div style={{ color: "var(--rot)", marginTop: "0.2rem" }}>
+                Jira-Synchronisierung aktuell nicht möglich: {syncStatus.last_error}
+                {syncStatus.last_success_at && " (bisherige Ist-Werte bleiben erhalten)"}
+              </div>
+            )}
+          </div>
+        )}
         {jiraConfigured && project.jira_component && (
           <button type="button" className="btn secondary" disabled={syncing} onClick={handleSync}>
-            {syncing ? "Synchronisiert …" : "Jetzt synchronisieren"}
+            {syncing ? "Aktualisiert …" : "Jetzt aktualisieren"}
           </button>
         )}
         {lastSyncResult && (

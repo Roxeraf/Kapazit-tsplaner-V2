@@ -24,6 +24,7 @@ import type {
   JiraProjectStatus,
   JiraStatus,
   JiraSyncResult,
+  JiraSyncStatus,
   KpiSummary,
   MeetingMinutes,
   PortfolioUtilizationEntry,
@@ -51,6 +52,7 @@ import type {
   PlanPhaseStatus,
   PlanPhaseSubtreeImpact,
   PhaseMetricsOut,
+  PhaseTimeControl,
   ProjectActualsCoverage,
   ProjectDetail,
   ProjectMembership,
@@ -212,8 +214,7 @@ export const api = {
       baseline_end?: string | null;
       forecast_start?: string | null;
       forecast_end?: string | null;
-      actual_start?: string | null;
-      actual_end?: string | null;
+      // P20.5: actual_start/actual_end sind kein Eingabefeld mehr (system-gepflegt).
       status?: PlanPhaseStatus;
       progress?: number | null;
       plan_fte?: number | null;
@@ -233,8 +234,7 @@ export const api = {
       baseline_end: string | null;
       forecast_start: string | null;
       forecast_end: string | null;
-      actual_start: string | null;
-      actual_end: string | null;
+      // P20.5: actual_start/actual_end sind kein Eingabefeld mehr (system-gepflegt).
       status: PlanPhaseStatus;
       progress: number | null;
       plan_fte: number | null;
@@ -266,6 +266,10 @@ export const api = {
     request<PlanPhaseDetail>(`/projects/plan-phases/${planPhaseId}`),
   getPlanPhaseMetrics: (planPhaseId: number) =>
     request<PhaseMetricsOut>(`/projects/plan-phases/${planPhaseId}/metrics`),
+  // P20.5: eigenständiger Endpoint analog zu .../metrics - derselbe Wert ist bereits additiv
+  // in PlanPhaseDetail.time_control enthalten.
+  getPlanPhaseTimeControl: (planPhaseId: number) =>
+    request<PhaseTimeControl>(`/projects/plan-phases/${planPhaseId}/time-control`),
   // P20.5 (Mapping-Preview): rein lesend gegen den Sync-Cache, kein Live-Jira-Call.
   getPlanPhaseJiraMatches: (planPhaseId: number, label: string) =>
     request<JiraMatchPreview>(`/projects/plan-phases/${planPhaseId}/jira-matches?label=${encodeURIComponent(label)}`),
@@ -467,6 +471,9 @@ export const api = {
     request<JiraSyncResult>(`/jira/sync${projectId ? `?project_id=${projectId}` : ""}`, {
       method: "POST",
     }),
+  // P20.5: Sync-Freshness eines Projekts - vom manuellen Sync UND vom automatischen
+  // Background-Sync (alle 15 Minuten) gepflegt, siehe scheduler.py.
+  jiraSyncStatus: (projectId: number) => request<JiraSyncStatus>(`/jira/sync-status/${projectId}`),
   jiraListProjects: (query?: string) =>
     request<JiraProject[]>(`/jira/projects${query ? `?query=${encodeURIComponent(query)}` : ""}`),
   jiraSetProject: (key: string, payload: { relevant: boolean; status: JiraProjectStatus }) =>

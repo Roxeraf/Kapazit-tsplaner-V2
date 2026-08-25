@@ -154,6 +154,40 @@ def _maybe_historize_parent_fte(db: Session, parent: models.PlanPhase) -> None:
         parent.jira_label = None
 
 
+def _apply_status_transition_side_effects(
+    plan_phase: models.PlanPhase, old_status: str | None, new_status: str
+) -> None:
+    """P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 19-21/25-27/44-48): reine
+    System-Nebenwirkungen eines Statuswechsels einer LEAF-Phase (der Aufrufer prüft
+    has_children - eine Parent-Phase leitet actual_end/Commitment ausschließlich aus ihren
+    Leaf-Nachfahren ab, Abschnitt 35/36, und bekommt hier nie eigene Werte gesetzt). Erzeugt
+    bewusst KEINEN eigenen PlanHistory-Eintrag - der Statuswechsel selbst ist bereits
+    getrackt (TRACKED_FIELDS["plan_phase"] enthält "status"), actual_end/commitment_* sind
+    system-abgeleitet, keine Source-of-Truth-Nutzereingabe (analog zum Sync-Pfad, Abschnitt
+    50).
+
+    (1) Erster Übergang aus "geplant" (bzw. beim Anlegen: aus "kein bisheriger Status") in
+        "laufend" ODER "abgeschlossen" friert das Start Commitment ein, falls es noch nicht
+        existiert (worklog_actuals.maybe_capture_commitment ist idempotent - ein bereits
+        gesetztes Commitment bleibt unangetastet, Abschnitt 26).
+    (2) Übergang NACH "abgeschlossen" setzt actual_end = heute (fachlicher Abschlusszeitpunkt,
+        Abschnitt 20) - NICHT aus dem letzten Worklog abgeleitet (das wäre last_activity_date,
+        Abschnitt 19).
+    (3) Übergang WEG von "abgeschlossen" (Reopen) setzt actual_end wieder auf NULL (Abschnitt
+        45) - die History behält den vorherigen Abschluss-Statuswechsel selbst nachvollziehbar
+        (PlanHistory-Zeile für "status"), actual_end wird bei einem erneuten Abschluss neu
+        gesetzt.
+    """
+    if old_status == new_status:
+        return
+    if old_status in (None, "geplant") and new_status in ("laufend", "abgeschlossen"):
+        worklog_actuals.maybe_capture_commitment(plan_phase, _now())
+    if new_status == "abgeschlossen":
+        plan_phase.actual_end = date.today().isoformat()
+    elif old_status == "abgeschlossen":
+        plan_phase.actual_end = None
+
+
 def _check_jira_label_conflict(
     db: Session, project_id: int, plan_phase_id: int | None, jira_label: str | None
 ) -> None:
@@ -194,6 +228,9 @@ def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
     derived_start, derived_end = (
         planning_calc.derive_parent_bounds(db, p.id) if has_children else (None, None)
     )
+    derived_commitment_start, derived_commitment_end = (
+        planning_calc.derive_parent_commitment_bounds(db, p.id) if has_children else (None, None)
+    )
     return schemas.PlanPhaseOut(
         id=p.id,
         project_id=p.project_id,
@@ -207,6 +244,10 @@ def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
         forecast_end=p.forecast_end,
         actual_start=p.actual_start,
         actual_end=p.actual_end,
+        commitment_start=p.commitment_start,
+        commitment_end=p.commitment_end,
+        commitment_plan_fte=p.commitment_plan_fte,
+        commitment_captured_at=p.commitment_captured_at,
         status=p.status,
         progress=p.progress,
         plan_fte=p.plan_fte,
@@ -221,6 +262,10 @@ def _plan_phase_out(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseOut:
         derived_forecast_start=derived_start,
         derived_forecast_end=derived_end,
         derived_capacity=planning_calc.derive_parent_capacity(db, p.id) if has_children else None,
+        derived_commitment_start=derived_commitment_start,
+        derived_commitment_end=derived_commitment_end,
+        derived_actual_start=planning_calc.derive_parent_actual_start(db, p.id) if has_children else None,
+        derived_actual_end=planning_calc.derive_parent_actual_end(db, p.id) if has_children else None,
     )
 
 
@@ -373,10 +418,16 @@ def _plan_phase_metrics(db: Session, p: models.PlanPhase) -> schemas.PhaseMetric
     # P20.4 (BD-1 CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 15/16):
     # Parent-Ist ist IMMER die rekursive Summe ihrer Leaf-Nachfahren, nie eine eigene Quelle
     # (analog planning_calc.derive_parent_capacity für plan_fte).
+    # P20.5 (Capacity Actual, siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 3/4/12):
+    # Plan-vs-Ist einer PlanPhase zählt seither NUR Worklogs kapazitätsplanbarer lokaler
+    # Personen (worklog_actuals.leaf_capacity_ist_hours/parent_capacity_ist_hours) - nicht
+    # mehr jeden MATCHED-Worklog wie zuvor (worklog_actuals.leaf_ist_hours/parent_ist_hours
+    # bleiben unverändert bestehen, siehe deren Docstrings, und liefern weiterhin Project/Jira
+    # Total Actual für andere Konsumenten, z.B. jira_sync.berechne_ist_fte/actuals_coverage.py).
     ist = (
-        worklog_actuals.parent_ist_hours(db, p.id)
+        worklog_actuals.parent_capacity_ist_hours(db, p.id)
         if has_kids
-        else worklog_actuals.leaf_ist_hours(db, p)
+        else worklog_actuals.leaf_capacity_ist_hours(db, p)
     )
     return schemas.PhaseMetricsOut(
         time_progress_pct=time_progress_pct,
@@ -393,38 +444,85 @@ def _plan_phase_metrics(db: Session, p: models.PlanPhase) -> schemas.PhaseMetric
     )
 
 
-def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDetail:
-    has_children = planning_calc.has_children(db, p.id)
-    derived_start, derived_end = (
-        planning_calc.derive_parent_bounds(db, p.id) if has_children else (None, None)
+def _plan_phase_time_control(db: Session, p: models.PlanPhase) -> schemas.PhaseTimeControlOut:
+    """P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 37/38): Terminsteuerungs-
+    Kennzahlen einer Leaf- ODER Parent-Phase, additiv zu `_plan_phase_metrics()`. Für Parent-
+    Phasen werden Commitment/Actual/Breakdown/Outside-Scope aus den Leaf-Nachfahren
+    aggregiert (Abschnitt 35/36), nie aus einem eigenen Parent-Feld. Der Referenzzeitraum für
+    die before/within/after-Aufschlüsselung ist bevorzugt das Start Commitment, ersatzweise
+    der aktuelle Plan (forecast_start/forecast_end), solange noch kein Commitment existiert
+    (Abschnitt 39/40)."""
+    has_kids = planning_calc.has_children(db, p.id)
+    today = date.today().isoformat()
+    if has_kids:
+        last_activity = worklog_actuals.parent_last_activity_date(db, p.id)
+        breakdown_raw = worklog_actuals.parent_classify_capacity_hours(db, p.id)
+        outside_raw = worklog_actuals.parent_outside_scope_summary(db, p.id)
+        commitment_start, commitment_end = planning_calc.derive_parent_commitment_bounds(db, p.id)
+        actual_start = planning_calc.derive_parent_actual_start(db, p.id)
+        actual_end = planning_calc.derive_parent_actual_end(db, p.id)
+        _, current_end = planning_calc.derive_parent_bounds(db, p.id)
+    else:
+        last_activity = worklog_actuals.leaf_last_activity_date(db, p)
+        start = p.commitment_start or p.forecast_start
+        end = p.commitment_end or p.forecast_end
+        breakdown_raw = worklog_actuals.classify_leaf_capacity_hours(db, p, start, end)
+        outside_raw = worklog_actuals.leaf_outside_scope_summary(db, p)
+        commitment_start, commitment_end = p.commitment_start, p.commitment_end
+        actual_start, actual_end = p.actual_start, p.actual_end
+        current_end = p.forecast_end
+
+    breakdown = (
+        schemas.PhaseWorklogBreakdownOut(
+            before_hours=breakdown_raw["before"],
+            within_hours=breakdown_raw["within"],
+            after_hours=breakdown_raw["after"],
+        )
+        if breakdown_raw is not None
+        else None
     )
+    outside_scope = (
+        schemas.PhaseOutsideScopeOut(hours=outside_raw["hours"], author_count=outside_raw["author_count"])
+        if outside_raw is not None
+        else None
+    )
+    variance = phase_metrics_calc.schedule_variance(
+        commitment_start, commitment_end, current_end, actual_start, actual_end
+    )
+    planned_duration = phase_metrics_calc.duration_workdays(commitment_start, commitment_end)
+    actual_duration = phase_metrics_calc.duration_workdays(actual_start, actual_end)
+    duration_variance = (
+        actual_duration - planned_duration
+        if planned_duration is not None and actual_duration is not None
+        else None
+    )
+    return schemas.PhaseTimeControlOut(
+        last_activity_date=last_activity,
+        breakdown=breakdown,
+        outside_scope=outside_scope,
+        schedule_variance=schemas.PhaseScheduleVarianceOut(
+            start_delay_workdays=variance["start_delay_workdays"],
+            end_delay_workdays=variance["end_delay_workdays"],
+            plan_shift_workdays=variance["plan_shift_workdays"],
+            workdays_overdue=phase_metrics_calc.workdays_overdue(commitment_end, today, actual_end),
+            planned_duration_workdays=planned_duration,
+            actual_duration_workdays=actual_duration,
+            duration_variance_workdays=duration_variance,
+        ),
+    )
+
+
+def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDetail:
+    # P20.5: PlanPhaseDetail erweitert PlanPhaseOut (siehe schemas.py) - der Basis-Feldsatz
+    # (inkl. commitment_*/derived_*) wird bewusst aus _plan_phase_out() übernommen statt ein
+    # zweites Mal dupliziert. Ein zuvor hier separat gepflegter Feld-für-Feld-Konstruktor
+    # hatte genau dieses Duplizierungsrisiko bereits realisiert (neue PlanPhaseOut-Felder
+    # landeten in dieser Funktion nicht automatisch, PlanPhaseDetail lieferte dann stillschweigend
+    # deren Pydantic-Defaults statt der echten Werte) - ein struktureller Fix, kein Hotfix nur
+    # für die P20.5-Felder.
+    base = _plan_phase_out(db, p).model_dump()
     return schemas.PlanPhaseDetail(
-        id=p.id,
-        project_id=p.project_id,
-        subproject_id=p.subproject_id,
-        parent_phase_id=p.parent_phase_id,
-        reihenfolge=p.reihenfolge,
-        phase_type=p.phase_type,
-        baseline_start=p.baseline_start,
-        baseline_end=p.baseline_end,
-        forecast_start=p.forecast_start,
-        forecast_end=p.forecast_end,
-        actual_start=p.actual_start,
-        actual_end=p.actual_end,
-        status=p.status,
-        progress=p.progress,
-        plan_fte=p.plan_fte,
-        jira_label=p.jira_label,
-        owner_person_id=p.owner_person_id,
-        owner_team_id=p.owner_team_id,
-        erstellt_am=p.erstellt_am,
-        aktualisiert_am=p.aktualisiert_am,
-        tags=entity_links.tags_for(db, "plan_phase", p.id),
-        documents=entity_links.documents_for(db, "plan_phase", p.id),
-        has_children=has_children,
-        derived_forecast_start=derived_start,
-        derived_forecast_end=derived_end,
-        derived_capacity=planning_calc.derive_parent_capacity(db, p.id) if has_children else None,
+        **base,
         children=[_plan_phase_out(db, child) for child in planning_calc.direct_children(db, p.id)],
         comments=[
             _comment_out(db, c)
@@ -484,6 +582,7 @@ def _plan_phase_detail(db: Session, p: models.PlanPhase) -> schemas.PlanPhaseDet
             )
         ],
         metrics=_plan_phase_metrics(db, p),
+        time_control=_plan_phase_time_control(db, p),
         # P19.2 (Kapazität-Tab Round-Trip-Reduktion, Gap 3): dieselbe Bedarf/Besetzt/Offen-
         # Auswertung wie GET .../assignment-summary additiv mitliefern, damit der Kapazität-Tab
         # sie beim Öffnen nicht mehr separat nachladen muss. Der eigenständige Endpoint bleibt
@@ -522,8 +621,8 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
         baseline_end=payload.baseline_end,
         forecast_start=payload.forecast_start,
         forecast_end=payload.forecast_end,
-        actual_start=payload.actual_start,
-        actual_end=payload.actual_end,
+        # P20.5: actual_start/actual_end sind kein Eingabefeld mehr (siehe schemas.
+        # PlanPhaseCreate) - bleiben beim Anlegen NULL, bis das System sie ableitet.
         status=payload.status,
         progress=None,  # P6: Fortschritts-Dimension deprecatet - wird beim Anlegen ignoriert
         plan_fte=payload.plan_fte,
@@ -535,6 +634,10 @@ def create_plan_phase(project_id: int, payload: schemas.PlanPhaseCreate, db: Ses
     )
     db.add(plan_phase)
     db.flush()
+    # P20.5 (Abschnitt 47/48): eine Phase kann bereits mit status="laufend"/"abgeschlossen"
+    # angelegt werden (z.B. Nacherfassung) - dieser Übergang aus "kein bisheriger Status"
+    # friert das Start Commitment genauso ein wie ein späterer Statuswechsel per Update.
+    _apply_status_transition_side_effects(plan_phase, old_status=None, new_status=plan_phase.status)
     created_batch = history.record_created(
         db,
         project_id=project_id,
@@ -592,6 +695,12 @@ def update_plan_phase(plan_phase_id: int, payload: schemas.PlanPhaseUpdate, db: 
         for field, value in changes.items():
             setattr(plan_phase, field, value)
         plan_phase.aktualisiert_am = _now()
+    if "status" in changes and not planning_calc.has_children(db, plan_phase.id):
+        # P20.5 (Abschnitt 19-21/25-27/35/44-48): Nebenwirkungen eines Statuswechsels gelten
+        # ausschließlich für Leaf-Phasen - eine Parent-Phase leitet actual_end/Commitment
+        # ausschließlich aus ihren Leaf-Nachfahren ab (derive_parent_actual_end/
+        # derive_parent_commitment_bounds), bekommt hier nie einen eigenen Wert gesetzt.
+        _apply_status_transition_side_effects(plan_phase, old["status"], plan_phase.status)
     history.record_updated(
         db,
         project_id=plan_phase.project_id,
@@ -916,6 +1025,16 @@ def get_plan_phase_metrics(plan_phase_id: int, db: Session = Depends(get_db)):
     return _plan_phase_metrics(db, plan_phase)
 
 
+@router.get("/plan-phases/{plan_phase_id}/time-control", response_model=schemas.PhaseTimeControlOut)
+def get_plan_phase_time_control(plan_phase_id: int, db: Session = Depends(get_db)):
+    """P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 37/38): eigenständiger
+    Endpoint analog zu .../metrics - für Aufrufer, die nur die Terminsteuerungs-Kennzahlen
+    brauchen, ohne den vollen PlanPhaseDetail-Round-Trip (derselbe Wert ist bereits additiv in
+    PlanPhaseDetail.time_control enthalten)."""
+    plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    return _plan_phase_time_control(db, plan_phase)
+
+
 @router.get("/plan-phases/{plan_phase_id}/jira-matches", response_model=schemas.JiraMatchPreviewOut)
 def get_plan_phase_jira_matches(plan_phase_id: int, label: str, db: Session = Depends(get_db)):
     """P20.5 (Mapping-Preview, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt
@@ -963,15 +1082,33 @@ def get_plan_phase_person_actuals(plan_phase_id: int, db: Session = Depends(get_
     Resolver-zugeordneten Worklog-Zeilen wie die Phase-Ist-Metriken (P20.4) zusätzlich nach
     Person, und vergleicht sie mit den geplanten `ResourceAssignment`s dieser Phase (bzw.
     ihrer Leaf-Nachfahren, falls Parent) - keine neue Personendatenquelle, keine
-    automatische Änderung der Ressourcenplanung."""
+    automatische Änderung der Ressourcenplanung.
+
+    P20.5 (Capacity Scope, siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 10):
+    der primäre Drilldown zeigt seither nur noch kapazitätsplanbare Personen (dieselbe Quelle
+    wie PhaseMetricsOut.ist_hours) - JEDE kapazitätsplanbare Person mit einem Capacity-
+    Worklog erscheint hier, unabhängig von einem ResourceAssignment (Abschnitt 4: Assignment
+    entscheidet nur planned/unplanned, nie ob die Stunden zählen). Andere Jira-/Tempo-Autoren
+    (Developer etc.) stehen separat in `outside_scope` (Abschnitt 9)."""
     plan_phase = _get_plan_phase_or_404(db, plan_phase_id)
+    has_kids = planning_calc.has_children(db, plan_phase.id)
 
     ist_hours = (
-        worklog_actuals.parent_ist_hours(db, plan_phase.id)
-        if planning_calc.has_children(db, plan_phase.id)
-        else worklog_actuals.leaf_ist_hours(db, plan_phase)
+        worklog_actuals.parent_capacity_ist_hours(db, plan_phase.id)
+        if has_kids
+        else worklog_actuals.leaf_capacity_ist_hours(db, plan_phase)
     )
-    person_hours = worklog_actuals.person_hours_for_phase(db, plan_phase)
+    person_hours = worklog_actuals.person_capacity_hours_for_phase(db, plan_phase)
+    outside_scope_raw = (
+        worklog_actuals.parent_outside_scope_summary(db, plan_phase.id)
+        if has_kids
+        else worklog_actuals.leaf_outside_scope_summary(db, plan_phase)
+    )
+    outside_scope = (
+        schemas.PhaseOutsideScopeOut(hours=outside_scope_raw["hours"], author_count=outside_scope_raw["author_count"])
+        if outside_scope_raw is not None
+        else None
+    )
 
     accounts = list(person_hours.keys())
     persons_by_account = (
@@ -1061,6 +1198,7 @@ def get_plan_phase_person_actuals(plan_phase_id: int, db: Session = Depends(get_
         persons=persons_out,
         unplanned_actual_hours=unplanned_actual_hours,
         planned_without_actual=planned_without_actual,
+        outside_scope=outside_scope,
     )
 
 

@@ -210,12 +210,17 @@ export default function PlanPhaseCapacityTab({
         </div>
       </div>
 
-      {/* P20.5 (Steuerung, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 26):
-          Rohmetriken aus PhaseMetricsOut (P20.4) - bewusst KEINE Ampel/Bewertung (Auftrag
-          Abschnitt 21: "Keine Ampellogik hinzufügen"). "Ist-Zuordnung" ist die Projekt-Coverage
-          (P20.3), nicht phasenscoped - deshalb explizit als "Projekt" gekennzeichnet. */}
+      {/* P20.4 (Auftrag Abschnitt 24): die generischen Phasen-Rohmetriken (Ist-Aufwand/
+          Aufwandsverbrauch/Zeit verstrichen/Restlicher Planaufwand/Überverbrauch) sind seit
+          P20.4 ausschließlich Teil der "Steuerung"-Karte im Übersicht-Tab ("WO STEHEN WIR",
+          siehe PlanPhaseWorkspace.tsx) - hier im Kapazität-Tab bewusst NICHT dupliziert, um
+          die Trennung "Übersicht = WAS/WANN/WO STEHEN WIR" vs. "Kapazität = WIE VIEL/WER"
+          nicht zu verwässern. Was hier bleibt, ist kapazitätsspezifisch: der Personen-
+          Drilldown (Planned-vs-Actual Personen) und die projektweite Mapping-Coverage als
+          Vertrauensindikator für die Ressourcenplanung - beides steht nirgends sonst. Bewusst
+          KEINE Ampel/Bewertung (Auftrag Abschnitt 21). */}
       <div className="card" style={{ marginBottom: "0.75rem" }}>
-        <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Steuerung</h4>
+        <h4 style={{ color: "var(--navy)", marginTop: 0, marginBottom: "0.5rem" }}>Ist-Aufwand nach Person</h4>
         <div style={{ fontSize: "0.85rem", display: "grid", gap: "0.3rem" }}>
           <div className="toolbar" style={{ justifyContent: "flex-start", gap: "0.5rem" }}>
             <span>
@@ -232,24 +237,6 @@ export default function PlanPhaseCapacityTab({
               </button>
             )}
           </div>
-          <div>
-            <strong>Aufwandsverbrauch:</strong>{" "}
-            {metrics.effort_consumption_pct == null ? "—" : `${metrics.effort_consumption_pct}%`}
-          </div>
-          <div>
-            <strong>Zeitfortschritt:</strong>{" "}
-            {metrics.time_progress_pct == null ? "—" : `${metrics.time_progress_pct}%`}
-          </div>
-          {metrics.remaining_plan_hours != null && (
-            <div>
-              <strong>Verbleibender Planaufwand:</strong> {metrics.remaining_plan_hours} h
-            </div>
-          )}
-          {metrics.overrun_hours != null && metrics.overrun_hours > 0 && (
-            <div style={{ color: "var(--rot)" }}>
-              <strong>Überverbrauch:</strong> {metrics.overrun_hours} h
-            </div>
-          )}
           {coverage && coverage.project_ist_total > 0 && (
             <div style={{ paddingTop: "0.3rem", borderTop: "1px solid var(--border)", color: "var(--text-muted)" }}>
               <strong>Ist-Zuordnung (Projekt):</strong>{" "}

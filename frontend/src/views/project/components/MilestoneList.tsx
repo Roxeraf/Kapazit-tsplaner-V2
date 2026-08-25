@@ -68,6 +68,10 @@ export default function MilestoneList({
   const people = usePeopleMap();
 
   const [name, setName] = useState("");
+  // P20.4 (Auftrag Abschnitt 16): "Datum" gehört fest in den Anlage-Dialog - vorher fehlte
+  // dieses Feld hier komplett, wodurch neu angelegte Milestones ohne forecast_date entstanden
+  // und in der kompakten Übersicht-Karte nicht sinnvoll nach Datum sortierbar waren.
+  const [forecastDate, setForecastDate] = useState("");
   const [formPlanPhaseId, setFormPlanPhaseId] = useState(planPhaseId != null ? String(planPhaseId) : "");
   const [ownerPersonId, setOwnerPersonId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
@@ -114,6 +118,7 @@ export default function MilestoneList({
       const milestone = await api.createMilestone(projectId, {
         name: name.trim(),
         plan_phase_id: formPlanPhaseId ? Number(formPlanPhaseId) : null,
+        forecast_date: forecastDate || null,
         owner_person_id: ownerPersonId,
         tags,
       });
@@ -121,6 +126,7 @@ export default function MilestoneList({
         await api.uploadDocument(projectId, file, { entityType: "milestone", entityId: milestone.id });
       }
       setName("");
+      setForecastDate("");
       setFormPlanPhaseId(planPhaseId != null ? String(planPhaseId) : "");
       setOwnerPersonId(null);
       setTags([]);
@@ -308,22 +314,34 @@ export default function MilestoneList({
       {showCreate && (
         <div className="card" style={{ marginTop: "0.75rem", background: "#f8fafc" }}>
           <div className="field-row" style={{ marginTop: 0, flexDirection: "column", alignItems: "stretch" }}>
-            <label>
-              Neuer Milestone
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. GoLive" />
-            </label>
             <div className="field-row" style={{ marginTop: 0 }}>
               <label>
-                Übergeordnete Phase
-                <select value={formPlanPhaseId} onChange={(e) => setFormPlanPhaseId(e.target.value)}>
-                  <option value="">Projektweit</option>
-                  {phases.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.phase_type}
-                    </option>
-                  ))}
-                </select>
+                Name
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. GoLive" />
               </label>
+              <label>
+                Datum
+                <input type="date" value={forecastDate} onChange={(e) => setForecastDate(e.target.value)} />
+              </label>
+            </div>
+            <div className="field-row" style={{ marginTop: 0 }}>
+              {/* P20.4 (Auftrag Abschnitt 16): innerhalb einer bereits geöffneten Phase ist die
+                  Phase bereits fest vorausgewählt (planPhaseId-Prop) - kein zusätzlicher,
+                  technischer PlanPhase-Picker nötig. Der projektweite Aufruf (ohne
+                  planPhaseId-Prop, ProjectPlanningTab) behält die Auswahl weiterhin. */}
+              {planPhaseId == null && (
+                <label>
+                  Übergeordnete Phase
+                  <select value={formPlanPhaseId} onChange={(e) => setFormPlanPhaseId(e.target.value)}>
+                    <option value="">Projektweit</option>
+                    {phases.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.phase_type}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label>
                 Owner
                 <PersonPicker value={ownerPersonId} onChange={setOwnerPersonId} />

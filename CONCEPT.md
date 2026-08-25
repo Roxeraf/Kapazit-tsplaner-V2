@@ -195,9 +195,22 @@ darauf.
   V1/V2 und keine Einstellung, welche Änderungen protokolliert werden. Der User plant, das
   System dokumentiert. `BaselineSnapshot`/`BaselineEntry` bleiben als Legacy/Compatibility
   im Schema (Abschnitt 5.3).
-- **Actual = tatsächlicher Verlauf.** `actual_start`/`actual_end` sind fachlich sinnvoll,
-  aber sekundär: read-only in der normalen Übersicht, editierbar nur über eine explizite
-  Korrektur-Aktion ("Ist-Daten korrigieren").
+- **Actual = tatsächlicher Verlauf, vollständig system-abgeleitet (P20.5, Abschnitt 16.31).**
+  `actual_start`/`actual_end` sind seit P20.5 **kein Eingabefeld mehr** (weder in
+  `PlanPhaseCreate`/`PlanPhaseUpdate` noch als UI-Korrektur-Aktion) — `actual_start` ist das
+  Datum des ersten Capacity-Worklogs (selbstkorrigierend bei rückdatierten Buchungen),
+  `actual_end` der Zeitpunkt des Statuswechsels nach "abgeschlossen" (Reopen setzt es wieder
+  auf `NULL`). Der Grundsatz "read-only, editierbar nur über eine explizite Korrektur-Aktion"
+  aus P20.1 ist damit überholt — es gibt seit P20.5 gar keine manuelle Aktion mehr, auch keine
+  Korrektur-Karte (siehe Abschnitt 16.31 für die volle Herleitung inkl. Start Commitment).
+- **Start Commitment = automatisch eingefrorene Planreferenz beim tatsächlichen Phasenbeginn
+  (P20.5, Abschnitt 16.31).** `PlanPhase.commitment_start`/`commitment_end`/
+  `commitment_plan_fte` werden einmalig beim ersten fachlichen Beginn-Ereignis (erster
+  Capacity-Worklog ODER erster Statuswechsel aus "geplant" in "laufend"/"abgeschlossen", je
+  nachdem was zuerst geschieht) aus dem dann aktuellen Plan kopiert und sind danach immutable
+  — spätere Planänderungen (`forecast_start`/`forecast_end`) überschreiben sie nie. Kein
+  manueller Planstand, kein Baseline-Button, keine Snapshot-Versionierung — der Benutzer tut
+  nichts, das System merkt sich automatisch, "was geplant war, als die Phase begann".
 - **`plan_fte` ist die Source of Truth für den geplanten Gesamtaufwand einer Phase.**
   `ResourceDemand` ist eine optionale Rollen-Aufschlüsselung, keine zweite Source of Truth —
   es gibt keine automatische Synchronisierung, die `plan_fte` aus `SUM(ResourceDemand.fte)`
@@ -219,6 +232,20 @@ darauf.
 - **Tempo/Jira-Worklogs sind die Ist-Aufwandsquelle**, kein Personio/HR-System. Projekt-Level
   funktioniert seit jeher; Phase-Level ist seit P20 (BD-1 CLOSED, Abschnitt 16.19–16.25)
   ebenfalls implementiert.
+- **Project/Jira Total Actual ≠ Capacity Actual (P20.5, Abschnitt 16.31).** Zwei bewusst
+  getrennte Ist-Begriffe: Project/Jira Total Actual (`jira_sync.berechne_ist_fte`,
+  `actuals_coverage.py`, `worklog_actuals.leaf_ist_hours`/`parent_ist_hours`) bleibt die Summe
+  ALLER Jira/Tempo-Worklogs eines gemappten Issues, unabhängig vom Autor — unverändert seit
+  P20. Capacity Actual (`worklog_actuals.leaf_capacity_ist_hours`/`parent_capacity_ist_hours`,
+  Quelle für `PhaseMetricsOut.ist_hours` und damit für Plan-vs-Ist einer PlanPhase) zählt NUR
+  Worklogs kapazitätsplanbarer lokaler Personen (`Person.active` +
+  `ResourceProfile.capacity_relevant`, `jira_account_id` gesetzt) — Worklogs anderer Autoren
+  (Developer, externe Beteiligte, unbekannte Jira-User) verschwinden dabei nicht, sondern
+  bleiben als "außerhalb Kapazitätsscope" transparent sichtbar (`worklog_actuals.
+  leaf_outside_scope_summary`/`parent_outside_scope_summary`). Eine kapazitätsplanbare Person
+  OHNE `ResourceAssignment` auf der Phase zählt trotzdem zum Capacity Actual (erscheint dort
+  als "nicht eingeplant") — Assignment entscheidet nur planned/unplanned, nie ob die Stunden
+  zählen.
 - **Worklog→PlanPhase-Mapping ist deterministisch, nie datumsbasiert** (BD-1, P20): ein
   Jira-Issue wird über die feste Prioritätskette **manueller Override → Label-Match →
   UNMAPPED/AMBIGUOUS** genau einer Leaf-Phase zugerechnet (`worklog_resolver.py`), niemals
@@ -327,10 +354,15 @@ neuen Drawer) und ist mit P11 behoben (siehe Abschnitt 16.1).
   bzw. "Start"/"Ende".
 - **Baseline-Felder** (`baseline_start`/`baseline_end`) sind compat-only, keine normalen
   Tagesfelder und kein Userkonzept "Planstand" (Abschnitt 5.3).
-- **Actual** = "Tatsächlicher Verlauf", sekundär/read-only mit expliziter Korrektur-Aktion.
-  Statuswechsel setzen `actual_start`/`actual_end` aktuell **nicht** automatisch — das wurde
-  geprüft und bewusst zurückgestellt, um bestehende Ist-Daten nicht unkontrolliert zu
-  überschreiben (siehe Abschnitt 15, mögliche spätere Ausbaustufe).
+- **Actual** = "Tatsächlicher Verlauf", seit P20.5 vollständig system-abgeleitet, kein
+  Eingabefeld und keine Korrektur-Aktion mehr (siehe Abschnitt 16.31). `actual_start` = Datum
+  des ersten Capacity-Worklogs (`worklog_actuals.refresh_actual_start`, ausgelöst von jedem
+  Jira/Tempo-Sync-Lauf, selbstkorrigierend bei rückdatierten Buchungen). `actual_end` = der
+  Statuswechsel nach "abgeschlossen" setzt es auf "heute", ein Reopen (Statuswechsel weg von
+  "abgeschlossen") setzt es zurück auf `NULL` (`routers/planning.py._apply_status_transition_
+  side_effects`). `last_activity_date` (Datum des letzten Capacity-Worklogs) wird zusätzlich
+  live berechnet, aber bewusst NICHT persistiert und ist NICHT `actual_end` — eine nachträglich
+  gebuchte Stunde nach dem fachlichen Abschluss verlängert `actual_end` nicht.
 - **Progress** = deprecatet (Abschnitt 3).
 
 ### 5.2 Plan-FTE & Planstunden
@@ -1115,7 +1147,13 @@ keine HR-Integration.**
   /jira/lookup-account?query=`).
 - Mapping Ticket → Projekt: `projects.jira_component` (Component/Label), auf Projekt- statt
   Teilprojekt-/Phasenebene.
-- Sync: `POST /jira/sync` (manuell auslösbar, kein periodischer Scheduler).
+- Sync: automatisch alle 15 Minuten im Hintergrund (P20.5, `app/scheduler.py`, Abschnitt
+  16.31) für alle Projekte mit gesetzter `jira_component` — `POST /jira/sync` bleibt als
+  manueller "Jetzt aktualisieren"-Sonderfall bestehen, ist aber seither KEINE Voraussetzung
+  mehr für aktuelle Ist-Daten. Beide Pfade laufen über dieselbe Orchestrierung
+  (`jira_sync.sync_project_and_refresh`). Sync-Freshness je Projekt: `GET
+  /jira/sync-status/{project_id}` (`last_success_at`/`last_error`, ein Fehler löscht nie
+  einen vorherigen Erfolg).
 - Umrechnung: `Ist_FTE(Monat) = Summe_Stunden / (Wochenstunden_MA × Arbeitswochen_Monat)`,
   `Arbeitswochen_Monat ≈ 52/12`.
 
@@ -1143,12 +1181,40 @@ implementiert** (P20.4, `app/worklog_actuals.py` + `phase_metrics_calc.py`, Absc
 `PhaseMetricsOut.ist_hours`/`effort_consumption_pct`/`remaining_plan_hours`/`overrun_hours`
 liefern jetzt reale Werte für Leaf-Phasen mit `jira_label` und rekursiv aggregiert für
 Parent-Phasen — `null` bleibt ausschließlich für Phasen ohne Mapping-Konfiguration (nie eine
-Datumsheuristik oder ein Fake-Ist). **Workspace-UX implementiert** (P20.5, Abschnitt 16.23):
-Label-Picker mit Mapping-Preview im Übersicht-Tab, "Steuerung"-Karte im Kapazität-Tab.
-**Personen-Drilldown/Planned-vs-Actual implementiert** (P20.6, Abschnitt 16.24). **Projekt-
-Coverage-Anzeige implementiert** (P20.7, `ProjectJiraTab.tsx`, Abschnitt 16.25). **BD-1 ist
-damit vollständig geschlossen** — es bleibt keine offene fachliche Frage zu Tempo/Jira→
-PlanPhase-Mapping mehr.
+Datumsheuristik oder ein Fake-Ist). **Plan-vs-Actual-Workspace-UX implementiert**
+(erste P20-Welle, Abschnitt 16.23): Label-Picker mit Mapping-Preview im Übersicht-Tab,
+"Steuerung"-Karte im Kapazität-Tab — später um Personen-Drilldown/Planned-vs-Actual
+(Abschnitt 16.24) und Projekt-Coverage-Anzeige (`ProjectJiraTab.tsx`, Abschnitt 16.25)
+ergänzt. **BD-1 ist damit vollständig geschlossen** — es bleibt keine offene fachliche Frage
+zu Tempo/Jira→PlanPhase-Mapping mehr.
+
+⚠️ **Numerierungshinweis:** Die Projekthistorie verwendet "P20.1"–"P20.8" zweimal für zwei
+fachlich unterschiedliche Arbeitspakete (siehe `git log`) — eine erste Welle innerhalb von
+[`P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md`](P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md)
+(BD-1A–G, schließt mit P20.8) und eine zweite, spätere Welle mit eigenen Reports
+(`P20.1_PLANPHASE_SIMPLIFICATION_REPORT.md` … `P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md`).
+Das vorliegende Paket — Capacity Scope, Start Commitment, Terminsteuerung, automatischer
+Jira/Tempo-Sync — trägt ebenfalls die Nummer **P20.5**
+([`P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md`](P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md)) und
+ist ein DRITTES, chronologisch nach P20.8/P20.4 der zweiten Welle folgendes Arbeitspaket —
+NICHT identisch mit der ersten Welle "P20.5: Plan-vs-Actual Workspace UX". Ab hier bezeichnet
+"P20.5" im CONCEPT.md ausschließlich dieses neueste Paket; die ältere, gleichnamige erste
+Welle wird oben bewusst ohne Nummer ("Plan-vs-Actual-Workspace-UX") referenziert, um die
+Kollision nicht in den Fließtext zu tragen.
+
+**Capacity Scope, Start Commitment & Auto-Sync implementiert** (P20.5, Abschnitt 16.31):
+`PhaseMetricsOut.ist_hours` (Plan-vs-Ist einer PlanPhase) zählt seither NUR Worklogs
+kapazitätsplanbarer lokaler Personen ("Capacity Actual", `worklog_actuals.
+leaf_capacity_ist_hours`/`parent_capacity_ist_hours`) statt jedes MATCHED-Worklogs wie zuvor
+— Project/Jira Total Actual (`leaf_ist_hours`/`parent_ist_hours`, `jira_sync.
+berechne_ist_fte`, `actuals_coverage.py`) bleibt davon unverändert. Zusätzlich: automatischer
+15-Minuten-Sync (`app/scheduler.py`), `actual_start`/`actual_end` vollständig
+system-abgeleitet (kein Eingabefeld mehr), automatisches, immutables Start Commitment
+(`commitment_start`/`commitment_end`/`commitment_plan_fte`) als Referenz für
+Terminabweichungen in Arbeitstagen. Details siehe Abschnitt 16.31, drei getrennte
+Dimensionen: Jira-Label/Override (WELCHE Phase) · Worklog-Datum (WANN, nur für
+before/within/after-Klassifikation und Actual-Ableitung, NIE für das Mapping) · Person-Mapping
+(GEHÖRT der Aufwand zum Capacity Scope).
 
 Konfiguration über `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`; ohne diese bleibt der
 Sync deaktiviert (`GET /jira/status`), die übrige Planung funktioniert unabhängig davon.
@@ -1263,7 +1329,7 @@ Navigations-Gruppierung, keine Zugriffskontrolle (kein Rollen-/Login-System im R
 | Kommunikation | Diskussionen, Aufgaben, Entscheidungen, Risiken, Meetingprotokolle (projektweit; phasenbezogene Sicht siehe Planung-Tab-Drawer) |
 | Dokumente | Zentrale Dokumentenablage des gesamten Projekts, Suche/Filter, "Verwendet in"-Backlinks |
 | Historie | **Zentrale** Project History: automatischer, unveränderlicher Audit Trail fachlich relevanter Änderungen, nach Datum/Revision (`batch_id`) gruppiert, View-Filter Alle/Planung/Kapazität/Team/Zusammenarbeit |
-| Jira | Sync-Status, Ist-FTE-Tabelle, "Jetzt synchronisieren", seit P20.7 zusätzlich eine "Ist-Zuordnung zu PlanPhasen"-Karte (projektweite Mapping Coverage, P20.3) |
+| Jira | Sync-Status (seit P20.5: "Stand: ..."/"vor X Minuten", automatischer 15-Minuten-Sync läuft im Hintergrund), Ist-FTE-Tabelle, "Jetzt aktualisieren" (optionaler Sonderfall, keine Voraussetzung mehr), seit P20.7 zusätzlich eine "Ist-Zuordnung zu PlanPhasen"-Karte (projektweite Mapping Coverage, P20.3) |
 | Einstellungen | **Projektstammdaten** (Name/Kunde/Startmonat/Anzahl Monate, mit Grund-/Batch-Speichern-Workflow), Projektparameter (Status/Projektleiter), Projektteam/Berechtigungen, Jira-Verknüpfung. **Nicht** hier: PlanPhase-Planung, Kapazitätsplanung, Assignments, Tag-Verwendung, Kommentare/Tasks/Blocker/Milestones — das bleibt Planungsarbeit im Planung-Tab. Nachvollziehbarkeit liegt im Tab Historie. |
 
 ### Planung-Tab im Detail
@@ -1302,13 +1368,25 @@ Datenmodell-Ansicht wirkt:
      den geplanten Aufwand ist die Steuerung-Karte darunter (Planstunden) bzw. der
      Kapazität-Tab (Plan-FTE, dort seit P20.1 einzige primäre Bearbeitungsstelle).
   2. **Steuerung** (ersetzt die vormalige "Kennzahlen"-Card): Geplanter Aufwand
-     (`metrics.plan_hours`, optional kleine FTE-Zeile darunter), **"Zeit verstrichen"**
-     (`time_progress_pct` — bewusst nicht mehr "Zeitfortschritt", siehe Abschnitt 16.30) als
-     Balken + Prozent, Ist-Aufwand (oder "Noch nicht eindeutig zugeordnet"), bei vorhandenem
-     Ist zusätzlich "Aufwand verbraucht" (`effort_consumption_pct`) als Balken + Prozent —
-     Zeit- und Aufwandsbalken sind bewusst gleich gestylt, um sie direkt vergleichbar zu
-     machen, **ohne** daraus eine Ampel/Bewertung abzuleiten (BD-3 bleibt separat offen).
-     Darunter optional Restlicher Planaufwand/Überverbrauch. Das `jira_label`-Mapping ist
+     (`metrics.plan_hours`, optional kleine FTE-Zeile darunter). Seit P20.5, sobald ein Start
+     Commitment existiert: **"Bei Phasenstart geplant"** (`commitment_start`–`commitment_end`)
+     zusätzlich zum weiterhin oben editierbaren aktuellen Plan (nur gezeigt, wenn beide
+     voneinander abweichen). **"Zeit verstrichen"** (`time_progress_pct` — bewusst nicht mehr
+     "Zeitfortschritt", siehe Abschnitt 16.30) als Balken + Prozent. **"Ist-Aufwand
+     Beraterteam"** (Capacity Actual, `metrics.ist_hours`, oder "Noch nicht eindeutig
+     zugeordnet") — zählt seit P20.5 NUR kapazitätsplanbare lokale Personen (Abschnitt 16.31),
+     bei vorhandenem Ist zusätzlich "Aufwand verbraucht" (`effort_consumption_pct`) als Balken
+     + Prozent — Zeit- und Aufwandsbalken sind bewusst gleich gestylt, um sie direkt
+     vergleichbar zu machen, **ohne** daraus eine Ampel/Bewertung abzuleiten (BD-3 bleibt
+     separat offen). Darunter optional Restlicher Planaufwand/Überverbrauch, seit P20.5
+     zusätzlich (nur bei > 0 h) eine Transparenz-Zeile "Weitere Jira-Aufwände: X h außerhalb
+     Kapazitätsscope" (`time_control.outside_scope`) sowie die before/within/after-
+     Aufschlüsselung derselben Ist-Stunden (`time_control.breakdown`). Seit P20.5 folgt ein
+     **ZEIT-Block** (nur sichtbar, sobald `actual_start`/`last_activity_date`/`actual_end`
+     vorhanden sind): Tatsächlich gestartet, Letzte Aktivität (solange nicht abgeschlossen)
+     bzw. Abgeschlossen, Endabweichung in Arbeitstagen (`time_control.schedule_variance`) bzw.
+     "Ursprünglicher Termin überschritten" für eine noch laufende, überfällige Phase — reine
+     Terminabweichung, keine Ampel (Abschnitt 16.31). Das `jira_label`-Mapping ist
      **keine permanent sichtbare Eingabestelle mehr** (nur auf Leaf-Phasen relevant): eine
      kleine sekundäre Aktion ("Ist-Zuordnung konfigurieren", bzw. "Ist-Zuordnung
      anzeigen/ausblenden" sobald ein Label gesetzt ist) klappt das Freitext+Datalist-Feld für
@@ -1330,9 +1408,11 @@ Datenmodell-Ansicht wirkt:
   Header zeigt weiterhin seit P19 den vollen Breadcrumb-Pfad von der Wurzel bis zur aktuellen
   Phase (klickbare Vorfahren, wechselt die im Drawer offene Phase ohne den Drawer zu
   schließen). **Seit P20.1 entfernt** (6.16): die permanente "Seit Planstand VX geändert"-Zeile
-  und die "Tatsächlicher Verlauf"-Karte (Gestartet/Abgeschlossen/"Ist-Daten korrigieren") —
-  `actual_start`/`actual_end` bleiben in DB/API aus Compat-Gründen bestehen, sind aber kein
-  Bestandteil des normalen Workspace mehr. Seit P20.3 gibt es im normalen Produkt überhaupt
+  und die manuelle "Tatsächlicher Verlauf"-Karte (Gestartet/Abgeschlossen/"Ist-Daten
+  korrigieren") — diese Karte kommt auch mit P20.5 NICHT zurück (Abschnitt 16.31: Actual-Daten
+  entstehen vollständig automatisch, keine manuelle Korrektur-UI). `actual_start`/`actual_end`
+  sind seit P20.5 kein reines Compat-Feld mehr, sondern system-gepflegt und im ZEIT-Block der
+  Steuerung-Karte sichtbar (siehe oben). Seit P20.3 gibt es im normalen Produkt überhaupt
   kein Planstand-Userkonzept mehr (Abschnitt 5.3) — Nachvollziehbarkeit ausschließlich über
   den Tab Historie. Technische Feldnamen (`forecast_start`, `jira_label`, `mapping_source`,
   `ResourceDemand`, …) erscheinen nirgends in der normalen Übersicht-UI (Auftrag Abschnitt 27).
@@ -1443,12 +1523,16 @@ Planstunden, Personenbesetzung oder Available Capacity.
 | Phasen-Termine ("Plan") | `PlanPhase.forecast_start/end` | Planung-Tab → Drawer "Übersicht" | — | aktuell (UI zeigt technischen Begriff "forecast" nicht) |
 | Project History | `PlanHistory` | automatisch bei Domain-Änderung; gelesen im Tab Historie | Source-of-Truth-Felder (Alt/Neu, gebündelt über `batch_id`) | aktuell (P20.3) |
 | Planstand (Legacy/Compat) | `BaselineSnapshot`/`BaselineEntry` | nicht im normalen Userflow; APIs `/baselines` bleiben | Snapshot von PlanPhase/Milestone-Feldern zum Zeitpunkt X | **Legacy/Compatibility seit P20.3** — kein Userkonzept mehr; `PlanPhase.baseline_start/end` bleiben compat-only |
-| Tatsächlicher Verlauf | `PlanPhase.actual_start/end` | nirgends im normalen Workspace (Feld bleibt in DB/API, P20.1 entfernte die UI-Karte) | — | Compat-only seit P20.1 (Abschnitt 6.16) — P20 Tempo/Jira ist der relevantere Ist-Begriff |
+| Tatsächlicher Verlauf (`actual_start`/`actual_end`) | `PlanPhase.actual_start/end`, system-abgeleitet | nirgends manuell editierbar (kein Eingabefeld, keine Korrektur-UI); read-only im ZEIT-Block der Steuerung-Karte | `actual_start` = erstes Capacity-Worklog (`worklog_actuals.refresh_actual_start`); `actual_end` = Statuswechsel nach "abgeschlossen" (`routers/planning.py._apply_status_transition_side_effects`) | **IMPLEMENTIERT (P20.5, Abschnitt 16.31)** — vollständig system-abgeleitet, kein Compat-Feld mehr |
+| Start Commitment | `PlanPhase.commitment_start/end/plan_fte` | nirgends manuell editierbar | Kopie des aktuellen Plans beim ersten fachlichen Beginn-Ereignis (erster Capacity-Worklog ODER erster Statuswechsel aus "geplant"), danach immutable | **IMPLEMENTIERT (P20.5, Abschnitt 16.31)** — Referenz für Terminabweichungen, kein manueller Planstand |
+| Last Activity | berechnet (`worklog_actuals.leaf_last_activity_date`/`parent_last_activity_date`) | nicht editierbar, nicht persistiert | Datum des letzten Capacity-Worklogs | **IMPLEMENTIERT (P20.5, Abschnitt 16.31)** — bewusst NICHT `actual_end` |
+| Sync-Freshness | `JiraSyncStatus` (eine Zeile je Projekt) | nicht editierbar (Sync-Ergebnis) | `jira_sync.sync_project_and_refresh`, aufgerufen vom automatischen 15-Minuten-Scheduler UND vom manuellen Sync-Button | **IMPLEMENTIERT (P20.5, Abschnitt 16.31)** |
 | Plan-Aufwand | `PlanPhase.plan_fte` | Drawer "Kapazität" (seit P20.1 einzige primäre Bearbeitungsstelle, vorher zusätzlich im Übersicht-Tab editierbar) / Create-Modal | — | aktuell, führend |
 | Planstunden | berechnet (`phase_metrics_calc.plan_hours`) | nicht editierbar | `plan_fte` × Werktage × Wochenstunden/5; für Parent-Phasen seit P20.4 Summe der Leaf-Nachfahren-Planstunden (vorher fälschlich `None`, da `plan_fte`/Zeitraum einer Parent-Phase selbst immer `None` sind, Abschnitt 16.30) | aktuell |
 | Aufschlüsselung | `ResourceDemand` (mit `plan_phase_id`) | nur noch über Legacy-Endpunkte (`/resource-demands/...`), kein normaler UI-Pfad mehr | — | **Legacy/Compat seit P20.1** (Abschnitt 6.16) — keine operative Source of Truth mehr, optional, keine Sync-Pflicht zu `plan_fte` |
 | Besetzung | `ResourceAssignment` (seit P20.1 primär über `plan_phase_id`, ohne `ResourceDemand`-Adapter) | Drawer "Kapazität" | — | aktuell, führend (Abschnitt 6.16); `resource_demand_id` bleibt nullable Compat-Verweis für unmigrierte Alt-Zeilen |
-| Ist-Aufwand (Phase) | berechnet (`worklog_actuals.leaf_ist_hours`/`parent_ist_hours`) | nicht editierbar | Tempo/Jira via `worklog_resolver.resolve_project_issues` | **IMPLEMENTIERT (P20.4, Abschnitt 16.22), BD-1 CLOSED** — `PhaseMetricsOut.ist_hours` liefert reale Werte, `null` nur ohne Mapping-Konfiguration |
+| Ist-Aufwand (Phase) = Capacity Actual | berechnet (`worklog_actuals.leaf_capacity_ist_hours`/`parent_capacity_ist_hours`) | nicht editierbar | Tempo/Jira via `worklog_resolver.resolve_project_issues`, gefiltert auf kapazitätsplanbare lokale Personen (`Person.active` + `ResourceProfile.capacity_relevant`) | **IMPLEMENTIERT (P20.4, Abschnitt 16.22; Capacity-Scope-Filterung P20.5, Abschnitt 16.31), BD-1 CLOSED** — `PhaseMetricsOut.ist_hours` liefert reale Werte, `null` nur ohne Mapping-Konfiguration |
+| Ist-Aufwand (Phase) = Project/Jira Total Actual | berechnet (`worklog_actuals.leaf_ist_hours`/`parent_ist_hours`, unverändert seit P20.4) | nicht editierbar | Tempo/Jira via `worklog_resolver.resolve_project_issues`, ALLE Autoren (auch Developer/externe) | **IMPLEMENTIERT** — dient Project-/Jira-Controlling, NICHT Plan-vs-Ist einer PlanPhase (Abschnitt 16.31); "außerhalb Kapazitätsscope" (Differenz zur Zeile oben) transparent über `leaf_outside_scope_summary`/`parent_outside_scope_summary` |
 | Mapping Coverage | berechnet (`actuals_coverage.project_coverage`) | nicht editierbar | `GET /projects/{id}/actuals-coverage`, aus `jira_worklogs_cache` + Resolver | **IMPLEMENTIERT (P20.3, Abschnitt 16.21)** — reine Vertrauenskennzahl (Abschnitt 19 des P20-Dokuments), keine Health-Ampel; Projekt-Ist bleibt führend, wird nie aus Phasen zurückgerechnet |
 | Phase-Jira-Zuordnung | `PlanPhase.jira_label` | Drawer "Übersicht" → "Steuerung" → sekundäre Aktion "Ist-Zuordnung konfigurieren" (seit P20.4 einklappbar statt permanent sichtbar, siehe Abschnitt 16.30) | — | **IMPLEMENTIERT (P20.1)**, nur auf Leaf-Phasen, gleicher Lifecycle wie `plan_fte` |
 | Worklog-Metadaten-Cache | `jira_issue_cache` | nicht editierbar (Sync-Ergebnis) | Jira-Issue-Suche bei `POST /jira/sync` | **IMPLEMENTIERT (P20.1)** |
@@ -1512,8 +1596,11 @@ Werktage-Logik ableitbar, keine offene Frage.
   destruktives API-/Tabellen-Drop ist ein späterer Cleanup, Abschnitt 16.29)
 - Gantt Drag&Drop/Resize als Planungsworkflow
 - Milestones im Gantt darstellen
-- Automatisches Setzen von `actual_start`/`actual_end` bei Statuswechsel (geprüft, bewusst
-  zurückgestellt — Risiko unkontrollierten Überschreibens bestehender Ist-Daten)
+- ~~Automatisches Setzen von `actual_start`/`actual_end` bei Statuswechsel~~ — **implementiert
+  mit P20.5** (Abschnitt 16.31): `actual_start` selbstkorrigierend aus Capacity-Worklogs,
+  `actual_end` beim Statuswechsel nach "abgeschlossen" — das ursprüngliche Überschreibungs-
+  Risiko ist entschärft, da Statuswechsel/Sync die einzigen Schreibpfade sind (kein manuelles
+  Feld, das kollidieren könnte).
 - Tag-Merge (Duplikate zusammenführen)
 - `ResourceAssignment`-Sub-Ranges (BD-5)
 - `allocation_gap`-Vorzeichenkonvention vereinheitlichen (BD-6)
@@ -3430,6 +3517,165 @@ UX-Ausbau (Abschnitt 5.6) — P20.4 erweitert bewusst nicht den Scope.
 **Ergebnis:** Der Übersicht-Tab beantwortet jetzt WAS/WANN/WO STEHEN WIR/WAS IST WICHTIG, ohne
 technische Feldnamen im Vordergrund. Volles Detail:
 [`P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md`](P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md).
+
+---
+
+### 16.31 P20.5 — Phase Actuals, Time Control & Automatic Jira/Tempo Sync (dieser Durchgang)
+
+**Auftrag:** kein neuer Domain-Umbau — P18/P19/P20/P20.1–P20.4 (zweite Welle) bleiben fachlich
+bestehen, PLAN bleibt `PlanPhase`, WIE VIEL bleibt `plan_fte`/Planstunden, WER bleibt direkte
+`ResourceAssignment`s, Ist-Datenquelle bleibt Jira/Tempo, History bleibt automatisch. Volles
+Detail: [`P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md`](P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md).
+Drei Ausgangsprobleme: (1) `PhaseMetricsOut.ist_hours` zählte JEDEN MATCHED-Worklog, auch von
+Developern/externen Beteiligten ohne Bezug zum Kapazitätsplaner — Plan-vs-Ist einer Phase
+konnte damit >1000 % Aufwandsverbrauch zeigen, obwohl das kapazitätsplanbare Team weit unter
+Plan lag. (2) Jira/Tempo-Sync war ausschließlich manuell (`POST /jira/sync`), keine
+Voraussetzung für aktuelle Daten war garantiert. (3) `actual_start`/`actual_end` waren zwar im
+Schema vorhanden, aber weder befüllt noch mit einer stabilen Planreferenz verglichen — echte
+Terminabweichungen ("wie weit hat sich diese Phase verschoben?") waren nicht ableitbar.
+
+**Audit (vor Implementierung):** `worklog_actuals.py`/`phase_metrics_calc.py` (P20.4) lieferten
+bereits Resolver-basiertes Phase-Ist, aber ungefiltert nach Autor. `Person.active` +
+`ResourceProfile.capacity_relevant` existierten bereits als etablierter "kapazitätsplanbare
+Person"-Filter (`capacity_calc.compute_available_capacity`, `routers/planning.py.
+list_plan_phase_assignment_candidates`, `routers/capacity.py`) — wiederverwendet statt neu
+erfunden (Abschnitt 3 des Auftrags). `PlanPhase.actual_start/end` existierten als Spalten,
+waren aber Teil von `PlanPhaseCreate`/`PlanPhaseUpdate` (manuell beschreibbar, aber in der UI
+nicht mehr exponiert seit P20.1 — siehe Abschnitt 16.16/16.29/16.30). Kein Scheduler-Framework
+im Repo (`requirements.txt` geprüft — kein Celery/APScheduler/RQ). `_plan_phase_detail()` baute
+bislang einen zweiten, separat gepflegten Feldsatz statt `_plan_phase_out()` wiederzuverwenden
+— ein Bug-Klasse-Risiko, das während dieses Durchgangs tatsächlich auftrat (neue
+`PlanPhaseOut`-Felder landeten zunächst mit ihrem Pydantic-Default `None` in
+`PlanPhaseDetail`, weil die Detail-Funktion sie nicht kannte) und strukturell behoben wurde
+(siehe unten).
+
+**Umsetzung (additiv, keine zweite Capacity-/History-/Kalender-Engine):**
+
+- **Capacity Scope** (`worklog_actuals.capacity_planbare_accounts`): `jira_account_id` →
+  `Person.id` für `Person.active` + `ResourceProfile.capacity_relevant` (derselbe etablierte
+  Filter wie oben). `capacity_rows_by_matched_phase()`/`outside_scope_rows_by_matched_phase()`
+  liefern dieselben MATCHED-Resolver-Zeilen wie zuvor, aufgeteilt in Capacity-Scope und
+  außerhalb. Neue Funktionsfamilie `leaf_capacity_ist_hours`/`parent_capacity_ist_hours`/
+  `person_capacity_hours_for_phase`/`leaf_outside_scope_summary`/`parent_outside_scope_summary`/
+  `classify_leaf_capacity_hours`/`parent_classify_capacity_hours`/
+  `leaf_first_capacity_worklog_date`/`leaf_last_activity_date`/`parent_last_activity_date` —
+  **die bestehenden `leaf_ist_hours`/`parent_ist_hours`/`person_hours_by_matched_phase`/
+  `person_hours_for_phase`/`hours_by_issue` bleiben unverändert** (Project/Jira Total Actual,
+  weiterhin Quelle für `jira_sync.berechne_ist_fte`/`actuals_coverage.py` — Abschnitt 12 des
+  Auftrags: "Keine Worklogs verschwinden lassen").
+- **`routers/planning.py._plan_phase_metrics`**: `ist` kommt jetzt aus
+  `leaf_capacity_ist_hours`/`parent_capacity_ist_hours` statt `leaf_ist_hours`/
+  `parent_ist_hours` — Plan-vs-Ist einer PlanPhase ist damit Capacity Actual, nicht mehr
+  Project/Jira Total Actual. `get_plan_phase_person_actuals` (P20.6) nutzt entsprechend
+  `person_capacity_hours_for_phase`/`leaf_capacity_ist_hours` — jede kapazitätsplanbare Person
+  mit Capacity-Worklog erscheint im primären Drilldown, unabhängig von einem
+  `ResourceAssignment` (Abschnitt 4 des Auftrags: Assignment bestimmt nur planned/unplanned,
+  nie ob Stunden zählen), zusätzlich neues Feld `outside_scope` (Stunden + Autorenzahl,
+  `PhaseOutsideScopeOut`).
+- **Start Commitment** (`worklog_actuals.maybe_capture_commitment`): neue, nullable Spalten
+  `PlanPhase.commitment_start/end/plan_fte/commitment_captured_at` (Migration
+  `0009_p20_5_phase_actuals`, Revision-ID bewusst < 32 Zeichen — siehe P20.2-Lektion,
+  Abschnitt 16.28). Einmalig eingefroren beim ERSTEN fachlichen Beginn-Ereignis: entweder
+  erster relevanter Capacity-Worklog (`worklog_actuals.refresh_actual_start`, aufgerufen aus
+  `jira_sync.sync_project_and_refresh` nach jedem Sync) ODER erster Statuswechsel aus
+  "geplant" in "laufend"/"abgeschlossen" (`routers/planning.py.
+  _apply_status_transition_side_effects`, aufgerufen aus `create_plan_phase`/
+  `update_plan_phase`), je nachdem was zuerst geschieht — danach immutable (No-Op bei
+  erneutem Aufruf). Parent-Phasen bekommen kein eigenes Commitment, sondern
+  `planning_calc.derive_parent_commitment_bounds` (MIN/MAX über Leaf-Commitments, analog
+  `derive_parent_bounds`).
+- **`actual_start`/`actual_end` vollständig system-abgeleitet**: aus
+  `PlanPhaseCreate`/`PlanPhaseUpdate` entfernt (kein Eingabefeld mehr). `actual_start` = Datum
+  des ersten Capacity-Worklogs, selbstkorrigierend NUR nach früher (nie nach später) bei
+  nachträglich importierten/rückdatierten Worklogs. `actual_end` = Zeitpunkt des
+  Statuswechsels NACH "abgeschlossen" (heutiges Datum) — Reopen (Statuswechsel WEG von
+  "abgeschlossen") setzt `actual_end` wieder auf `NULL`; History dokumentiert den
+  Statuswechsel selbst bereits automatisch (`status` ist getrackt), keine gesonderte
+  History-Zeile für `actual_end`/Commitment (Abschnitt 50 — kein Sync-/System-Rauschen in
+  `PlanHistory`). `last_activity_date` (letzter Capacity-Worklog) wird bewusst NICHT
+  persistiert, sondern live berechnet — und ist NICHT `actual_end` (Abschnitt 19: eine
+  Nachbuchung nach Abschluss verlängert `actual_end` nicht).
+- **Zeitraum-Klassifikation** (`classify_leaf_capacity_hours`/`parent_classify_capacity_hours`):
+  before/within/after gegen den Referenzzeitraum (bevorzugt Commitment, sonst aktueller Plan)
+  — reine Aufschlüsselung derselben Ist-Summe, KEINE Kappung (Worklogs vor/nach dem
+  Planzeitraum bleiben Teil von `ist_hours`, Abschnitt 7/34).
+- **Terminabweichungen** (`phase_metrics_calc.workday_delta`/`duration_workdays`/
+  `schedule_variance`/`workdays_overdue`, rein funktional, keine DB-/Uhrzeit-Zugriffe):
+  Arbeitstage wiederverwendet `capacity_calc.count_weekdays_in_range` (keine neue
+  Kalenderengine, Abschnitt 28/60). `start_delay_workdays`/`end_delay_workdays` (Commitment →
+  Actual) und `plan_shift_workdays` (Commitment → aktueller Plan, unabhängig vom
+  tatsächlichen Abschluss) getrennt gehalten (Abschnitt 29-31) — KEINE Ampel/Bewertung.
+- **Neuer Endpoint** `GET /projects/plan-phases/{id}/time-control`
+  (`schemas.PhaseTimeControlOut`: `last_activity_date`, `breakdown`, `outside_scope`,
+  `schedule_variance`) — additiv in `PlanPhaseDetail.time_control` eingebettet (analog
+  `metrics`), damit der Drawer ihn ohne separaten Round-Trip erhält.
+- **Automatischer Sync** (`app/scheduler.py`): kein neues Scheduler-Framework (Repo hat keins,
+  Abschnitt 13) — ein `asyncio`-Loop, gestartet über FastAPI-`startup`-Event, ruft
+  `jira_sync.sync_project_and_refresh()` alle 15 Minuten (konfigurierbar über
+  `JIRA_AUTOSYNC_INTERVAL_SECONDS`, abschaltbar über `JIRA_AUTOSYNC_ENABLED`) für alle
+  Projekte mit gesetzter `jira_component` auf. `sync_project_and_refresh()` kapselt
+  `jira_sync.sync_project()` (unverändert) + `worklog_actuals.refresh_actual_start()` +
+  Sync-Status-Tracking (neue Tabelle `jira_sync_status`, eine Zeile je Projekt:
+  `last_attempt_at`/`last_success_at`/`last_error`/`last_error_at`) — fehlerisoliert pro
+  Projekt (`try/except` je Projekt im Scheduler-Loop UND in `sync_project_and_refresh` selbst),
+  ein fehlschlagendes Projekt A stoppt Projekt B nie; ein späterer Fehler löscht nie einen
+  vorherigen `last_success_at`. Der manuelle "Jetzt aktualisieren"-Button (`POST /jira/sync`,
+  `routers/jira.py`) läuft über dieselbe Orchestrierung — kein zweiter, abweichender
+  Code-Pfad. Neuer Endpoint `GET /jira/sync-status/{project_id}`
+  (`schemas.JiraSyncStatusOut`).
+- **`_plan_phase_detail()`-Refactor:** baut den Basis-Feldsatz jetzt aus
+  `_plan_phase_out(db, p).model_dump()` statt ihn ein zweites Mal Feld für Feld zu
+  duplizieren — struktureller Fix des oben unter "Audit" beschriebenen Bugs (neue
+  `PlanPhaseOut`-Felder landen dadurch automatisch auch in `PlanPhaseDetail`, ohne dass diese
+  Funktion angepasst werden muss).
+- **Frontend** (`PlanPhaseWorkspace.tsx`): Steuerung-Karte um "Bei Phasenstart geplant"
+  (nur bei abweichendem aktuellem Plan zusätzlich dessen Zeitraum), "Ist-Aufwand
+  Beraterteam" (umbenannt von "Ist-Aufwand", macht die Capacity-Scope-Bedeutung explizit),
+  "Weitere Jira-Aufwände: X h außerhalb Kapazitätsscope" (nur bei > 0 h), before/within/after-
+  Zeile und einen ZEIT-Block (Tatsächlich gestartet/Letzte Aktivität/Abgeschlossen/
+  Endabweichung/"Ursprünglicher Termin überschritten") ergänzt — **keine** Rückkehr der in
+  P20.1 entfernten manuellen "Tatsächlicher Verlauf"-Karte (Abschnitt 41 des Auftrags).
+  `ProjectJiraTab.tsx`: Sync-Freshness-Zeile ("Stand: … (vor X Minuten)", Fehlerzustand ohne
+  Löschen bestehender Werte, Hinweis auf aktiven Auto-Sync), Button-Copy "Jetzt
+  synchronisieren" → "Jetzt aktualisieren" (Sonderfall, keine Voraussetzung mehr).
+  `actual_start`/`actual_end` aus den Create/Update-Payload-Typen entfernt (`api/client.ts`).
+
+**Nicht Teil dieses Durchgangs** (Auftrag Abschnitt 60): Health-Ampeln, neue Forecast-/
+Burn-Rate-Engine, Personio, RBAC, neue Monatsplanung, Gantt Drag&Drop, manuelle Planstände/
+Baseline-UX, neue ResourceRole-Planung, automatische Assignment-Korrektur. Ist-FTE (P20.5
+Auftrag Abschnitt 49): Fokus bleibt Planstunden vs. Ist-Stunden auf Phasenebene, keine neue
+FTE-Kennzahl.
+
+**Tests:** `test_p20_5_capacity_scope.py` (Developer-Ausfilterung 75 % statt 300 %,
+Project/Jira Total unverändert, Unplanned Consultant zählt, Outside-Scope-Transparenz,
+before/within/after ohne Kappung), `test_p20_5_commitment_and_variance.py` (Commitment-
+Erfassung bei erstem Worklog/Statuswechsel, Immutabilität, `actual_end` NUR über
+Statuswechsel, Reopen, Nachbuchung nach Abschluss, Abschluss ohne Worklog, PlanHistory für
+Planänderungen), `test_p20_5_autosync.py` (Scheduler-Zyklus, Fehlerisolation, Sync-Status
+ohne Löschen bestehender Erfolge, manueller Sync == Scheduler-Pfad) — alle drei zusätzlich
+gegen eine echte lokale PostgreSQL-16-Instanz verifiziert (`KAPA_TEST_DB_URL`-Override), dazu
+acht der bestehenden Regressionsskripte erneut gegen PostgreSQL (Delete-Stabilization,
+Capacity-Consumer-Rewiring, Regression Recovery, Project History, Jira Phase Mapping,
+Person-Actuals, Phase-Actual-Metrics, Planning-Phase-Tree) — keine Abweichung zu SQLite.
+Migration `0009_p20_5_phase_actuals` gegen `check_migrations.py` (Kette/Drift/Seeds/Roundtrip)
+UND direkt gegen PostgreSQL verifiziert. Volle Playwright-Browser-Journey (Projekt → Phase →
+Steuerung → Worklogs → Capacity Actual 50 h bei 240 h Project/Jira Total → Developer-Ausschluss
+sichtbar als Outside-Scope → Status "Abgeschlossen" → ZEIT-Block/Endabweichung) — Screenshots
+und Konsole fehlerfrei, siehe `P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md` Abschnitt 25.
+`test_p20_phase_actual_metrics.py`/`test_p20_person_actuals.py` (P20.4/P20.6-Regressionen)
+wurden um `ResourceProfile`/`capacity_relevant` für ihre Test-Personen ergänzt (sonst hätten
+sie mit der neuen Capacity-Scope-Filterung `0 h` statt der zuvor erwarteten Werte geliefert —
+korrekt, da diese Fixtures zuvor implizit von der jetzt bewusst geänderten "jeder Jira-Autor
+zählt"-Semantik profitiert hatten) und decken zusätzlich den P20.5-Fall "unbekannter Account
+landet in `outside_scope`, nicht mehr in `persons`" ab.
+
+**Ergebnis:** Plan-vs-Ist einer PlanPhase beantwortet jetzt "wie viel hat unser
+kapazitätsplanbares Team verbraucht?", nicht mehr "wie viele Jira-Stunden existieren
+insgesamt?". Jira/Tempo-Sync läuft automatisch, ohne dass ein manueller Klick Voraussetzung
+für aktuelle Daten ist. Drei Terminebenen sind gleichzeitig sichtbar und sauber getrennt: was
+bei Phasenstart geplant war (Commitment), was heute geplant ist (aktueller Plan), was
+tatsächlich passiert ist (Actual) — ohne dass der Benutzer Planstände, Actual-Datumsfelder
+oder manuelle Syncs pflegen muss.
 
 ---
 

@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from . import jira_client, models, tempo_client
+from . import jira_client, models, tempo_client, worklog_actuals
 from .constants import ARBEITSWOCHEN_PRO_MONAT, MONAT_NAMEN
 
 # Rückblickzeitraum für den Sync: reicht für die üblichen Projektlaufzeiten (siehe anzahl_monate).
@@ -132,6 +132,57 @@ def sync_project(db: Session, project: models.Project) -> tuple[int, int, list[d
         unzugeordnet,
         [{"account_id": aid, "display_name": name} for aid, name in unbekannte_beispiele.items()],
     )
+
+
+def sync_project_and_refresh(db: Session, project: models.Project) -> dict:
+    """P20.5 (Sync-Orchestrierung, siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt
+    8/9/13-18): kapselt sync_project() zusammen mit Sync-Status-Tracking (JiraSyncStatus) und
+    der automatischen actual_start-/Start-Commitment-Ableitung (worklog_actuals.
+    refresh_actual_start) - von beiden Aufrufstellen genutzt, die Worklogs synchronisieren:
+    dem manuellen "Jetzt aktualisieren"-Button (routers/jira.py) und dem zyklischen
+    Background-Scheduler (scheduler.py, alle 15 Minuten). Fehlerisoliert (Abschnitt 16): eine
+    Exception dieses EINEN Projekts wird abgefangen, in JiraSyncStatus vermerkt und als
+    "error" im Rückgabewert gemeldet, statt den gesamten Sync-Lauf (mehrere Projekte im
+    Scheduler) abzubrechen - vorhandene Ist-Werte bleiben bei einem Fehler unangetastet, kein
+    stilles Nullen (Abschnitt 15).
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    status = db.get(models.JiraSyncStatus, project.id)
+    if status is None:
+        status = models.JiraSyncStatus(project_id=project.id)
+        db.add(status)
+    status.last_attempt_at = now
+    try:
+        gespeichert, unzugeordnet, unbekannte = sync_project(db, project)
+        worklog_actuals.refresh_actual_start(db, project.id, now)
+        status = db.get(models.JiraSyncStatus, project.id) or status
+        status.last_attempt_at = now
+        status.last_success_at = now
+        status.last_error = None
+        status.last_error_at = None
+        db.commit()
+        return {
+            "worklogs_synced": gespeichert,
+            "unzugeordnete_buchungen": unzugeordnet,
+            "unbekannte_beispiele": unbekannte,
+            "error": None,
+        }
+    except Exception as exc:  # noqa: BLE001 - ein Projekt darf den Sync-Lauf nicht abbrechen (Abschnitt 16)
+        db.rollback()
+        status = db.get(models.JiraSyncStatus, project.id)
+        if status is None:
+            status = models.JiraSyncStatus(project_id=project.id)
+            db.add(status)
+        status.last_attempt_at = now
+        status.last_error = str(exc)[:1000]
+        status.last_error_at = now
+        db.commit()
+        return {
+            "worklogs_synced": 0,
+            "unzugeordnete_buchungen": 0,
+            "unbekannte_beispiele": [],
+            "error": str(exc),
+        }
 
 
 def berechne_ist_fte(db: Session, project: models.Project) -> dict[str, float]:

@@ -61,10 +61,18 @@ def _create_phase(project_id: int, **kwargs) -> dict:
 
 
 def _create_person(display_name: str, jira_account_id: str) -> int:
+    """P20.5: eine über /people angelegte Person ist noch NICHT automatisch
+    kapazitätsplanbar (kein ResourceProfile) - für den Personen-Drilldown (Capacity Actual)
+    wird hier zusätzlich ein ResourceProfile mit capacity_relevant=True angelegt, sonst
+    zählen ihre Worklogs seit P20.5 nur noch als "außerhalb Kapazitätsscope"."""
     resp = client.post("/people", json={"display_name": display_name, "jira_account_id": jira_account_id})
     if resp.status_code != 201:
         _fail("Person anlegen", f"{resp.status_code}: {resp.text}")
-    return resp.json()["id"]
+    person_id = resp.json()["id"]
+    resp = client.post(f"/people/{person_id}/resource-profile", json={"weekly_hours": 40, "capacity_relevant": True})
+    if resp.status_code != 201:
+        _fail("ResourceProfile anlegen", f"{resp.status_code}: {resp.text}")
+    return person_id
 
 
 def _add_worklog(project_id: int, issue_key: str, account_id: str, datum: str, stunden: float) -> None:
@@ -177,17 +185,25 @@ def main() -> None:
     if hours_by_name != {"Dominik": 20, "Max": 10}:  # 15+5 zusammengeführt, keine getrennten Zeilen
         _fail("Parent Personen-Stunden (zusammengeführt über Kinder)", str(data))
 
-    print("6/6  Unbekannter Jira-Account -> Account-ID als Anzeigename, planned=False ...")
+    print("6/6  P20.5 — Unbekannter Jira-Account: NICHT im primären Drilldown, sondern outside_scope ...")
+    # Abschnitt 3/9: ein Jira-Autor ohne kapazitätsplanbare lokale Person zählt nicht zum
+    # Capacity Actual - seine Stunden bleiben sichtbar, aber getrennt (outside_scope), nicht
+    # länger als reguläre Zeile in `persons` (das wäre vor P20.5 der Fall gewesen).
     _add_worklog(project_id, "WMX-200", "acc-unbekannt", "2026-10-13", 4)
     data = _get_person_actuals(parent["id"])
     unknown = next((p for p in data["persons"] if p["jira_account_id"] == "acc-unbekannt"), None)
-    if unknown is None or unknown["display_name"] != "acc-unbekannt" or unknown["planned"] is not False or unknown["person_id"] is not None:
-        _fail("Unbekannter Account", str(unknown))
+    if unknown is not None:
+        _fail("Unbekannter Account sollte NICHT in persons erscheinen (P20.5 Capacity Scope)", str(unknown))
+    if data["ist_hours"] != 30:
+        _fail("ist_hours darf durch den unbekannten Account nicht verändert werden", str(data))
+    if data["outside_scope"] is None or data["outside_scope"]["hours"] != 4 or data["outside_scope"]["author_count"] != 1:
+        _fail("outside_scope sollte 4h/1 Autor zeigen", str(data))
 
     print(
-        "OK — P20.6: Personen-Drilldown (AT1: 32/20/8=60h), Planned-vs-Actual (AT8: Anna "
+        "OK — P20.6/P20.5: Personen-Drilldown (AT1: 32/20/8=60h), Planned-vs-Actual (AT8: Anna "
         "nicht eingeplant, Lisa eingeplant ohne Ist), Unplanned Actual Hours, Kein-Mapping-"
-        "Zustand, Parent-Aggregation über Personen hinweg und unbekannte Accounts "
+        "Zustand, Parent-Aggregation über Personen hinweg und Capacity-Scope-Filterung "
+        "(unbekannte Accounts landen in outside_scope, nicht mehr im primären Drilldown) "
         "funktionieren wie spezifiziert."
     )
 

@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import db_bootstrap
+from . import db_bootstrap, scheduler
 from .routers import baselines, capacity, communication, controlling, documents, export, gap, gap_engine, health, jira, knowledge, kpis, people, planning, projects, real_capacity, team  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,20 @@ app.include_router(real_capacity.router)
 app.include_router(gap_engine.router)
 app.include_router(health.router)
 app.include_router(controlling.router)
+
+
+@app.on_event("startup")
+def _start_jira_autosync() -> None:
+    """P20.5 (Abschnitt 13): zyklischer Background-Sync statt eines rein manuellen Buttons -
+    siehe scheduler.py für die Begründung, warum kein neues Scheduler-Framework eingeführt
+    wird. Startet nur den In-Process-Loop, der eigene DB-Sessions öffnet - kein zusätzlicher
+    Prozess, kein externer Broker."""
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+def _stop_jira_autosync() -> None:
+    scheduler.stop()
 
 
 @app.get("/health")

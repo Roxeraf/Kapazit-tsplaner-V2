@@ -10,7 +10,7 @@ hier nehmen ist_hours nur als bereits berechneten Wert entgegen (P20.4, BD-1 CLO
 P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 16)."""
 
 import calendar
-from datetime import date
+from datetime import date, timedelta
 
 from .capacity_calc import count_weekdays_in_range
 from .constants import MONAT_NAMEN, VOLLZEIT_WOCHENSTUNDEN
@@ -137,3 +137,72 @@ def overrun_hours(ist_hours: float | None, plan_hours: float | None) -> float | 
     if ist_hours is None or plan_hours is None:
         return None
     return round(max(ist_hours - plan_hours, 0), 2)
+
+
+# ---------------------------------------------------------------------------
+# P20.5 - Terminsteuerung (Start Commitment vs. Current Plan vs. Actual, siehe
+# P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 28-32). Reine Datumsarithmetik, keine
+# DB-/Uhrzeit-Zugriffe hier - der Aufrufer (routers/planning.py) übergibt bereits ermittelte
+# ISO-Datumsstrings (inkl. "heute"). Arbeitstage wiederverwendet ausschließlich die bestehende
+# capacity_calc.count_weekdays_in_range (Auftrag Abschnitt 28/60: "keine neue Kalenderengine").
+# ---------------------------------------------------------------------------
+
+
+def workday_delta(earlier: str | None, later: str | None) -> int | None:
+    """Signierte Arbeitstage zwischen zwei ISO-Daten (P20.5, Abschnitt 28). Positiv, wenn
+    `later` NACH `earlier` liegt (Verspätung/Verschiebung nach hinten), negativ wenn `later`
+    VOR `earlier` liegt, 0 bei Gleichheit. None, wenn eines der beiden Daten fehlt oder
+    ungültig ist - kein erfundener Nullwert bei fehlender Referenz."""
+    a = parse_date(earlier)
+    b = parse_date(later)
+    if a is None or b is None:
+        return None
+    if b == a:
+        return 0
+    if b > a:
+        return count_weekdays_in_range(a + timedelta(days=1), b)
+    return -count_weekdays_in_range(b + timedelta(days=1), a)
+
+
+def duration_workdays(start: str | None, end: str | None) -> int | None:
+    """Arbeitstage zwischen zwei ISO-Daten inkl. beider Endpunkte (P20.5, Abschnitt 32) -
+    dieselbe Mon-Fri-Konvention wie plan_hours() oben. None bei fehlendem/ungültigem Zeitraum
+    (end < start)."""
+    s = parse_date(start)
+    e = parse_date(end)
+    if s is None or e is None or e < s:
+        return None
+    return count_weekdays_in_range(s, e)
+
+
+def schedule_variance(
+    commitment_start: str | None,
+    commitment_end: str | None,
+    current_end: str | None,
+    actual_start: str | None,
+    actual_end: str | None,
+) -> dict:
+    """Terminabweichungen in Arbeitstagen (P20.5, Abschnitt 28/31): `start_delay_workdays` =
+    actual_start - commitment_start (positiv = später gestartet als bei Phasenbeginn
+    geplant). `end_delay_workdays` = actual_end - commitment_end (nur befüllt, sobald die
+    Phase tatsächlich abgeschlossen ist - actual_end gesetzt). `plan_shift_workdays` =
+    current_end - commitment_end (Abschnitt 31 - wie weit hat sich der AKTUELLE Plan bereits
+    vom Start-Commitment entfernt, unabhängig vom tatsächlichen Abschluss). Jeder Wert bleibt
+    None, wenn seine Eingaben fehlen (kein Commitment/keine Actuals) statt einer erfundenen 0."""
+    return {
+        "start_delay_workdays": workday_delta(commitment_start, actual_start),
+        "end_delay_workdays": workday_delta(commitment_end, actual_end),
+        "plan_shift_workdays": workday_delta(commitment_end, current_end),
+    }
+
+
+def workdays_overdue(commitment_end: str | None, today: str, actual_end: str | None) -> int | None:
+    """Arbeitstage, die "heute" bereits über commitment_end liegt, solange die Phase noch
+    nicht abgeschlossen ist (P20.5, Abschnitt 30) - KEINE Ampel/Bewertung, reine
+    Terminabweichung (Abschnitt 30, letzter Satz: "Das ist KEINE Health-Ampel"). None, wenn
+    die Phase bereits abgeschlossen ist (actual_end gesetzt), kein commitment_end existiert,
+    oder heute noch nicht über commitment_end hinaus ist."""
+    if actual_end is not None or commitment_end is None:
+        return None
+    delta = workday_delta(commitment_end, today)
+    return delta if delta is not None and delta > 0 else None

@@ -502,8 +502,11 @@ class PlanPhaseCreate(BaseModel):
     baseline_end: str | None = None
     forecast_start: str | None = None
     forecast_end: str | None = None
-    actual_start: str | None = None
-    actual_end: str | None = None
+    # P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 10/11/41): actual_start/
+    # actual_end sind seit diesem Paket KEIN Eingabefeld mehr - werden ausschließlich
+    # systemseitig aus Worklogs bzw. dem Status-Übergang nach "abgeschlossen" abgeleitet
+    # (siehe models.PlanPhase-Docstring, routers/planning.py). Keine manuelle "Tatsächlicher
+    # Verlauf"-Karte (Abschnitt 41).
     status: str = "geplant"  # Zielvokabular: geplant/laufend/abgeschlossen/entfaellt (siehe models.PlanPhase.status)
     progress: float | None = None
     plan_fte: float | None = None
@@ -526,8 +529,7 @@ class PlanPhaseUpdate(BaseModel):
     baseline_end: str | None = None
     forecast_start: str | None = None
     forecast_end: str | None = None
-    actual_start: str | None = None
-    actual_end: str | None = None
+    # P20.5: actual_start/actual_end kein Eingabefeld mehr, siehe PlanPhaseCreate oben.
     status: str | None = None
     # Deprecated (P6/P11): bleibt im Schema aus Rückwärtskompatibilität, wird von
     # update_plan_phase() aber ignoriert (siehe routers/planning.py) - kein Update-Pfad soll
@@ -553,6 +555,14 @@ class PlanPhaseOut(BaseModel):
     forecast_end: str | None
     actual_start: str | None
     actual_end: str | None
+    # P20.5 (Start Commitment, siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 13/25-
+    # 27): einmalig automatisch eingefrorene Planreferenz beim tatsächlichen Phasenbeginn -
+    # system-gepflegt, kein Eingabefeld (siehe PlanPhaseCreate/PlanPhaseUpdate). None, solange
+    # die Phase noch nicht tatsächlich begonnen hat.
+    commitment_start: str | None = None
+    commitment_end: str | None = None
+    commitment_plan_fte: float | None = None
+    commitment_captured_at: str | None = None
     status: str
     progress: float | None
     plan_fte: float | None
@@ -572,6 +582,14 @@ class PlanPhaseOut(BaseModel):
     derived_forecast_start: str | None = None
     derived_forecast_end: str | None = None
     derived_capacity: float | None = None
+    # P20.5 (Abschnitt 35/36): analog zu derived_forecast_*, nur für Parent-Phasen befüllt -
+    # aus den Leaf-Commitments/-Actuals abgeleitet (planning_calc.derive_parent_commitment_
+    # bounds/derive_parent_actual_start/derive_parent_actual_end), kein eigenes Parent-
+    # Commitment-System.
+    derived_commitment_start: str | None = None
+    derived_commitment_end: str | None = None
+    derived_actual_start: str | None = None
+    derived_actual_end: str | None = None
 
 
 class JiraMatchPreviewOut(BaseModel):
@@ -1331,6 +1349,23 @@ class JiraSyncResult(BaseModel):
     ergebnisse: list[JiraSyncResultItem]
 
 
+class JiraSyncStatusOut(BaseModel):
+    """P20.5 (Sync-Freshness, siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 15):
+    zeigt der UI, wie aktuell die Ist-Daten eines Projekts sind - sowohl vom manuellen Sync
+    als auch vom automatischen Background-Sync gepflegt (jira_sync.sync_project_and_refresh).
+    `last_success_at` bleibt bei einem Fehler unverändert stehen (Abschnitt 15: "bestehende
+    Ist-Werte NICHT löschen") - `last_error`/`last_error_at` zeigen zusätzlich einen
+    aktuellen Fehlerzustand an, ohne last_success_at zu überschreiben. Alle Felder None, wenn
+    noch nie synchronisiert wurde (weder manuell noch automatisch)."""
+
+    project_id: int
+    last_attempt_at: str | None
+    last_success_at: str | None
+    last_error: str | None
+    last_error_at: str | None
+    autosync_enabled: bool
+
+
 class JiraProjectOut(BaseModel):
     key: str
     name: str
@@ -1654,6 +1689,51 @@ class PhaseMetricsOut(BaseModel):
     reconciliation: ReconciliationOut
 
 
+class PhaseWorklogBreakdownOut(BaseModel):
+    """P20.5 (Zeitraum-Aufschlüsselung, siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md
+    Abschnitt 6/8/39): dieselben Capacity-Ist-Worklogs wie PhaseMetricsOut.ist_hours, nur nach
+    Datum gegen den Referenzzeitraum (bevorzugt Start Commitment, sonst aktueller Plan)
+    aufgeschlüsselt - before_hours + within_hours + after_hours == ist_hours."""
+
+    before_hours: float
+    within_hours: float
+    after_hours: float
+
+
+class PhaseOutsideScopeOut(BaseModel):
+    """P20.5 (Abschnitt 9): Transparenz-Zahl für MATCHED-Worklogs von Autoren OHNE
+    kapazitätsplanbare lokale Person - NICHT Bestandteil von Plan-vs-Ist."""
+
+    hours: float
+    author_count: int
+
+
+class PhaseScheduleVarianceOut(BaseModel):
+    """P20.5 (Terminabweichungen, siehe Abschnitt 28-32): alle Werte in Arbeitstagen
+    (phase_metrics_calc.workday_delta/duration_workdays), positiv = später/länger als die
+    Referenz. None, wenn die jeweils nötigen Eingaben (Commitment/Actuals) fehlen."""
+
+    start_delay_workdays: int | None
+    end_delay_workdays: int | None
+    plan_shift_workdays: int | None
+    workdays_overdue: int | None
+    planned_duration_workdays: int | None
+    actual_duration_workdays: int | None
+    duration_variance_workdays: int | None
+
+
+class PhaseTimeControlOut(BaseModel):
+    """P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 37/38): bündelt die
+    Terminsteuerungs-Kennzahlen einer PlanPhase (Leaf oder Parent, aggregiert) zusätzlich zu
+    PhaseMetricsOut - getrennt gehalten, da PhaseMetricsOut bereits vor P20.5 bestand und
+    reine Aufwandskennzahlen liefert (BD-1), während dies hier die Zeitdimension liefert."""
+
+    last_activity_date: str | None
+    breakdown: PhaseWorklogBreakdownOut | None
+    outside_scope: PhaseOutsideScopeOut | None
+    schedule_variance: PhaseScheduleVarianceOut
+
+
 class PlanPhaseAssignedPersonOut(BaseModel):
     # Eine Zeile je Person (über alle ResourceDemands dieser Phase aggregiert - Abschnitt
     # 6b.10), nicht je ResourceAssignment-Datensatz.
@@ -1692,6 +1772,9 @@ class PlanPhasePersonActualsOut(BaseModel):
     # (Auftrag Abschnitt 25: "Max, eingeplant, bisher kein Ist") - keine automatische
     # Änderung der Ressourcenplanung, reine Anzeige.
     planned_without_actual: list[PlanPhaseAssignedPersonOut]
+    # P20.5 (Abschnitt 9/10): sekundäre Transparenz-Sektion "Jira-Aufwand außerhalb
+    # Kapazitätsscope" - None ohne jira_label-Konfiguration (analog ist_hours).
+    outside_scope: PhaseOutsideScopeOut | None = None
 
 
 class PlanPhaseAssignmentSummaryOut(BaseModel):
@@ -1725,6 +1808,9 @@ class PlanPhaseDetail(PlanPhaseOut):
     # keine Nachfahren-Milestones).
     milestones: list[MilestoneOut] = []
     metrics: PhaseMetricsOut
+    # P20.5 (Abschnitt 37/38): Terminsteuerungs-Kennzahlen, additiv zu metrics (siehe
+    # PhaseTimeControlOut-Docstring).
+    time_control: PhaseTimeControlOut
     # P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI (B-6). Leer bei einer Leaf.
     children: list[PlanPhaseOut] = []
     # P19.2 (Kapazität-Tab Round-Trip-Reduktion): dieselbe Bedarf/Besetzt/Offen-Auswertung wie

@@ -268,6 +268,24 @@ class JiraProjectCatalog(Base):
     status: Mapped[str] = mapped_column(String(20), default="aktiv")  # aktiv/on_hold/beendet
 
 
+class JiraSyncStatus(Base):
+    """P20.5 (Sync-Status, siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 8/9):
+    eine Zeile je Projekt, gepflegt von jira_sync.sync_project_and_refresh() - sowohl vom
+    manuellen Sync-Button als auch vom zyklischen Background-Scheduler (scheduler.py), damit
+    die UI erkennen kann, wie aktuell die Ist-Daten sind, ohne dass ein Sync-Fehler
+    vorhandene Ist-Werte löscht (last_success_at bleibt bei einem Fehler unverändert stehen -
+    nur last_error/last_error_at werden aktualisiert). Bewusst getrennt von PlanHistory: ein
+    Sync-Lauf ist kein User-/Domain-Change (Abschnitt 50), sondern reiner Betriebsstatus."""
+
+    __tablename__ = "jira_sync_status"
+
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    last_attempt_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_success_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    last_error_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
 class GapSnapshot(Base):
     """Berechnete Soll-Ist-Gap-Werte inkl. Hochrechnung (Phase 3), historisiert."""
 
@@ -626,8 +644,29 @@ class PlanPhase(Base):
     baseline_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
     forecast_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
     forecast_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # P20.5 (Actual Start/End, siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 10/11):
+    # seit diesem Paket NICHT mehr Bestandteil von PlanPhaseCreate/PlanPhaseUpdate (kein
+    # manuelles Datumsfeld mehr) - werden ausschließlich systemseitig gepflegt.
+    # actual_start = Datum des ersten Capacity-Worklogs (worklog_actuals.refresh_actual_start,
+    # aufgerufen aus jira_sync.sync_project_and_refresh) - selbstkorrigierend bei nachtraeglich
+    # importierten/rueckdatierten Worklogs (nur frueher, nie spaeter). actual_end = Zeitpunkt
+    # des fachlichen Abschlusses (status -> "abgeschlossen", siehe routers/planning.py
+    # update_plan_phase) - NIE aus dem letzten Worklog abgeleitet (das waere last_activity_date,
+    # siehe worklog_actuals.last_activity_date - bewusst nicht persistiert, da jederzeit billig
+    # aus dem Worklog-Cache ableitbar). Reopen (Status weg von "abgeschlossen") setzt
+    # actual_end wieder auf NULL (Abschnitt 11.3).
     actual_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
     actual_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # P20.5 (Start Commitment, Abschnitt 13): einmalig automatisch eingefrorene Planreferenz
+    # ("was war geplant, als die Phase tatsächlich begann?") - siehe
+    # routers/planning.py._maybe_capture_commitment. Immutable nach Erstbefüllung (Abschnitt
+    # 13.3) - spätere Planänderungen (forecast_start/forecast_end) überschreiben diese Felder
+    # nie. Muss persistiert werden (nicht aus PlanHistory rekonstruierbar, siehe Auftrag
+    # Abschnitt 42) - nullable, da nicht jede Phase bereits begonnen hat.
+    commitment_start: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    commitment_end: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    commitment_plan_fte: Mapped[float | None] = mapped_column(Float, nullable=True)
+    commitment_captured_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # Zielvokabular (P11, Planungs-/Kapazitätskonsolidierung, UI-Label siehe
     # PLAN_PHASE_STATUS_LABELS): geplant/laufend/abgeschlossen/entfaellt (UI: Geplant/In
     # Arbeit/Abgeschlossen/Entfällt). "verzoegert" bleibt als historischer Wert lesbar

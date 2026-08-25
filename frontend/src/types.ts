@@ -71,6 +71,18 @@ export interface JiraStatus {
   hinweis: string;
 }
 
+// P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 15) - Sync-Freshness eines
+// Projekts, sowohl vom manuellen als auch vom automatischen Background-Sync gepflegt.
+// last_success_at bleibt bei einem Fehler unverändert stehen (keine gelöschten Ist-Werte).
+export interface JiraSyncStatus {
+  project_id: number;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
+  last_error_at: string | null;
+  autosync_enabled: boolean;
+}
+
 export interface JiraUnknownAuthor {
   account_id: string;
   display_name: string;
@@ -649,8 +661,19 @@ export interface PlanPhase {
   baseline_end: string | null;
   forecast_start: string | null;
   forecast_end: string | null;
+  // P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 10/11/41): system-
+  // gepflegt, kein Eingabefeld mehr - actual_start = erster Capacity-Worklog (selbst-
+  // korrigierend), actual_end = Zeitpunkt des Statuswechsels nach "abgeschlossen" (NIE aus
+  // dem letzten Worklog abgeleitet).
   actual_start: string | null;
   actual_end: string | null;
+  // P20.5 (Start Commitment, Abschnitt 13/25-27): einmalig automatisch eingefrorene
+  // Planreferenz beim tatsächlichen Phasenbeginn - immutable danach. null, solange die Phase
+  // noch nicht tatsächlich begonnen hat.
+  commitment_start: string | null;
+  commitment_end: string | null;
+  commitment_plan_fte: number | null;
+  commitment_captured_at: string | null;
   status: PlanPhaseStatus;
   progress: number | null;
   plan_fte: number | null;
@@ -670,6 +693,12 @@ export interface PlanPhase {
   derived_forecast_start: string | null;
   derived_forecast_end: string | null;
   derived_capacity: number | null;
+  // P20.5 (Abschnitt 35/36): analog, für Parent-Phasen aus den Leaf-Commitments/-Actuals
+  // abgeleitet - kein eigenes Parent-Commitment-System.
+  derived_commitment_start: string | null;
+  derived_commitment_end: string | null;
+  derived_actual_start: string | null;
+  derived_actual_end: string | null;
 }
 
 // Phase 26.10: PlanPhase Workspace (P3-Endpoints, backend/app/routers/planning.py +
@@ -726,12 +755,49 @@ export interface PersonActual {
   planned: boolean;
 }
 
+// P20.5 (Abschnitt 9) - Transparenz-Zahl für MATCHED-Worklogs von Autoren OHNE
+// kapazitätsplanbare lokale Person. NICHT Bestandteil von Plan-vs-Ist.
+export interface PhaseOutsideScope {
+  hours: number;
+  author_count: number;
+}
+
 export interface PlanPhasePersonActuals {
   plan_phase_id: number;
   ist_hours: number | null;
   persons: PersonActual[];
   unplanned_actual_hours: number | null;
   planned_without_actual: PlanPhaseAssignedPerson[];
+  outside_scope: PhaseOutsideScope | null;
+}
+
+// P20.5 (Zeitraum-Aufschlüsselung, Abschnitt 6/8/39) - dieselben Capacity-Ist-Worklogs wie
+// PhaseMetricsOut.ist_hours, nach Datum gegen den Referenzzeitraum aufgeschlüsselt.
+export interface PhaseWorklogBreakdown {
+  before_hours: number;
+  within_hours: number;
+  after_hours: number;
+}
+
+// P20.5 (Terminabweichungen, Abschnitt 28-32) - alle Werte in Arbeitstagen, positiv =
+// später/länger als die Referenz. null, wenn die nötigen Eingaben fehlen.
+export interface PhaseScheduleVariance {
+  start_delay_workdays: number | null;
+  end_delay_workdays: number | null;
+  plan_shift_workdays: number | null;
+  workdays_overdue: number | null;
+  planned_duration_workdays: number | null;
+  actual_duration_workdays: number | null;
+  duration_variance_workdays: number | null;
+}
+
+// P20.5 (siehe P20_5_PHASE_ACTUALS_AND_TIME_CONTROL.md Abschnitt 37/38) - Terminsteuerungs-
+// Kennzahlen einer PlanPhase, additiv zu PhaseMetricsOut.
+export interface PhaseTimeControl {
+  last_activity_date: string | null;
+  breakdown: PhaseWorklogBreakdown | null;
+  outside_scope: PhaseOutsideScope | null;
+  schedule_variance: PhaseScheduleVariance;
 }
 
 export interface PlanPhaseDetail extends PlanPhase {
@@ -744,6 +810,8 @@ export interface PlanPhaseDetail extends PlanPhase {
   // sie ohne zusätzlichen Round-Trip anzeigen kann. Nicht rekursiv (nur diese Phase selbst).
   milestones: Milestone[];
   metrics: PhaseMetricsOut;
+  // P20.5 (Abschnitt 37/38): Terminsteuerungs-Kennzahlen, additiv zu metrics.
+  time_control: PhaseTimeControl;
   // P18/B-3: direkte Kinder (nicht rekursiv) - für die Baum-UI.
   children: PlanPhase[];
   // P19.2 (Kapazität-Tab Round-Trip-Reduktion): dieselbe Bedarf/Besetzt/Offen-Auswertung wie

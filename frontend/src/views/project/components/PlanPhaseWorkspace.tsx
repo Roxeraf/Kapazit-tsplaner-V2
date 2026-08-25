@@ -54,6 +54,26 @@ function fmtDate(iso: string | null): string {
   return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+// P20.5 (Terminabweichungen, Auftrag Abschnitt 28-32): Arbeitstage vorzeichenbehaftet
+// anzeigen ("+3 Arbeitstage" / "-2 Arbeitstage") - `signed=false` für Kontexte, die den Wert
+// bereits als reinen Überschreitungsbetrag führen (z.B. "Termin überschritten: 3 Arbeitstage").
+function fmtWorkdays(days: number, signed = true): string {
+  const label = `${Math.abs(days)} Arbeitstag${Math.abs(days) === 1 ? "" : "e"}`;
+  if (!signed) return label;
+  return days > 0 ? `+${label}` : days < 0 ? `-${label}` : "±0 Arbeitstage";
+}
+
+// P20.5 (Steuerung-Karte ZEIT-Block, Auftrag Abschnitt 37/38): einfache Label/Wert-Zeile,
+// analog zu den bestehenden Zeilen in dieser Karte, aber ohne Balken.
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{label}</div>
+      <div style={{ fontSize: "0.9rem" }}>{value}</div>
+    </div>
+  );
+}
+
 // P20.4 (Steuerung-Karte, Auftrag Abschnitt 9/12): rein visueller Vergleichsbalken für
 // Zeit verstrichen / Aufwand verbraucht - KEINE Ampel/Bewertung (Farbe ist immer neutral
 // "var(--blau)"), nur die Länge macht die beiden Werte auf einen Blick vergleichbar. `pct`
@@ -220,6 +240,16 @@ export default function PlanPhaseWorkspace({
   // Nur gerendert, wenn tatsächlich mindestens ein Vorfahre existiert (sonst wäre der
   // Breadcrumb identisch mit der bereits sichtbaren Überschrift).
   const breadcrumbChain = detail ? ancestorChain(allPhases, detail.id) : [];
+
+  // P20.5 (Abschnitt 29/35/37): Parent-Phasen führen keine eigenen Commitment-/Actual-Felder
+  // (immer null), sondern nur die aus den Leaf-Nachfahren abgeleiteten derived_*-Varianten.
+  const timeControl = detail?.time_control ?? null;
+  const commitmentStart = detail ? (detail.has_children ? detail.derived_commitment_start : detail.commitment_start) : null;
+  const commitmentEnd = detail ? (detail.has_children ? detail.derived_commitment_end : detail.commitment_end) : null;
+  const currentStart = detail ? (detail.has_children ? detail.derived_forecast_start : detail.forecast_start) : null;
+  const currentEnd = detail ? (detail.has_children ? detail.derived_forecast_end : detail.forecast_end) : null;
+  const actualStart = detail ? (detail.has_children ? detail.derived_actual_start : detail.actual_start) : null;
+  const actualEnd = detail ? (detail.has_children ? detail.derived_actual_end : detail.actual_end) : null;
 
   return (
     <div
@@ -409,13 +439,30 @@ export default function PlanPhaseWorkspace({
                 )}
               </div>
 
+              {/* P20.5 (Abschnitt 29/37): Start-Referenz vs. aktueller Plan - nur sichtbar,
+                  sobald die Phase tatsächlich begonnen hat (Commitment existiert). Der
+                  aktuelle Plan bleibt weiterhin oben im Übersicht-Feld editierbar. */}
+              {commitmentStart && (
+                <div>
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Bei Phasenstart geplant</div>
+                  <div style={{ fontSize: "0.9rem" }}>
+                    {fmtDate(commitmentStart)} – {fmtDate(commitmentEnd)}
+                  </div>
+                  {(commitmentStart !== currentStart || commitmentEnd !== currentEnd) && (
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                      Aktueller Plan: {fmtDate(currentStart)} – {fmtDate(currentEnd)}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Zeit verstrichen</div>
                 <Bar pct={detail.metrics.time_progress_pct} />
               </div>
 
               <div>
-                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Ist-Aufwand</div>
+                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Ist-Aufwand Beraterteam</div>
                 {detail.metrics.ist_hours == null ? (
                   <div style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>Noch nicht eindeutig zugeordnet</div>
                 ) : (
@@ -439,6 +486,59 @@ export default function PlanPhaseWorkspace({
               {detail.metrics.overrun_hours != null && detail.metrics.overrun_hours > 0 && (
                 <div style={{ color: "var(--rot)" }}>
                   <strong>Überverbrauch:</strong> {detail.metrics.overrun_hours} h
+                </div>
+              )}
+
+              {/* P20.5 (Abschnitt 9): Transparenz für Jira-/Tempo-Aufwände außerhalb des
+                  Kapazitätsscope (z.B. Developer) - NICHT Teil des Plan-vs-Ist oben. */}
+              {timeControl?.outside_scope != null && timeControl.outside_scope.hours > 0 && (
+                <div style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+                  Weitere Jira-Aufwände: {timeControl.outside_scope.hours} h außerhalb Kapazitätsscope
+                  {" · "}
+                  {timeControl.outside_scope.author_count} Jira-Autor{timeControl.outside_scope.author_count === 1 ? "" : "en"}
+                </div>
+              )}
+
+              {/* P20.5 (Abschnitt 6-8/39): before/within/after-Aufschlüsselung derselben
+                  Ist-Stunden, gegen die Start-Referenz (bzw. aktuellen Plan ohne Commitment). */}
+              {timeControl?.breakdown != null &&
+                (timeControl.breakdown.before_hours > 0 || timeControl.breakdown.after_hours > 0) && (
+                  <div style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+                    Davon vor geplantem Start: {timeControl.breakdown.before_hours} h · im geplanten Zeitraum:{" "}
+                    {timeControl.breakdown.within_hours} h · nach geplantem Ende: {timeControl.breakdown.after_hours} h
+                  </div>
+                )}
+
+              {/* P20.5 (Abschnitt 37/38): ZEIT-Block - actual_start/last_activity_date/
+                  actual_end sind system-abgeleitet, keine manuelle "Tatsächlicher
+                  Verlauf"-Card (Abschnitt 41). */}
+              {(actualStart || timeControl?.last_activity_date || actualEnd) && (
+                <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.5rem", display: "grid", gap: "0.4rem" }}>
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 600 }}>ZEIT</div>
+                  {actualStart && (
+                    <Row label="Tatsächlich gestartet" value={fmtDate(actualStart)} />
+                  )}
+                  {timeControl?.last_activity_date && !actualEnd && (
+                    <Row label="Letzte Aktivität" value={fmtDate(timeControl.last_activity_date)} />
+                  )}
+                  {actualEnd ? (
+                    <Row label="Abgeschlossen" value={fmtDate(actualEnd)} />
+                  ) : (
+                    <Row label="Status" value="In Arbeit" />
+                  )}
+                  {actualEnd && timeControl?.schedule_variance.end_delay_workdays != null && (
+                    <Row label="Endabweichung" value={fmtWorkdays(timeControl.schedule_variance.end_delay_workdays)} />
+                  )}
+                  {!actualEnd && timeControl?.schedule_variance.workdays_overdue != null && (
+                    <div style={{ fontSize: "0.82rem" }}>
+                      Ursprünglicher Termin überschritten: {fmtWorkdays(timeControl.schedule_variance.workdays_overdue, false)}
+                    </div>
+                  )}
+                  {!actualEnd && timeControl?.schedule_variance.plan_shift_workdays != null && timeControl.schedule_variance.plan_shift_workdays !== 0 && (
+                    <div style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+                      Planverschiebung ggü. Start-Referenz: {fmtWorkdays(timeControl.schedule_variance.plan_shift_workdays)}
+                    </div>
+                  )}
                 </div>
               )}
 

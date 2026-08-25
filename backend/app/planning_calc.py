@@ -96,3 +96,38 @@ def derive_parent_capacity(db: Session, plan_phase_id: int) -> float | None:
     leaves = leaf_descendants(db, plan_phase_id)
     values = [leaf.plan_fte for leaf in leaves if leaf.plan_fte is not None]
     return round(sum(values), 4) if values else None
+
+
+def derive_parent_commitment_bounds(db: Session, plan_phase_id: int) -> tuple[str | None, str | None]:
+    """P20.5 (Abschnitt 35/36): MIN(commitment_start)/MAX(commitment_end) über alle Leaf-
+    Nachfahren - kein eigenes, separat gepflegtes Parent-Commitment (Abschnitt 36: "kein
+    zweites manuell gepflegtes Parent-System"), rein aus den Leaf-Commitments abgeleitet,
+    analog zu derive_parent_bounds() für den aktuellen Plan. (None, None), wenn kein
+    Leaf-Nachfahre bereits ein Commitment hat (Phase/Teilbaum noch nicht begonnen)."""
+    leaves = leaf_descendants(db, plan_phase_id)
+    starts = [leaf.commitment_start for leaf in leaves if leaf.commitment_start]
+    ends = [leaf.commitment_end for leaf in leaves if leaf.commitment_end]
+    return (min(starts) if starts else None, max(ends) if ends else None)
+
+
+def derive_parent_actual_start(db: Session, plan_phase_id: int) -> str | None:
+    """P20.5 (Abschnitt 35): frühester actual_start aller Leaf-Nachfahren. None, wenn noch
+    kein Leaf-Nachfahre tatsächlich begonnen hat."""
+    leaves = leaf_descendants(db, plan_phase_id)
+    starts = [leaf.actual_start for leaf in leaves if leaf.actual_start]
+    return min(starts) if starts else None
+
+
+def derive_parent_actual_end(db: Session, plan_phase_id: int) -> str | None:
+    """P20.5 (Abschnitt 35): spätester tatsächlicher Abschluss aller Leaf-Nachfahren, ABER
+    NUR wenn ALLE relevanten (= mit gesetztem jira_label, also operativ konfigurierten)
+    Leaf-Nachfahren bereits abgeschlossen sind (actual_end gesetzt) - eine Parent-Phase gilt
+    nie als "fertig", solange auch nur eine ihrer Unterphasen noch offen ist. Leaf-Nachfahren
+    ohne jira_label (noch nicht konfiguriert) blockieren den Parent-Abschluss nicht, tragen
+    aber auch kein eigenes actual_end bei - "relevant" folgt hier bewusst derselben
+    jira_label-Konvention wie leaf_ist_hours()/leaf_capacity_ist_hours()."""
+    leaves = leaf_descendants(db, plan_phase_id)
+    relevant = [leaf for leaf in leaves if leaf.jira_label is not None]
+    if not relevant or any(leaf.actual_end is None for leaf in relevant):
+        return None
+    return max(leaf.actual_end for leaf in relevant)

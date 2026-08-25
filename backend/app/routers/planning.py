@@ -351,18 +351,35 @@ def _plan_phase_metrics(db: Session, p: models.PlanPhase) -> schemas.PhaseMetric
         .filter(models.ResourceDemand.plan_phase_id == p.id)
         .scalar()
     ) or 0.0
-    ph = phase_metrics_calc.plan_hours(p.plan_fte, p.forecast_start, p.forecast_end)
+    has_kids = planning_calc.has_children(db, p.id)
+    if has_kids:
+        # P20.4 (Parent-Übersicht, siehe P20_4_PLANPHASE_WORKSPACE_UX_REDIRECT.md Abschnitt 9):
+        # eine Parent-Phase trägt selbst nie forecast_start/forecast_end/plan_fte (immer None,
+        # Abschnitt 6b.1a) - Zeit verstrichen und Planstunden müssen deshalb wie
+        # derive_parent_capacity/parent_ist_hours aus den Leaf-Nachfahren abgeleitet werden,
+        # sonst wären beide Werte für jede Parent-Phase fälschlich None.
+        derived_start, derived_end = planning_calc.derive_parent_bounds(db, p.id)
+        time_progress_pct = phase_metrics_calc.time_progress(derived_start, derived_end)
+        leaf_hours = [
+            phase_metrics_calc.plan_hours(leaf.plan_fte, leaf.forecast_start, leaf.forecast_end)
+            for leaf in planning_calc.leaf_descendants(db, p.id)
+        ]
+        leaf_hours = [h for h in leaf_hours if h is not None]
+        ph = round(sum(leaf_hours), 2) if leaf_hours else None
+    else:
+        time_progress_pct = phase_metrics_calc.time_progress(p.forecast_start, p.forecast_end)
+        ph = phase_metrics_calc.plan_hours(p.plan_fte, p.forecast_start, p.forecast_end)
     recon = phase_metrics_calc.reconcile(p.plan_fte, breakdown_sum)
     # P20.4 (BD-1 CLOSED, siehe P20_PLANPHASE_ACTUALS_AND_PLAN_VS_ACTUAL.md Abschnitt 15/16):
     # Parent-Ist ist IMMER die rekursive Summe ihrer Leaf-Nachfahren, nie eine eigene Quelle
     # (analog planning_calc.derive_parent_capacity für plan_fte).
     ist = (
         worklog_actuals.parent_ist_hours(db, p.id)
-        if planning_calc.has_children(db, p.id)
+        if has_kids
         else worklog_actuals.leaf_ist_hours(db, p)
     )
     return schemas.PhaseMetricsOut(
-        time_progress_pct=phase_metrics_calc.time_progress(p.forecast_start, p.forecast_end),
+        time_progress_pct=time_progress_pct,
         plan_hours=ph,
         effort_consumption_pct=phase_metrics_calc.effort_consumption(ist, ph),
         ist_hours=ist,

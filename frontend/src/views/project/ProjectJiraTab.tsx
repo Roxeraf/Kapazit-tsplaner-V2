@@ -154,8 +154,8 @@ export default function ProjectJiraTab() {
           </div>
           <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.6rem 0 0" }}>
             Zuordnung erfolgt je Planphase über das Jira-Label (Drawer → Übersicht →
-            "Ist-Daten"). Diese Kennzahl bewertet nur die Vollständigkeit der Zuordnung, nicht
-            den Projektfortschritt.
+            "Steuerung" → "Ist-Zuordnung konfigurieren"). Diese Kennzahl bewertet nur die
+            Vollständigkeit der Zuordnung, nicht den Projektfortschritt.
           </p>
         </div>
       )}

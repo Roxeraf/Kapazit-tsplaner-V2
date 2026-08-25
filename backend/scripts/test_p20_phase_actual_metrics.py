@@ -15,6 +15,9 @@ Netzwerkzugriff in diesen Skripten):
    -> Parent ist_hours=60h, keine doppelte Speicherung/Zählung.
 5. Parent ohne jegliches gemapptes Kind liefert ist_hours=None (nicht 0.0), analog zu
    planning_calc.derive_parent_capacity für plan_fte.
+6. P20.4 (Parent-Übersicht): plan_hours und time_progress_pct einer Parent-Phase werden aus
+   den Leaf-Nachfahren abgeleitet (derive_parent_bounds/Summe der Leaf-Planstunden) statt aus
+   den stets-None eigenen forecast_start/forecast_end/plan_fte-Feldern der Parent-Phase.
 
 Aufruf: python backend/scripts/test_p20_phase_actual_metrics.py
 Exit-Code 0 bei Erfolg, sonst 1.
@@ -99,7 +102,7 @@ def _get_metrics(plan_phase_id: int) -> dict:
 
 
 def main() -> None:
-    print("1/5  AT1 — Happy Path: 80h Plan, 60h eindeutig gemappt -> 75% Verbrauch, 20h Rest ...")
+    print("1/6  AT1 — Happy Path: 80h Plan, 60h eindeutig gemappt -> 75% Verbrauch, 20h Rest ...")
     project_id = _create_project("Testprojekt P20.4")
     # 80h Plan: 0.5 FTE * 20 Werktage (Okt 2026) * 8h/Tag = 80h.
     phase = _create_phase(
@@ -127,7 +130,7 @@ def main() -> None:
     if metrics["overrun_hours"] != 0:
         _fail("AT1 overrun_hours", f"erwartet 0, bekam {metrics}")
 
-    print("2/5  Überverbrauch: 95h Ist bei 80h Plan -> 15h Overrun, Rest gekappt bei 0 ...")
+    print("2/6  Überverbrauch: 95h Ist bei 80h Plan -> 15h Overrun, Rest gekappt bei 0 ...")
     _add_worklog(project_id, "WMX-100", "acc-dominik", "2026-10-08", 35)  # 60 + 35 = 95h
     metrics = _get_metrics(phase["id"])
     if metrics["ist_hours"] != 95:
@@ -137,7 +140,7 @@ def main() -> None:
     if metrics["remaining_plan_hours"] != 0:
         _fail("Overrun remaining_plan_hours", f"erwartet 0 (gekappt, nicht negativ), bekam {metrics}")
 
-    print("3/5  AT7 — Kein Mapping: ist_hours ist None, nicht 0.0 ...")
+    print("3/6  AT7 — Kein Mapping: ist_hours ist None, nicht 0.0 ...")
     phase_unmapped = _create_phase(
         project_id, phase_type="Testing", plan_fte=0.2, forecast_start="2026-10-01", forecast_end="2026-10-28"
     )
@@ -149,7 +152,7 @@ def main() -> None:
     if metrics["remaining_plan_hours"] is not None or metrics["overrun_hours"] is not None:
         _fail("AT7 remaining/overrun", f"erwartet beide None, bekam {metrics}")
 
-    print("4/5  AT6 — Parent-Aggregation: Child 1 (20h) + Child 2 (40h) -> Parent 60h ...")
+    print("4/6  AT6 — Parent-Aggregation: Child 1 (20h) + Child 2 (40h) -> Parent 60h ...")
     parent = _create_phase(project_id, phase_type="Wareneingang")
     child1 = _create_phase(
         project_id, phase_type="Schnittstellen", parent_phase_id=parent["id"], jira_label="phase:schnittstellen"
@@ -171,17 +174,54 @@ def main() -> None:
     if metrics_parent["ist_hours"] != 60:
         _fail("AT6 Parent-Ist", f"erwartet 60 (20+40, keine doppelte Speicherung), bekam {metrics_parent}")
 
-    print("5/5  Parent ohne jegliches gemapptes Kind -> ist_hours None (nicht 0.0) ...")
+    print("5/6  Parent ohne jegliches gemapptes Kind -> ist_hours None (nicht 0.0) ...")
     empty_parent = _create_phase(project_id, phase_type="Leere Sammelphase")
     _create_phase(project_id, phase_type="Kind ohne Label", parent_phase_id=empty_parent["id"])
     metrics_empty_parent = _get_metrics(empty_parent["id"])
     if metrics_empty_parent["ist_hours"] is not None:
         _fail("Leerer Parent", f"erwartet None, bekam {metrics_empty_parent}")
 
+    print("6/6  P20.4 — Parent-Übersicht: plan_hours/time_progress_pct aus Leaf-Nachfahren ...")
+    # Child 1: 0.5 FTE * 20 Werktage (Okt 2026) * 8h/Tag = 80h. Child 2: 0.25 FTE * 20 * 8 = 40h.
+    parent2 = _create_phase(project_id, phase_type="Testphase")
+    _create_phase(
+        project_id,
+        phase_type="Integrationstest",
+        parent_phase_id=parent2["id"],
+        plan_fte=0.5,
+        forecast_start="2026-10-01",
+        forecast_end="2026-10-28",
+    )
+    _create_phase(
+        project_id,
+        phase_type="UAT",
+        parent_phase_id=parent2["id"],
+        plan_fte=0.25,
+        forecast_start="2026-10-15",
+        forecast_end="2026-11-11",
+    )
+    metrics_parent2 = _get_metrics(parent2["id"])
+    if metrics_parent2["plan_hours"] != 120:
+        _fail("P20.4 Parent plan_hours", f"erwartet 120 (80+40, Summe Leaf-Planstunden), bekam {metrics_parent2}")
+    if metrics_parent2["time_progress_pct"] is None:
+        _fail(
+            "P20.4 Parent time_progress_pct",
+            f"erwartet einen Wert (abgeleiteter Parent-Zeitraum 01.10.–11.11.2026), bekam {metrics_parent2}",
+        )
+
+    empty_parent2 = _create_phase(project_id, phase_type="Leere Sammelphase 2")
+    _create_phase(project_id, phase_type="Kind ohne Zeitraum/FTE", parent_phase_id=empty_parent2["id"])
+    metrics_empty_parent2 = _get_metrics(empty_parent2["id"])
+    if metrics_empty_parent2["plan_hours"] is not None:
+        _fail("P20.4 Parent plan_hours (leer)", f"erwartet None, bekam {metrics_empty_parent2}")
+    if metrics_empty_parent2["time_progress_pct"] is not None:
+        _fail("P20.4 Parent time_progress_pct (leer)", f"erwartet None, bekam {metrics_empty_parent2}")
+
     print(
         "OK — P20.4: AT1 (Happy Path 75%/20h Rest), Überverbrauch (15h Overrun, Rest gekappt), "
-        "AT7 (kein Mapping -> None statt 0h), AT6 (Parent-Aggregation 20h+40h=60h) und leerer "
-        "Parent (None) funktionieren wie spezifiziert."
+        "AT7 (kein Mapping -> None statt 0h), AT6 (Parent-Aggregation 20h+40h=60h), leerer "
+        "Parent (None) und Parent-Übersicht (plan_hours/time_progress_pct aus Leaf-Nachfahren "
+        "abgeleitet) funktionieren wie spezifiziert."
     )
 
 
